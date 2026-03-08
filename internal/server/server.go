@@ -11,6 +11,7 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/pluginctx"
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 )
 
@@ -27,6 +28,9 @@ func New(version string, manager *plugin.Manager) *mcpserver.MCPServer {
 	for _, manifest := range manager.Manifests() {
 		registerPluginTools(srv, manager, manifest)
 	}
+
+	// Register context files as MCP resources
+	registerContextResources(srv, manager)
 
 	// Built-in management tools
 	registerManagementTools(srv, manager)
@@ -116,6 +120,36 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
 			return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
 		},
 	)
+}
+
+func registerContextResources(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
+	for _, manifest := range mgr.Manifests() {
+		for _, ctxFile := range manifest.ContextFiles {
+			uri := pluginctx.ResourceURI(manifest.Name, ctxFile)
+			dir := manifest.Dir
+			file := ctxFile
+
+			srv.AddResource(
+				mcp.NewResource(uri, manifest.Name+" context: "+file,
+					mcp.WithResourceDescription(fmt.Sprintf("Context instructions for %s plugin", manifest.Name)),
+					mcp.WithMIMEType("text/markdown"),
+				),
+				func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+					content, err := pluginctx.LoadFile(dir, file)
+					if err != nil {
+						return nil, err
+					}
+					return []mcp.ResourceContents{
+						mcp.TextResourceContents{
+							URI:      uri,
+							MIMEType: "text/markdown",
+							Text:     content,
+						},
+					}, nil
+				},
+			)
+		}
+	}
 }
 
 // isPluginError checks if the error is a protocol.Error using errors.As.
