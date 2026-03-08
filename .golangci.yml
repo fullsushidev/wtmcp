@@ -39,9 +39,7 @@ linters-settings:
       - name: range
       - name: receiver-naming
       - name: var-naming
-  gosec:
-    excludes:
-      - G304  # file inclusion via variable (expected for plugin loading)
+  gosec: {}
 
 issues:
   exclude-dirs:
