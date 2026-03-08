@@ -1,0 +1,118 @@
+name: jira
+version: "0.2.0"
+description: "Jira integration for issue tracking and project management"
+
+execution: persistent
+handler: ./handler.py
+
+services:
+  auth:
+    select: "${JIRA_AUTH_TYPE:-auto}"
+    variants:
+      cloud:
+        type: basic
+        username: "${JIRA_EMAIL}"
+        password: "${JIRA_TOKEN}"
+      server-token:
+        type: bearer
+        token: "${JIRA_TOKEN}"
+      server-kerberos:
+        type: kerberos/spnego
+        spn: "HTTP@${JIRA_HOST}"
+  http:
+    base_url: "${JIRA_URL}"
+  cache:
+    enabled: true
+    namespace: jira
+    default_ttl: 300
+
+config:
+  jira_url: "${JIRA_URL}"
+
+tools:
+  - name: jira_get_myself
+    description: >
+      Get the authenticated user's Jira profile. Returns accountId,
+      displayName, emailAddress, active status, and timeZone.
+      Cached for 1 hour.
+    params: {}
+
+  - name: jira_search
+    description: >
+      Search Jira issues using JQL. Returns brief per-issue summaries
+      (key, summary, status, assignee, priority) by default. Set
+      brief=false to get full issue data. Results are cached.
+    params:
+      jql:
+        type: string
+        required: true
+        description: "JQL query string"
+      max_results:
+        type: integer
+        default: 50
+        description: "Maximum number of results (1-200)"
+      fields:
+        type: string
+        default: "summary,status,assignee,priority"
+        description: "Comma-separated list of Jira fields to fetch"
+      brief:
+        type: boolean
+        default: true
+        description: "Return compact per-issue summaries (true) or full data (false)"
+
+  - name: jira_get_issues
+    description: >
+      Get one or more Jira issues by key. Returns brief per-issue
+      summaries by default. Set brief=false for full data. Fetches
+      in batches via JQL for efficiency.
+    params:
+      issue_keys:
+        type: string
+        required: true
+        description: "Comma-separated issue keys (e.g. PROJ-123,PROJ-456)"
+      fields:
+        type: string
+        default: "summary,status,assignee,priority"
+        description: "Comma-separated list of Jira fields to fetch"
+      brief:
+        type: boolean
+        default: true
+        description: "Return compact per-issue summaries (true) or full data (false)"
+
+  - name: jira_get_user
+    description: >
+      Look up a Jira user by username, email, or display name. Use
+      "me", "myself", or "currentUser" to get the authenticated user.
+      Returns accountId, displayName, emailAddress, active, timeZone.
+    params:
+      username:
+        type: string
+        required: true
+        description: "Username, email, display name, or alias (me/myself/currentUser)"
+
+  - name: jira_get_transitions
+    description: >
+      Get available workflow transitions for a Jira issue. Use before
+      jira_transition_issue to find valid transition IDs and names.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+
+  - name: jira_get_resolutions
+    description: >
+      Get all available issue resolution values. Use before
+      jira_transition_issue to find valid resolution names for
+      transitions that require one (e.g. Done, Closed).
+    params: {}
+
+  - name: jira_get_link_types
+    description: >
+      List all available issue link types (e.g. Blocks, Clones,
+      Duplicates). Use before jira_add_issue_link to find valid
+      link type names.
+    params: {}
+
+enabled: true
+priority: 10
