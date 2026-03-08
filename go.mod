@@ -8,6 +8,8 @@ require github.com/alpkeskin/gotoon v0.1.1
 
 require github.com/sassoftware/gssapi v0.0.0-20210121192716-4ccd52fd8e05
 
+require golang.org/x/oauth2 v0.25.0
+
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect

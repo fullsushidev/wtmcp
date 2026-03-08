@@ -227,13 +227,17 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 		variantCfg.Variants = make(map[string]auth.SingleAuthConfig)
 		for name, v := range authCfg.Variants {
 			variantCfg.Variants[name] = auth.SingleAuthConfig{
-				Type:     v.Type,
-				Token:    config.ResolveEnvVars(v.Token),
-				Header:   v.Header,
-				Prefix:   v.Prefix,
-				Username: config.ResolveEnvVars(v.Username),
-				Password: config.ResolveEnvVars(v.Password),
-				SPN:      config.ResolveEnvVars(v.SPN),
+				Type:            v.Type,
+				Token:           config.ResolveEnvVars(v.Token),
+				Header:          v.Header,
+				Prefix:          v.Prefix,
+				Username:        config.ResolveEnvVars(v.Username),
+				Password:        config.ResolveEnvVars(v.Password),
+				SPN:             config.ResolveEnvVars(v.SPN),
+				Scopes:          v.Scopes,
+				CredentialsFile: config.ResolveEnvVars(v.CredentialsFile),
+				TokenFile:       config.ResolveEnvVars(v.TokenFile),
+				CredentialsDir:  m.cfg.CredentialsDir,
 			}
 		}
 	} else {

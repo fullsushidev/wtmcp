@@ -20,14 +20,17 @@ type VariantConfig struct {
 
 // SingleAuthConfig is the config for a single auth provider instance.
 type SingleAuthConfig struct {
-	Type     string
-	Token    string
-	Header   string
-	Prefix   string
-	Username string
-	Password string
-	SPN      string
-	// OAuth2 fields would go here
+	Type            string
+	Token           string
+	Header          string
+	Prefix          string
+	Username        string
+	Password        string
+	SPN             string
+	Scopes          []string
+	CredentialsFile string
+	TokenFile       string
+	CredentialsDir  string
 }
 
 // ResolveVariant selects the appropriate auth provider from a variant config.
@@ -77,6 +80,8 @@ func providerFromConfig(typeName string, cfg SingleAuthConfig) (Provider, error)
 		return NewBasicProvider(cfg.Username, cfg.Password), nil
 	case "kerberos/spnego":
 		return NewKerberosProvider(cfg.SPN), nil
+	case "oauth2":
+		return NewOAuth2Provider(cfg.TokenFile, cfg.CredentialsFile, cfg.Scopes, cfg.CredentialsDir), nil
 	default:
 		return nil, fmt.Errorf("unknown auth type: %s", typeName)
 	}
