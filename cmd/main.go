@@ -36,13 +36,31 @@ func main() {
 }
 
 func run() error {
+	// Parse flags
 	configPath := ""
+	workdirOverride := ""
 	for i, arg := range os.Args[1:] {
 		if arg == "--config" && i+2 < len(os.Args) {
 			configPath = os.Args[i+2]
 		}
+		if arg == "--workdir" && i+2 < len(os.Args) {
+			workdirOverride = os.Args[i+2]
+		}
 	}
-	cfg, err := config.Load(configPath)
+
+	// Resolve workdir
+	workdir := config.WorkDir()
+	if workdirOverride != "" {
+		workdir = workdirOverride
+	}
+
+	// Load .env files before anything else
+	if err := config.LoadDotEnv(workdir); err != nil {
+		return fmt.Errorf("load env: %w", err)
+	}
+
+	// Load config (uses workdir for defaults)
+	cfg, err := config.Load(configPath, workdir)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -59,16 +77,13 @@ func run() error {
 		defer auth.CloseKerberos()
 		log.Println("kerberos/spnego auth available")
 	}
+
 	cacheStore := cache.NewMemoryStore()
 	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize)
 
 	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg)
 
-	pluginDirs := cfg.PluginDirs
-	if dir := defaultUserPluginDir(); dir != "" {
-		pluginDirs = append(pluginDirs, dir)
-	}
-	if err := mgr.Discover(pluginDirs); err != nil {
+	if err := mgr.Discover(cfg.PluginDirs); err != nil {
 		return fmt.Errorf("plugin discovery: %w", err)
 	}
 
@@ -83,14 +98,6 @@ func run() error {
 	}()
 
 	srv := server.New(Version, mgr, cfg)
-	log.Printf("what-the-mcp %s starting (stdio)", Version)
+	log.Printf("what-the-mcp %s starting (workdir: %s)", Version, workdir)
 	return mcpserver.ServeStdio(srv)
-}
-
-func defaultUserPluginDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return home + "/.config/what-the-mcp/plugins"
 }

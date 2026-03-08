@@ -119,7 +119,7 @@ cache:
 		t.Fatal(err)
 	}
 
-	cfg, err := Load(cfgFile)
+	cfg, err := Load(cfgFile, dir)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -140,7 +140,7 @@ cache:
 }
 
 func TestLoadConfigMissing(t *testing.T) {
-	cfg, err := Load("/nonexistent/config.yaml")
+	cfg, err := Load("/nonexistent/config.yaml", "/nonexistent")
 	if err != nil {
 		t.Fatalf("should not error on missing file: %v", err)
 	}

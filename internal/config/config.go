@@ -102,50 +102,54 @@ func DefaultConfig() *Config {
 	}
 }
 
-// Load reads a config file from the given path and merges it with defaults.
-// If the path is empty, it tries the default location.
-// If no config file exists, returns defaults.
-func Load(path string) (*Config, error) {
+// Load reads a config file and merges with defaults. If configPath is empty,
+// uses workdir/config.yaml. After loading, applies workdir-based defaults
+// for any paths not explicitly set in the config file.
+func Load(configPath, workdir string) (*Config, error) {
 	cfg := DefaultConfig()
 
-	if path == "" {
-		path = defaultConfigPath()
+	if configPath == "" {
+		configPath = filepath.Join(workdir, "config.yaml")
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec // config file path from user
+	data, err := os.ReadFile(configPath) //nolint:gosec // config file path from user
 	if err != nil {
 		if os.IsNotExist(err) {
+			applyWorkdirDefaults(cfg, workdir)
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("parse config %s: %w", path, err)
+		return nil, fmt.Errorf("parse config %s: %w", configPath, err)
 	}
 
-	// Resolve env vars in credentials dir
-	if cfg.CredentialsDir != "" {
-		cfg.CredentialsDir = ResolveEnvVars(cfg.CredentialsDir)
-	}
-
-	// Resolve env vars in cache dir
-	if cfg.Cache.Dir != "" {
-		cfg.Cache.Dir = ResolveEnvVars(cfg.Cache.Dir)
-	}
-
+	applyWorkdirDefaults(cfg, workdir)
 	return cfg, nil
 }
 
-func defaultConfigPath() string {
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return filepath.Join(xdg, "what-the-mcp", "config.yaml")
+// applyWorkdirDefaults fills in paths that weren't set in the config
+// using the standard workdir layout.
+func applyWorkdirDefaults(cfg *Config, workdir string) {
+	paths := Paths(workdir)
+
+	if cfg.CredentialsDir == "" {
+		cfg.CredentialsDir = paths.CredentialsDir
+	} else {
+		cfg.CredentialsDir = ResolveEnvVars(cfg.CredentialsDir)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+
+	if cfg.Cache.Dir == "" {
+		cfg.Cache.Dir = paths.CacheDir
+	} else {
+		cfg.Cache.Dir = ResolveEnvVars(cfg.Cache.Dir)
 	}
-	return filepath.Join(home, ".config", "what-the-mcp", "config.yaml")
+
+	// Add user plugins dir if not already in the list
+	if len(cfg.PluginDirs) == 0 {
+		cfg.PluginDirs = []string{paths.PluginsDir}
+	}
 }
 
 // envVarPattern matches ${VAR} and ${VAR:-default} syntax.
