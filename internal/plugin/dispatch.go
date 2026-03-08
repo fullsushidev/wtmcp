@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 	"log"
 	"os/exec"
 	"sync"
@@ -59,7 +60,7 @@ func (h *Handle) CallTool(ctx context.Context, toolName string, params json.RawM
 	if h.manifest.Execution == "persistent" && h.process != nil && h.process.State() == StateFailed {
 		log.Printf("[%s] auto-restarting crashed plugin", h.manifest.Name)
 		if err := h.Start(ctx); err != nil {
-			return nil, &Error{
+			return nil, &protocol.Error{
 				Code:    "restart_failed",
 				Message: fmt.Sprintf("failed to restart %s: %v", h.manifest.Name, err),
 			}
@@ -79,24 +80,24 @@ func (h *Handle) callPersistent(ctx context.Context, toolName string, params jso
 	transport := h.process.Transport
 	id := transport.GenerateID("req")
 
-	ch := make(chan Message, 1)
+	ch := make(chan protocol.Message, 1)
 	transport.pending.Store(id, ch)
 	defer transport.pending.Delete(id)
 
-	if err := transport.Send(Message{
+	if err := transport.Send(protocol.Message{
 		ID:     id,
-		Type:   TypeToolCall,
+		Type:   protocol.TypeToolCall,
 		Tool:   toolName,
 		Params: params,
 		Config: h.manifest.resolvedConfig,
 	}); err != nil {
-		return nil, &Error{Code: "send_failed", Message: err.Error()}
+		return nil, &protocol.Error{Code: "send_failed", Message: err.Error()}
 	}
 
 	select {
 	case resp, ok := <-ch:
 		if !ok {
-			return nil, &Error{
+			return nil, &protocol.Error{
 				Code:    "plugin_exited",
 				Message: fmt.Sprintf("plugin exited while handling %s", toolName),
 			}
@@ -106,7 +107,7 @@ func (h *Handle) callPersistent(ctx context.Context, toolName string, params jso
 		}
 		return resp.Result, nil
 	case <-ctx.Done():
-		return nil, &Error{
+		return nil, &protocol.Error{
 			Code:    "timeout",
 			Message: fmt.Sprintf("tool call %s timed out after %s", toolName, h.toolTimeout),
 		}
@@ -147,9 +148,9 @@ func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.R
 	// Send tool_call
 	id := fmt.Sprintf("oneshot-%d", time.Now().UnixNano())
 	enc := json.NewEncoder(stdin)
-	if err := enc.Encode(Message{
+	if err := enc.Encode(protocol.Message{
 		ID:     id,
-		Type:   TypeToolCall,
+		Type:   protocol.TypeToolCall,
 		Tool:   toolName,
 		Params: params,
 		Config: h.manifest.resolvedConfig,
@@ -162,24 +163,24 @@ func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.R
 	scanner.Buffer(make([]byte, 0), h.processCfg.MaxMessageSize)
 
 	for scanner.Scan() {
-		var msg Message
+		var msg protocol.Message
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			log.Printf("[%s] malformed oneshot message: %v", h.manifest.Name, err)
 			continue
 		}
 
 		switch msg.Type {
-		case TypeHTTPRequest:
+		case protocol.TypeHTTPRequest:
 			resp := h.handler.HandleHTTP(h.manifest.Name, msg)
 			if err := enc.Encode(resp); err != nil {
 				return nil, fmt.Errorf("send http_response: %w", err)
 			}
-		case TypeCacheGet, TypeCacheSet, TypeCacheDel, TypeCacheList, TypeCacheFlush:
+		case protocol.TypeCacheGet, protocol.TypeCacheSet, protocol.TypeCacheDel, protocol.TypeCacheList, protocol.TypeCacheFlush:
 			resp := h.handler.HandleCache(h.manifest.Name, msg)
 			if err := enc.Encode(resp); err != nil {
 				return nil, fmt.Errorf("send cache response: %w", err)
 			}
-		case TypeToolResult:
+		case protocol.TypeToolResult:
 			if msg.Error != nil {
 				return nil, msg.Error
 			}
@@ -189,7 +190,7 @@ func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.R
 		}
 	}
 
-	return nil, &Error{Code: "no_response", Message: "oneshot handler exited without tool_result"}
+	return nil, &protocol.Error{Code: "no_response", Message: "oneshot handler exited without tool_result"}
 }
 
 func forwardStderr(r interface{ Read([]byte) (int, error) }, pluginName string) {

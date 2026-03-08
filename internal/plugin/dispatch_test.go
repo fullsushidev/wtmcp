@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 	"os"
 	"path/filepath"
 	"testing"
@@ -151,8 +152,8 @@ echo "{}" | jq -c --arg id "$ID" --arg status "$STATUS" \
 	}
 
 	handler := &mockServiceHandler{
-		httpHandler: func(_ string, req Message) Message {
-			return Message{ID: req.ID, Type: TypeHTTPResponse, Status: 200}
+		httpHandler: func(_ string, req protocol.Message) protocol.Message {
+			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
 		},
 	}
 
@@ -216,9 +217,9 @@ done
 		t.Fatal("expected error")
 	}
 
-	var pluginErr *Error
+	var pluginErr *protocol.Error
 	if !errors.As(err, &pluginErr) {
-		t.Fatalf("expected *Error, got %T", err)
+		t.Fatalf("expected *protocol.Error, got %T", err)
 	}
 	if pluginErr.Code != "not_found" {
 		t.Errorf("code = %q, want not_found", pluginErr.Code)

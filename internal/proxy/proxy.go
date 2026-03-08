@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 )
 
 // PluginAuth holds the resolved auth and HTTP config for a plugin.
@@ -50,7 +50,7 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 }
 
 // Execute handles an http_request message from a plugin.
-func (p *Proxy) Execute(ctx context.Context, pluginName string, req plugin.Message) plugin.Message {
+func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Message) protocol.Message {
 	pa, ok := p.plugins[pluginName]
 	if !ok {
 		return errResponse(req.ID, "no_config", "no HTTP config registered for plugin "+pluginName)
@@ -74,11 +74,11 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req plugin.Messa
 
 	resp, err := p.client.Do(httpReq)
 	if err != nil {
-		return plugin.Message{
+		return protocol.Message{
 			ID:     req.ID,
-			Type:   plugin.TypeHTTPResponse,
+			Type:   protocol.TypeHTTPResponse,
 			Status: 0,
-			Error:  &plugin.Error{Code: "transport_error", Message: err.Error()},
+			Error:  &protocol.Error{Code: "transport_error", Message: err.Error()},
 		}
 	}
 	defer func() {
@@ -92,15 +92,15 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req plugin.Messa
 		return errResponse(req.ID, "response_too_large", err.Error())
 	}
 
-	return plugin.Message{
+	return protocol.Message{
 		ID:     req.ID,
-		Type:   plugin.TypeHTTPResponse,
+		Type:   protocol.TypeHTTPResponse,
 		Status: resp.StatusCode,
 		Body:   body,
 	}
 }
 
-func (p *Proxy) resolveURL(pluginName string, pa *PluginAuth, req plugin.Message) (string, error) {
+func (p *Proxy) resolveURL(pluginName string, pa *PluginAuth, req protocol.Message) (string, error) {
 	if req.URL != "" {
 		if !p.isDomainAllowed(pluginName, pa, req.URL) {
 			return "", fmt.Errorf("domain not allowed: %s", req.URL)
@@ -119,7 +119,7 @@ func (p *Proxy) resolveURL(pluginName string, pa *PluginAuth, req plugin.Message
 	return joined, nil
 }
 
-func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req plugin.Message) (*http.Request, error) {
+func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.Message) (*http.Request, error) {
 	var bodyReader io.Reader
 	if req.Body != nil {
 		bodyReader = strings.NewReader(string(req.Body))
@@ -219,11 +219,11 @@ func (p *Proxy) isDomainAllowed(pluginName string, pa *PluginAuth, rawURL string
 	return false
 }
 
-func errResponse(id, code, message string) plugin.Message {
-	return plugin.Message{
+func errResponse(id, code, message string) protocol.Message {
+	return protocol.Message{
 		ID:     id,
-		Type:   plugin.TypeHTTPResponse,
+		Type:   protocol.TypeHTTPResponse,
 		Status: 0,
-		Error:  &plugin.Error{Code: code, Message: message},
+		Error:  &protocol.Error{Code: code, Message: message},
 	}
 }

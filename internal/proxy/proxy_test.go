@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 )
 
 func TestExecuteGET(t *testing.T) {
@@ -27,9 +27,9 @@ func TestExecuteGET(t *testing.T) {
 	p := New(srv.Client(), 10*1024*1024)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-1",
-		Type:   plugin.TypeHTTPRequest,
+		Type:   protocol.TypeHTTPRequest,
 		Method: "GET",
 		Path:   "/api/test",
 		Query:  map[string]any{"foo": "bar"},
@@ -62,9 +62,9 @@ func TestExecutePOST(t *testing.T) {
 	p := New(srv.Client(), 10*1024*1024)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:      "req-2",
-		Type:    plugin.TypeHTTPRequest,
+		Type:    protocol.TypeHTTPRequest,
 		Method:  "POST",
 		Path:    "/items",
 		Headers: map[string]string{"Content-Type": "application/json"},
@@ -93,9 +93,9 @@ func TestExecuteWithAuth(t *testing.T) {
 		Provider: auth.NewBearerProvider("test-token", "", ""),
 	})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-3",
-		Type:   plugin.TypeHTTPRequest,
+		Type:   protocol.TypeHTTPRequest,
 		Method: "GET",
 		Path:   "/secure",
 	})
@@ -119,9 +119,9 @@ func TestExecuteQueryArrays(t *testing.T) {
 	p := New(srv.Client(), 10*1024*1024)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-4",
-		Type:   plugin.TypeHTTPRequest,
+		Type:   protocol.TypeHTTPRequest,
 		Method: "GET",
 		Path:   "/search",
 		Query:  map[string]any{"field": []any{"summary", "status"}},
@@ -148,9 +148,9 @@ func TestExecuteResponseBodyLimit(t *testing.T) {
 	p := New(srv.Client(), 100)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-5",
-		Type:   plugin.TypeHTTPRequest,
+		Type:   protocol.TypeHTTPRequest,
 		Method: "GET",
 		Path:   "/big",
 	})
@@ -173,9 +173,9 @@ func TestExecuteNonJSONResponse(t *testing.T) {
 	p := New(srv.Client(), 10*1024*1024)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-6",
-		Type:   plugin.TypeHTTPRequest,
+		Type:   protocol.TypeHTTPRequest,
 		Method: "GET",
 		Path:   "/text",
 	})
@@ -192,8 +192,8 @@ func TestExecuteNonJSONResponse(t *testing.T) {
 func TestExecuteUnknownPlugin(t *testing.T) {
 	p := New(nil, 10*1024*1024)
 
-	resp := p.Execute(context.Background(), "nonexistent", plugin.Message{
-		ID: "req-7", Type: plugin.TypeHTTPRequest, Method: "GET", Path: "/",
+	resp := p.Execute(context.Background(), "nonexistent", protocol.Message{
+		ID: "req-7", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
 	})
 
 	if resp.Error == nil || resp.Error.Code != "no_config" {
@@ -268,9 +268,9 @@ func TestExecuteFullURLOverride(t *testing.T) {
 	p := New(srv.Client(), 10*1024*1024)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
-	resp := p.Execute(context.Background(), "test", plugin.Message{
+	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-8",
-		Type:   plugin.TypeHTTPRequest,
+		Type:   protocol.TypeHTTPRequest,
 		Method: "GET",
 		URL:    srv.URL + "/full-override",
 		Path:   "/ignored",

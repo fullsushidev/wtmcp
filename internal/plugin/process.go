@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"fmt"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 	"log"
 	"os"
 	"os/exec"
@@ -103,9 +104,9 @@ func (p *Process) Start(ctx context.Context) error {
 		defer cancel()
 
 		id := p.Transport.GenerateID("init")
-		resp, err := p.Transport.SendAndWait(id, Message{
-			Type:     TypeInit,
-			Protocol: ProtocolVersion,
+		resp, err := p.Transport.SendAndWait(id, protocol.Message{
+			Type:     protocol.TypeInit,
+			Protocol: protocol.ProtocolVersion,
 			Config:   p.manifest.resolvedConfig,
 		})
 		if err != nil {
@@ -114,7 +115,7 @@ func (p *Process) Start(ctx context.Context) error {
 			return fmt.Errorf("plugin %s init timed out: %w", p.manifest.Name, err)
 		}
 		_ = initCtx // consumed by SendAndWait via Transport.done
-		if resp.Type == TypeInitError {
+		if resp.Type == protocol.TypeInitError {
 			p.kill()
 			p.state = StateFailed
 			errMsg := "unknown error"
@@ -142,7 +143,7 @@ func (p *Process) Stop(ctx context.Context) error {
 		defer cancel()
 
 		id := p.Transport.GenerateID("shutdown")
-		_, err := p.Transport.SendAndWait(id, Message{Type: TypeShutdown})
+		_, err := p.Transport.SendAndWait(id, protocol.Message{Type: protocol.TypeShutdown})
 		_ = shutdownCtx // consumed by SendAndWait
 		if err != nil {
 			log.Printf("[%s] shutdown timed out, sending SIGTERM", p.manifest.Name)

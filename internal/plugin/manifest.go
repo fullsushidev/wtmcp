@@ -1,3 +1,5 @@
+// Package plugin implements plugin process management, discovery,
+// lifecycle, and the bidirectional JSON-lines transport.
 package plugin
 
 import (

@@ -1,6 +1,6 @@
-// Package plugin implements plugin process management, discovery,
-// and the bidirectional JSON-lines transport protocol.
-package plugin
+// Package protocol defines the wire protocol message types for
+// bidirectional JSON-lines communication between core and plugins.
+package protocol
 
 import (
 	"encoding/json"

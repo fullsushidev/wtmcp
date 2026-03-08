@@ -3,6 +3,7 @@ package plugin
 import (
 	"bytes"
 	"encoding/json"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 	"io"
 	"strings"
 	"testing"
@@ -11,30 +12,30 @@ import (
 
 // mockServiceHandler implements ServiceHandler for testing.
 type mockServiceHandler struct {
-	httpHandler  func(pluginName string, req Message) Message
-	cacheHandler func(pluginName string, req Message) Message
+	httpHandler  func(pluginName string, req protocol.Message) protocol.Message
+	cacheHandler func(pluginName string, req protocol.Message) protocol.Message
 }
 
-func (m *mockServiceHandler) HandleHTTP(pluginName string, req Message) Message {
+func (m *mockServiceHandler) HandleHTTP(pluginName string, req protocol.Message) protocol.Message {
 	if m.httpHandler != nil {
 		return m.httpHandler(pluginName, req)
 	}
-	return Message{ID: req.ID, Type: TypeHTTPResponse, Status: 200}
+	return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
 }
 
-func (m *mockServiceHandler) HandleCache(pluginName string, req Message) Message {
+func (m *mockServiceHandler) HandleCache(pluginName string, req protocol.Message) protocol.Message {
 	if m.cacheHandler != nil {
 		return m.cacheHandler(pluginName, req)
 	}
 	hit := true
-	return Message{ID: req.ID, Type: TypeCacheGet, Hit: &hit}
+	return protocol.Message{ID: req.ID, Type: protocol.TypeCacheGet, Hit: &hit}
 }
 
 func TestTransportSend(t *testing.T) {
 	var buf bytes.Buffer
 	tr := NewTransport(&buf, strings.NewReader(""), strings.NewReader(""), 1024*1024)
 
-	msg := Message{ID: "test-1", Type: TypeToolCall, Tool: "hello"}
+	msg := protocol.Message{ID: "test-1", Type: protocol.TypeToolCall, Tool: "hello"}
 	if err := tr.Send(msg); err != nil {
 		t.Fatalf("Send failed: %v", err)
 	}
@@ -46,15 +47,15 @@ func TestTransportSend(t *testing.T) {
 	}
 	line = strings.TrimSpace(line)
 
-	var decoded Message
+	var decoded protocol.Message
 	if err := json.Unmarshal([]byte(line), &decoded); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
 	if decoded.ID != "test-1" {
 		t.Errorf("ID = %q, want %q", decoded.ID, "test-1")
 	}
-	if decoded.Type != TypeToolCall {
-		t.Errorf("Type = %q, want %q", decoded.Type, TypeToolCall)
+	if decoded.Type != protocol.TypeToolCall {
+		t.Errorf("Type = %q, want %q", decoded.Type, protocol.TypeToolCall)
 	}
 }
 
@@ -75,7 +76,7 @@ func TestTransportGenerateID(t *testing.T) {
 
 func TestReadLoopRoutesToolResult(t *testing.T) {
 	// Simulate plugin sending a tool_result
-	toolResult := Message{ID: "req-1", Type: TypeToolResult, Result: json.RawMessage(`{"ok":true}`)}
+	toolResult := protocol.Message{ID: "req-1", Type: protocol.TypeToolResult, Result: json.RawMessage(`{"ok":true}`)}
 	data, _ := json.Marshal(toolResult)
 
 	pluginStdout := strings.NewReader(string(data) + "\n")
@@ -87,13 +88,13 @@ func TestReadLoopRoutesToolResult(t *testing.T) {
 	go tr.ReadLoop("test-plugin", 1, handler)
 
 	// Register pending before ReadLoop processes the message
-	ch := make(chan Message, 1)
+	ch := make(chan protocol.Message, 1)
 	tr.pending.Store("req-1", ch)
 
 	select {
 	case resp := <-ch:
-		if resp.Type != TypeToolResult {
-			t.Errorf("Type = %q, want %q", resp.Type, TypeToolResult)
+		if resp.Type != protocol.TypeToolResult {
+			t.Errorf("Type = %q, want %q", resp.Type, protocol.TypeToolResult)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout waiting for tool_result")
@@ -102,11 +103,11 @@ func TestReadLoopRoutesToolResult(t *testing.T) {
 
 func TestReadLoopHandlesHTTPSync(t *testing.T) {
 	// Plugin sends an http_request, then a tool_result
-	httpReq := Message{ID: "http-1", Type: TypeHTTPRequest, Method: "GET", Path: "/test"}
-	toolResult := Message{ID: "req-1", Type: TypeToolResult, Result: json.RawMessage(`{}`)}
+	httpReq := protocol.Message{ID: "http-1", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/test"}
+	toolResult := protocol.Message{ID: "req-1", Type: protocol.TypeToolResult, Result: json.RawMessage(`{}`)}
 
 	var lines []string
-	for _, msg := range []Message{httpReq, toolResult} {
+	for _, msg := range []protocol.Message{httpReq, toolResult} {
 		data, _ := json.Marshal(msg)
 		lines = append(lines, string(data))
 	}
@@ -117,14 +118,14 @@ func TestReadLoopHandlesHTTPSync(t *testing.T) {
 
 	httpCalled := false
 	handler := &mockServiceHandler{
-		httpHandler: func(_ string, req Message) Message {
+		httpHandler: func(_ string, req protocol.Message) protocol.Message {
 			httpCalled = true
-			return Message{ID: req.ID, Type: TypeHTTPResponse, Status: 200}
+			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
 		},
 	}
 
 	// Register pending for tool_result
-	ch := make(chan Message, 1)
+	ch := make(chan protocol.Message, 1)
 	tr.pending.Store("req-1", ch)
 
 	go tr.ReadLoop("test-plugin", 1, handler)
@@ -151,7 +152,7 @@ func TestReadLoopDrainsPendingOnExit(t *testing.T) {
 	// Empty stdout — ReadLoop will exit immediately
 	tr := NewTransport(io.Discard, strings.NewReader(""), strings.NewReader(""), 1024)
 
-	ch := make(chan Message, 1)
+	ch := make(chan protocol.Message, 1)
 	tr.pending.Store("req-1", ch)
 
 	handler := &mockServiceHandler{}
@@ -169,7 +170,7 @@ func TestReadLoopDrainsPendingOnExit(t *testing.T) {
 }
 
 func TestError(t *testing.T) {
-	err := &Error{Code: "api_error", Message: "not found"}
+	err := &protocol.Error{Code: "api_error", Message: "not found"}
 	expected := "[api_error] not found"
 	if err.Error() != expected {
 		t.Errorf("Error() = %q, want %q", err.Error(), expected)
