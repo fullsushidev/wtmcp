@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -192,6 +193,9 @@ func LoadManifest(path string) (*Manifest, error) {
 			return nil, fmt.Errorf("parse auth variants order: %w", err)
 		}
 	}
+
+	// Resolve env vars in service URLs before validation
+	m.Services.HTTP.BaseURL = config.ResolveEnvVars(m.Services.HTTP.BaseURL)
 
 	if err := m.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid manifest %s: %w", path, err)
