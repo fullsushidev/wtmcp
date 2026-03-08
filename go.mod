@@ -6,6 +6,8 @@ require gopkg.in/yaml.v3 v3.0.1
 
 require github.com/alpkeskin/gotoon v0.1.1
 
+require github.com/sassoftware/gssapi v0.0.0-20210121192716-4ccd52fd8e05
+
 require (
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect

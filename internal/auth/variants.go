@@ -75,6 +75,8 @@ func providerFromConfig(typeName string, cfg SingleAuthConfig) (Provider, error)
 		return NewBearerProvider(cfg.Token, cfg.Header, cfg.Prefix), nil
 	case "basic":
 		return NewBasicProvider(cfg.Username, cfg.Password), nil
+	case "kerberos/spnego":
+		return NewKerberosProvider(cfg.SPN), nil
 	default:
 		return nil, fmt.Errorf("unknown auth type: %s", typeName)
 	}

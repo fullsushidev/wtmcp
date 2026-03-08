@@ -45,6 +45,14 @@ func run() error {
 	defer stop()
 
 	authReg := auth.NewRegistry()
+
+	// Initialize Kerberos if available
+	if err := auth.InitKerberos(); err != nil {
+		log.Printf("kerberos not available: %v", err)
+	} else if auth.KerberosAvailable() {
+		defer auth.CloseKerberos()
+		log.Println("kerberos/spnego auth available")
+	}
 	cacheStore := cache.NewMemoryStore()
 	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize)
 
