@@ -3,10 +3,14 @@
 package config
 
 import (
+	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // Config holds the core server configuration.
@@ -96,6 +100,52 @@ func DefaultConfig() *Config {
 			ToonFallback: true,
 		},
 	}
+}
+
+// Load reads a config file from the given path and merges it with defaults.
+// If the path is empty, it tries the default location.
+// If no config file exists, returns defaults.
+func Load(path string) (*Config, error) {
+	cfg := DefaultConfig()
+
+	if path == "" {
+		path = defaultConfigPath()
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // config file path from user
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("read config: %w", err)
+	}
+
+	if err := yaml.Unmarshal(data, cfg); err != nil {
+		return nil, fmt.Errorf("parse config %s: %w", path, err)
+	}
+
+	// Resolve env vars in credentials dir
+	if cfg.CredentialsDir != "" {
+		cfg.CredentialsDir = ResolveEnvVars(cfg.CredentialsDir)
+	}
+
+	// Resolve env vars in cache dir
+	if cfg.Cache.Dir != "" {
+		cfg.Cache.Dir = ResolveEnvVars(cfg.Cache.Dir)
+	}
+
+	return cfg, nil
+}
+
+func defaultConfigPath() string {
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		return filepath.Join(xdg, "what-the-mcp", "config.yaml")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".config", "what-the-mcp", "config.yaml")
 }
 
 // envVarPattern matches ${VAR} and ${VAR:-default} syntax.

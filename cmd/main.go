@@ -36,7 +36,10 @@ func main() {
 }
 
 func run() error {
-	cfg := config.DefaultConfig()
+	cfg, err := config.Load("")
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -95,6 +97,55 @@ func TestResolveEnvMap(t *testing.T) {
 	}
 	if resolved["file"] != "default.json" {
 		t.Errorf("file = %q, want %q", resolved["file"], "default.json")
+	}
+}
+
+func TestLoadConfigFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+
+	yaml := `
+plugin_dirs:
+  - /opt/plugins
+  - /home/user/plugins
+output:
+  format: toon
+  toon_fallback: true
+cache:
+  backend: filesystem
+  dir: /tmp/cache
+`
+	if err := os.WriteFile(cfgFile, []byte(yaml), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	if len(cfg.PluginDirs) != 2 {
+		t.Errorf("PluginDirs = %v, want 2 entries", cfg.PluginDirs)
+	}
+	if cfg.Output.Format != "toon" {
+		t.Errorf("Output.Format = %q, want toon", cfg.Output.Format)
+	}
+	if cfg.Cache.Backend != "filesystem" {
+		t.Errorf("Cache.Backend = %q, want filesystem", cfg.Cache.Backend)
+	}
+	// Defaults should still apply for unset fields
+	if cfg.Plugins.ToolCallTimeout == 0 {
+		t.Error("ToolCallTimeout should have default value")
+	}
+}
+
+func TestLoadConfigMissing(t *testing.T) {
+	cfg, err := Load("/nonexistent/config.yaml")
+	if err != nil {
+		t.Fatalf("should not error on missing file: %v", err)
+	}
+	if cfg.Output.Format != "json" {
+		t.Errorf("should return defaults, got format=%q", cfg.Output.Format)
 	}
 }
 
