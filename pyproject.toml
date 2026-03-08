@@ -5,8 +5,11 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "W", "I"]
 
+[tool.ty.environment]
+extra-paths = ["plugins/jira"]
+
 [tool.pytest.ini_options]
-testpaths = ["plugins"]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"

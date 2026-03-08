@@ -25,7 +25,14 @@ repos:
     hooks:
       - id: ty
         name: ty
-        entry: .venv/bin/ty check plugins/
+        entry: .venv/bin/ty check plugins/ tests/
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: pytest
+        name: pytest
+        entry: .venv/bin/pytest -x -q
         language: system
         types: [python]
         pass_filenames: false
