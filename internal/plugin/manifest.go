@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"os"
@@ -41,6 +42,10 @@ type Manifest struct {
 
 	// Dir is the directory containing this manifest (set at load time).
 	Dir string `yaml:"-"`
+
+	// resolvedConfig holds the resolved config values (env vars expanded).
+	// Set by the plugin manager after loading.
+	resolvedConfig json.RawMessage `yaml:"-"`
 }
 
 // ServiceConfig declares what services a plugin requires.
@@ -139,6 +144,11 @@ func (m *Manifest) CacheNamespace() string {
 		return m.Services.Cache.Namespace
 	}
 	return m.Name
+}
+
+// SetResolvedConfig sets the resolved config JSON for the plugin.
+func (m *Manifest) SetResolvedConfig(cfg json.RawMessage) {
+	m.resolvedConfig = cfg
 }
 
 // ProvidesAuth returns true if this plugin provides an auth type.

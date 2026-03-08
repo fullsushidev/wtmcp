@@ -1,0 +1,206 @@
+package plugin
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"syscall"
+	"time"
+)
+
+// State represents the plugin process lifecycle state.
+type State int
+
+// Plugin process lifecycle states.
+const (
+	StateUnloaded State = iota
+	StateStarting
+	StateRunning
+	StateFailed
+	StateStopping
+)
+
+// Process manages a plugin handler's OS process and transport.
+type Process struct {
+	cmd               *exec.Cmd
+	Transport         *Transport
+	manifest          *Manifest
+	handler           ServiceHandler
+	state             State
+	initTimeout       time.Duration
+	shutdownTimeout   time.Duration
+	shutdownKillAfter time.Duration
+	maxMessageSize    int
+}
+
+// ProcessConfig holds process management settings.
+type ProcessConfig struct {
+	InitTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+	ShutdownKillAfter time.Duration
+	MaxMessageSize    int
+}
+
+// NewProcess creates a Process for the given manifest.
+func NewProcess(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig) *Process {
+	return &Process{
+		manifest:          manifest,
+		handler:           handler,
+		state:             StateUnloaded,
+		initTimeout:       cfg.InitTimeout,
+		shutdownTimeout:   cfg.ShutdownTimeout,
+		shutdownKillAfter: cfg.ShutdownKillAfter,
+		maxMessageSize:    cfg.MaxMessageSize,
+	}
+}
+
+// State returns the current process state.
+func (p *Process) State() State { return p.state }
+
+// Start launches the plugin handler process and sends init for
+// persistent plugins.
+func (p *Process) Start(ctx context.Context) error {
+	p.state = StateStarting
+
+	p.cmd = exec.CommandContext(ctx, p.manifest.HandlerPath()) //nolint:gosec // handler path is validated by Manifest.Validate()
+	p.cmd.Dir = p.manifest.Dir
+	p.cmd.Env = buildPluginEnv(p.manifest)
+
+	stdin, err := p.cmd.StdinPipe()
+	if err != nil {
+		p.state = StateFailed
+		return fmt.Errorf("stdin pipe: %w", err)
+	}
+	stdout, err := p.cmd.StdoutPipe()
+	if err != nil {
+		p.state = StateFailed
+		return fmt.Errorf("stdout pipe: %w", err)
+	}
+	stderr, err := p.cmd.StderrPipe()
+	if err != nil {
+		p.state = StateFailed
+		return fmt.Errorf("stderr pipe: %w", err)
+	}
+
+	p.Transport = NewTransport(stdin, stdout, stderr, p.maxMessageSize)
+
+	if err := p.cmd.Start(); err != nil {
+		p.state = StateFailed
+		return fmt.Errorf("start handler: %w", err)
+	}
+
+	// Forward stderr to core log
+	go p.Transport.ForwardStderr(p.manifest.Name)
+
+	// Start the read loop
+	go p.Transport.ReadLoop(p.manifest.Name, p.manifest.Concurrency, p.handler)
+
+	// Send init for persistent plugins
+	if p.manifest.Execution == "persistent" {
+		initCtx, cancel := context.WithTimeout(ctx, p.initTimeout)
+		defer cancel()
+
+		id := p.Transport.GenerateID("init")
+		resp, err := p.Transport.SendAndWait(id, Message{
+			Type:     TypeInit,
+			Protocol: ProtocolVersion,
+			Config:   p.manifest.resolvedConfig,
+		})
+		if err != nil {
+			p.kill()
+			p.state = StateFailed
+			return fmt.Errorf("plugin %s init timed out: %w", p.manifest.Name, err)
+		}
+		_ = initCtx // consumed by SendAndWait via Transport.done
+		if resp.Type == TypeInitError {
+			p.kill()
+			p.state = StateFailed
+			errMsg := "unknown error"
+			if resp.Error != nil {
+				errMsg = resp.Error.Message
+			}
+			return fmt.Errorf("plugin %s init failed: %s", p.manifest.Name, errMsg)
+		}
+	}
+
+	p.state = StateRunning
+	return nil
+}
+
+// Stop gracefully shuts down the plugin process.
+func (p *Process) Stop(ctx context.Context) error {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return nil
+	}
+
+	p.state = StateStopping
+
+	if p.manifest.Execution == "persistent" {
+		shutdownCtx, cancel := context.WithTimeout(ctx, p.shutdownTimeout)
+		defer cancel()
+
+		id := p.Transport.GenerateID("shutdown")
+		_, err := p.Transport.SendAndWait(id, Message{Type: TypeShutdown})
+		_ = shutdownCtx // consumed by SendAndWait
+		if err != nil {
+			log.Printf("[%s] shutdown timed out, sending SIGTERM", p.manifest.Name)
+			return p.forceStop()
+		}
+	}
+
+	return p.cmd.Wait()
+}
+
+func (p *Process) forceStop() error {
+	if err := p.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		p.cmd.Process.Kill() //nolint:errcheck,gosec // best effort
+		return p.cmd.Wait()
+	}
+
+	done := make(chan error, 1)
+	go func() { done <- p.cmd.Wait() }()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(p.shutdownKillAfter):
+		log.Printf("[%s] SIGTERM timed out, sending SIGKILL", p.manifest.Name)
+		p.cmd.Process.Kill() //nolint:errcheck,gosec // best effort
+		return p.cmd.Wait()
+	}
+}
+
+func (p *Process) kill() {
+	if p.cmd != nil && p.cmd.Process != nil {
+		p.cmd.Process.Kill() //nolint:errcheck,gosec // best effort
+		p.cmd.Wait()         //nolint:errcheck,gosec // reap zombie
+	}
+}
+
+// buildPluginEnv constructs a filtered environment for plugin processes.
+// Only safe variables are passed through. Credential-bearing variables
+// are excluded.
+func buildPluginEnv(manifest *Manifest) []string {
+	allowlist := []string{
+		"PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TZ", "TMPDIR",
+		"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+	}
+
+	env := make([]string, 0, len(allowlist)+len(manifest.Env))
+	for _, key := range allowlist {
+		if val, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+val)
+		}
+	}
+
+	// Pass through additional env vars declared in the manifest
+	for _, key := range manifest.Env {
+		if val, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+val)
+		}
+	}
+
+	return env
+}
