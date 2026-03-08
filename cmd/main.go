@@ -68,7 +68,7 @@ func run() error {
 		mgr.ShutdownAll(context.Background())
 	}()
 
-	srv := server.New(Version, mgr)
+	srv := server.New(Version, mgr, cfg)
 	log.Printf("what-the-mcp %s starting (stdio)", Version)
 	return mcpserver.ServeStdio(srv)
 }

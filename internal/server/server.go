@@ -10,13 +10,16 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/encoding"
+
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/pluginctx"
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 )
 
 // New creates an MCP server with tools from all loaded plugins.
-func New(version string, manager *plugin.Manager) *mcpserver.MCPServer {
+func New(version string, manager *plugin.Manager, cfg *config.Config) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer(
 		"what-the-mcp",
 		version,
@@ -26,7 +29,11 @@ func New(version string, manager *plugin.Manager) *mcpserver.MCPServer {
 
 	// Register tools from all plugin manifests
 	for _, manifest := range manager.Manifests() {
-		registerPluginTools(srv, manager, manifest)
+		outputFormat := cfg.Output.Format
+		if manifest.Output.Format != "" {
+			outputFormat = manifest.Output.Format
+		}
+		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback)
 	}
 
 	// Register context files as MCP resources
@@ -38,10 +45,12 @@ func New(version string, manager *plugin.Manager) *mcpserver.MCPServer {
 	return srv
 }
 
-func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest) {
+func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool) {
 	for _, toolDef := range manifest.Tools {
 		tool := buildMCPTool(toolDef)
 		toolName := toolDef.Name
+		format := outputFormat
+		fallback := toonFallback
 
 		srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			_, handle := mgr.CallTool(ctx, toolName)
@@ -65,7 +74,9 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 
-			return mcp.NewToolResultText(string(result)), nil
+			// Apply output encoding (JSON passthrough or TOON)
+			encoded := encoding.FormatResult(result, format, fallback)
+			return mcp.NewToolResultText(encoded), nil
 		})
 	}
 }
