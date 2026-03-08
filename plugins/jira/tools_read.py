@@ -40,11 +40,15 @@ def search(params):
         handler.log(f"returning cached search: {jql[:60]}")
         return cached
 
-    status, body = handler.http("GET", "/rest/api/2/search", query={
-        "jql": jql,
-        "maxResults": str(max_results),
-        "fields": fields,
-    })
+    status, body = handler.http(
+        "GET",
+        "/rest/api/2/search",
+        query={
+            "jql": jql,
+            "maxResults": str(max_results),
+            "fields": fields,
+        },
+    )
     if status < 200 or status >= 300:
         return body
 
@@ -55,10 +59,7 @@ def search(params):
 
     if total > len(issues):
         result["truncated"] = True
-        result["warning"] = (
-            f"Showing {len(issues)} of {total} results. "
-            f"Narrow the JQL or increase max_results."
-        )
+        result["warning"] = f"Showing {len(issues)} of {total} results. Narrow the JQL or increase max_results."
 
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]
@@ -83,11 +84,15 @@ def get_issues(params):
     key_list = ",".join(keys)
     jql = f"key in ({key_list})"
 
-    status, body = handler.http("GET", "/rest/api/2/search", query={
-        "jql": jql,
-        "maxResults": str(len(keys)),
-        "fields": fields,
-    })
+    status, body = handler.http(
+        "GET",
+        "/rest/api/2/search",
+        query={
+            "jql": jql,
+            "maxResults": str(len(keys)),
+            "fields": fields,
+        },
+    )
     if status < 200 or status >= 300:
         return body
 

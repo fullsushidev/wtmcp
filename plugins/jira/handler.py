@@ -135,11 +135,16 @@ def main():
             tool = msg.get("tool")
             handler_fn = TOOLS.get(tool)
             if not handler_fn:
-                _send({
-                    "id": msg_id,
-                    "type": "tool_result",
-                    "error": {"code": "unknown_tool", "message": f"Unknown: {tool}"},
-                })
+                _send(
+                    {
+                        "id": msg_id,
+                        "type": "tool_result",
+                        "error": {
+                            "code": "unknown_tool",
+                            "message": f"Unknown: {tool}",
+                        },
+                    }
+                )
                 continue
 
             try:
@@ -147,11 +152,13 @@ def main():
                 _send({"id": msg_id, "type": "tool_result", "result": result})
             except Exception as e:
                 log(f"error in {tool}: {e}")
-                _send({
-                    "id": msg_id,
-                    "type": "tool_result",
-                    "error": {"code": "handler_error", "message": str(e)},
-                })
+                _send(
+                    {
+                        "id": msg_id,
+                        "type": "tool_result",
+                        "error": {"code": "handler_error", "message": str(e)},
+                    }
+                )
             continue
 
         log(f"unknown message type: {msg_type}")

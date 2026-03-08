@@ -14,8 +14,22 @@ repos:
     hooks:
       - id: golangci-lint-full
 
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.13
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
   - repo: local
     hooks:
+      - id: ty
+        name: ty
+        entry: .venv/bin/ty check plugins/
+        language: system
+        types: [python]
+        pass_filenames: false
+
       - id: go-fmt
         name: gofmt
         entry: gofmt -l -w
