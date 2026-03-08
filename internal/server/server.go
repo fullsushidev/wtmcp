@@ -84,12 +84,7 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 func buildMCPTool(def plugin.ToolDef) mcp.Tool {
 	schema := def.ParamsSchema()
 	schemaJSON, _ := json.Marshal(schema)
-
-	return mcp.NewTool(
-		def.Name,
-		mcp.WithDescription(def.Description),
-		mcp.WithRawInputSchema(schemaJSON),
-	)
+	return mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
 }
 
 func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager) {

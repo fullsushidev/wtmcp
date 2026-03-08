@@ -36,7 +36,13 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.Load("")
+	configPath := ""
+	for i, arg := range os.Args[1:] {
+		if arg == "--config" && i+2 < len(os.Args) {
+			configPath = os.Args[i+2]
+		}
+	}
+	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
