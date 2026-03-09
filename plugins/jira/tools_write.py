@@ -280,7 +280,24 @@ def set_custom_field(params):
 
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_id: field_value}})
     if status < 200 or status >= 300:
-        return body
+        if isinstance(body, dict):
+            return {"error": body.get("errors", body.get("errorMessages", body)), "status": status}
+        return {"error": str(body) if body else f"HTTP {status}", "status": status}
+
+    # Verify the field was actually updated (Jira silently ignores some invalid values)
+    verify_status, verify_body, _ = handler.http("GET", f"/rest/api/2/issue/{issue_key}", query={"fields": field_id})
+    if 200 <= verify_status < 300 and isinstance(verify_body, dict):
+        actual = verify_body.get("fields", {}).get(field_id)
+        if actual is None or actual == [] or actual == "":
+            return {
+                "warning": "Jira accepted the request but the field appears unchanged. "
+                "Check the field_id and field_type are correct.",
+                "issue_key": issue_key,
+                "field_id": field_id,
+                "field_type": field_type,
+                "sent_value": str(field_value)[:200],
+            }
+
     return {"success": True, "issue_key": issue_key, "field_id": field_id, "field_type": field_type}
 
 

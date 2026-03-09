@@ -266,7 +266,11 @@ class TestSetCustomField:
         assert result["field_type"] == "number"
 
     def test_select_type(self):
-        with _mock_http(204, {}) as mock_http:
+        responses = [
+            (204, {}, {}),  # PUT
+            (200, {"fields": {"cf_1": {"value": "Option A"}}}, {}),  # GET verify
+        ]
+        with patch.object(handler, "http", side_effect=responses) as mock_http:
             tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
@@ -276,12 +280,17 @@ class TestSetCustomField:
                     "dry_run": False,
                 }
             )
-            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
-            assert call_body["fields"]["cf_1"] == {"value": "Option A"}
+            # First call is the PUT
+            put_body = mock_http.call_args_list[0][1].get("body") or mock_http.call_args_list[0][0][3]
+            assert put_body["fields"]["cf_1"] == {"value": "Option A"}
 
     def test_version_type(self):
-        with _mock_http(204, {}) as mock_http:
-            tools_write.set_custom_field(
+        responses = [
+            (204, {}, {}),
+            (200, {"fields": {"versions": [{"name": "rhel-10.2"}]}}, {}),
+        ]
+        with patch.object(handler, "http", side_effect=responses) as mock_http:
+            result = tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
                     "field_id": "versions",
@@ -290,11 +299,16 @@ class TestSetCustomField:
                     "dry_run": False,
                 }
             )
-            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
-            assert call_body["fields"]["versions"] == [{"name": "rhel-10.2"}]
+            put_body = mock_http.call_args_list[0][1].get("body") or mock_http.call_args_list[0][0][3]
+            assert put_body["fields"]["versions"] == [{"name": "rhel-10.2"}]
+            assert result["success"] is True
 
     def test_version_type_multiple(self):
-        with _mock_http(204, {}) as mock_http:
+        responses = [
+            (204, {}, {}),
+            (200, {"fields": {"fixVersions": [{"name": "9.8"}, {"name": "10.2"}]}}, {}),
+        ]
+        with patch.object(handler, "http", side_effect=responses) as mock_http:
             tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
@@ -304,8 +318,25 @@ class TestSetCustomField:
                     "dry_run": False,
                 }
             )
-            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
-            assert call_body["fields"]["fixVersions"] == [{"name": "9.8"}, {"name": "10.2"}]
+            put_body = mock_http.call_args_list[0][1].get("body") or mock_http.call_args_list[0][0][3]
+            assert put_body["fields"]["fixVersions"] == [{"name": "9.8"}, {"name": "10.2"}]
+
+    def test_verify_warns_on_unchanged(self):
+        responses = [
+            (204, {}, {}),  # PUT succeeds
+            (200, {"fields": {"cf_1": None}}, {}),  # GET shows field unchanged
+        ]
+        with patch.object(handler, "http", side_effect=responses):
+            result = tools_write.set_custom_field(
+                {
+                    "issue_key": "PROJ-1",
+                    "field_id": "cf_1",
+                    "value": "bad-value",
+                    "field_type": "multi-select",
+                    "dry_run": False,
+                }
+            )
+            assert "warning" in result
 
 
 # --- jira_set_story_points ---
