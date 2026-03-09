@@ -113,6 +113,9 @@ def main():
     # functions that tools_read needs, and handler needs TOOLS from
     # tools_read.
     from tools_read import TOOLS
+    from tools_write import TOOLS as WRITE_TOOLS
+
+    TOOLS.update(WRITE_TOOLS)
 
     log("handler starting")
 

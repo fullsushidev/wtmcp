@@ -114,6 +114,355 @@ tools:
       link type names.
     params: {}
 
+  # --- Phase 2: Write Tools ---
+
+  - name: jira_create_issue
+    description: >
+      Create a new Jira issue. Defaults to dry_run=true which returns
+      a preview without creating. Set dry_run=false to create.
+    params:
+      project:
+        type: string
+        required: true
+        description: "Project key (e.g. PROJ)"
+      issue_type:
+        type: string
+        required: true
+        description: "Issue type name (e.g. Bug, Story, Task, Epic)"
+      summary:
+        type: string
+        required: true
+        description: "Issue summary/title"
+      description:
+        type: string
+        description: "Issue description (plain text, converted to ADF for Cloud)"
+      assignee:
+        type: string
+        description: "Assignee accountId (Cloud) or username (Server)"
+      priority:
+        type: string
+        description: "Priority name (e.g. High, Medium, Low)"
+      labels:
+        type: array
+        items:
+          type: string
+        description: "List of labels"
+      components:
+        type: array
+        items:
+          type: string
+        description: "List of component names"
+      dry_run:
+        type: boolean
+        default: true
+        description: "Preview only (true) or create for real (false)"
+
+  - name: jira_add_comment
+    description: >
+      Add a comment to a Jira issue. Defaults to dry_run=true.
+      Uses ADF format for Cloud instances.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+      comment:
+        type: string
+        required: true
+        description: "Comment text"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_edit_comment
+    description: >
+      Edit an existing comment on a Jira issue. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+      comment_id:
+        type: string
+        required: true
+        description: "Numeric comment ID"
+      comment:
+        type: string
+        required: true
+        description: "New comment text"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_transition_issue
+    description: >
+      Transition a Jira issue to a new workflow status. Use
+      jira_get_transitions first to find valid transition IDs.
+      Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+      transition_id:
+        type: integer
+        required: true
+        description: "Transition ID from jira_get_transitions"
+      resolution:
+        type: string
+        description: "Resolution name for transitions that require one (e.g. Done)"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_assign_issue
+    description: >
+      Assign a Jira issue to a user. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+      assignee:
+        type: string
+        required: true
+        description: "Assignee accountId (Cloud) or username (Server)"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_set_priority
+    description: >
+      Set the priority of a Jira issue. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+      priority:
+        type: string
+        required: true
+        description: "Priority name (e.g. High, Medium, Low, Critical)"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_set_labels
+    description: >
+      Set labels on a Jira issue (replaces all existing labels).
+      Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      labels:
+        type: array
+        required: true
+        items:
+          type: string
+        description: "Labels to set"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_add_labels
+    description: >
+      Add labels to a Jira issue (preserves existing labels).
+      Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      labels:
+        type: array
+        required: true
+        items:
+          type: string
+        description: "Labels to add"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_remove_labels
+    description: >
+      Remove labels from a Jira issue. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      labels:
+        type: array
+        required: true
+        items:
+          type: string
+        description: "Labels to remove"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_set_text_field
+    description: >
+      Set a text field on a Jira issue (e.g. summary, description).
+      Cloud descriptions are converted to ADF automatically.
+      Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      field_name:
+        type: string
+        required: true
+        description: "Field name (e.g. summary, description, fixVersions)"
+      value:
+        type: string
+        required: true
+        description: "New value"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_set_custom_field
+    description: >
+      Set a custom field on a Jira issue. Handles type conversion
+      based on field_type (text, number, select, multi-select, user).
+      Use jira_debug_fields to find field IDs. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      field_id:
+        type: string
+        required: true
+        description: "Custom field ID (e.g. customfield_12345)"
+      value:
+        type: string
+        required: true
+        description: "Value to set"
+      field_type:
+        type: string
+        default: "auto"
+        description: "Type: text, number, select, multi-select, user, or auto"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_set_story_points
+    description: >
+      Set story points on a Jira issue. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      points:
+        type: number
+        required: true
+        description: "Story point value"
+      field_id:
+        type: string
+        default: "customfield_10028"
+        description: "Story points field ID (varies by instance)"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_set_components
+    description: >
+      Set components on a Jira issue (replaces existing).
+      Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      components:
+        type: array
+        required: true
+        items:
+          type: string
+        description: "Component names"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_add_issue_link
+    description: >
+      Add a link between two Jira issues. Use jira_get_link_types
+      to find valid link type names. Defaults to dry_run=true.
+    params:
+      link_type:
+        type: string
+        required: true
+        description: "Link type name (e.g. Blocks, Clones, Duplicates)"
+      inward_issue_key:
+        type: string
+        required: true
+        description: "Issue with the inward relationship"
+      outward_issue_key:
+        type: string
+        required: true
+        description: "Issue with the outward relationship"
+      comment:
+        type: string
+        description: "Optional comment for the link"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_delete_issue_link
+    description: >
+      Delete an issue link by its ID.
+    params:
+      link_id:
+        type: string
+        required: true
+        description: "The link ID to delete"
+
+  - name: jira_issue_worklog
+    description: >
+      Add a worklog entry to a Jira issue. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+      time_spent:
+        type: string
+        required: true
+        description: "Time spent (e.g. 2h 30m, 1d 4h)"
+      comment:
+        type: string
+        description: "Optional worklog comment"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_add_issues_to_sprint
+    description: >
+      Add issues to a sprint. Defaults to dry_run=true.
+    params:
+      sprint_id:
+        type: integer
+        required: true
+        description: "Sprint ID"
+      issue_keys:
+        type: string
+        required: true
+        description: "Comma-separated issue keys (e.g. PROJ-1,PROJ-2)"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_add_issues_to_backlog
+    description: >
+      Move issues to the backlog (removes from current sprint).
+      Defaults to dry_run=true.
+    params:
+      issue_keys:
+        type: string
+        required: true
+        description: "Comma-separated issue keys"
+      dry_run:
+        type: boolean
+        default: true
+
 setup:
   credentials:
     JIRA_URL:
