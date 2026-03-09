@@ -279,6 +279,34 @@ class TestSetCustomField:
             call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
             assert call_body["fields"]["cf_1"] == {"value": "Option A"}
 
+    def test_version_type(self):
+        with _mock_http(204, {}) as mock_http:
+            tools_write.set_custom_field(
+                {
+                    "issue_key": "PROJ-1",
+                    "field_id": "versions",
+                    "value": "rhel-10.2",
+                    "field_type": "version",
+                    "dry_run": False,
+                }
+            )
+            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
+            assert call_body["fields"]["versions"] == [{"name": "rhel-10.2"}]
+
+    def test_version_type_multiple(self):
+        with _mock_http(204, {}) as mock_http:
+            tools_write.set_custom_field(
+                {
+                    "issue_key": "PROJ-1",
+                    "field_id": "fixVersions",
+                    "value": ["9.8", "10.2"],
+                    "field_type": "version",
+                    "dry_run": False,
+                }
+            )
+            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
+            assert call_body["fields"]["fixVersions"] == [{"name": "9.8"}, {"name": "10.2"}]
+
 
 # --- jira_set_story_points ---
 
