@@ -44,6 +44,30 @@ def extract_brief_issue(issue):
     }
 
 
+def text_to_adf(text):
+    """Convert plain text to Atlassian Document Format (ADF).
+
+    Jira Cloud API v3 requires comment/description bodies in ADF.
+    Splits on newlines into paragraphs.
+    """
+    if not text:
+        return {"version": 1, "type": "doc", "content": [{"type": "paragraph", "content": []}]}
+
+    content = []
+    for para in text.split("\n"):
+        if para.strip():
+            content.append({"type": "paragraph", "content": [{"type": "text", "text": para}]})
+        else:
+            content.append({"type": "paragraph", "content": []})
+
+    return {"version": 1, "type": "doc", "content": content}
+
+
+def normalize_components(components):
+    """Normalize a list of component names or dicts to [{name: ...}]."""
+    return [c if isinstance(c, dict) else {"name": str(c)} for c in components]
+
+
 def extract_user_fields(user):
     """Extract standard fields from a Jira user dict."""
     return {

@@ -1,7 +1,14 @@
 """Unit tests for helpers.py — pure functions, no mocking needed."""
 
 import pytest
-from helpers import extract_brief_issue, extract_user_fields, is_user_alias, validate_issue_key
+from helpers import (
+    extract_brief_issue,
+    extract_user_fields,
+    is_user_alias,
+    normalize_components,
+    text_to_adf,
+    validate_issue_key,
+)
 
 # --- validate_issue_key ---
 
@@ -167,3 +174,54 @@ class TestExtractUserFields:
         assert result["accountId"] is None
         assert result["displayName"] is None
         assert result["active"] is None
+
+
+# --- text_to_adf ---
+
+
+class TestTextToAdf:
+    def test_simple_text(self):
+        result = text_to_adf("Hello world")
+        assert result["version"] == 1
+        assert result["type"] == "doc"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["content"][0]["text"] == "Hello world"
+
+    def test_multiline(self):
+        result = text_to_adf("Line 1\nLine 2\nLine 3")
+        assert len(result["content"]) == 3
+        assert result["content"][0]["content"][0]["text"] == "Line 1"
+        assert result["content"][2]["content"][0]["text"] == "Line 3"
+
+    def test_empty_lines_become_empty_paragraphs(self):
+        result = text_to_adf("Before\n\nAfter")
+        assert len(result["content"]) == 3
+        assert result["content"][1]["content"] == []
+
+    def test_empty_string(self):
+        result = text_to_adf("")
+        assert result["content"] == [{"type": "paragraph", "content": []}]
+
+    def test_none(self):
+        result = text_to_adf(None)
+        assert result["content"] == [{"type": "paragraph", "content": []}]
+
+
+# --- normalize_components ---
+
+
+class TestNormalizeComponents:
+    def test_string_list(self):
+        result = normalize_components(["Web", "API"])
+        assert result == [{"name": "Web"}, {"name": "API"}]
+
+    def test_dict_passthrough(self):
+        result = normalize_components([{"name": "Web", "id": "123"}])
+        assert result == [{"name": "Web", "id": "123"}]
+
+    def test_mixed(self):
+        result = normalize_components(["Web", {"name": "API"}])
+        assert result == [{"name": "Web"}, {"name": "API"}]
+
+    def test_empty(self):
+        assert normalize_components([]) == []
