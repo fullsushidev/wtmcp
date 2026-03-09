@@ -463,6 +463,147 @@ tools:
         type: boolean
         default: true
 
+  # --- Phase 3: Sprint Tools ---
+
+  - name: jira_list_available_sprints
+    description: >
+      List available sprints from a board or from recent tickets.
+      Returns compact sprint summaries sorted by name (newest first).
+    params:
+      board_id:
+        type: string
+        description: "Board ID (if omitted, searches recent tickets)"
+      state:
+        type: string
+        description: "Filter by state: active, closed, or future"
+      limit:
+        type: integer
+        default: 20
+        description: "Maximum sprints to return"
+
+  - name: jira_get_sprint_issues
+    description: >
+      Get issues from a sprint by name. Returns brief summaries
+      by default. Supports up to 1000 results.
+    params:
+      sprint_name:
+        type: string
+        required: true
+        description: "Full sprint name (e.g. 'TEAM Sprint 35')"
+      max_results:
+        type: integer
+        default: 200
+      brief:
+        type: boolean
+        default: true
+
+  - name: jira_search_by_sprint
+    description: >
+      Search issues in a sprint with optional assignee and status
+      filters. Returns brief summaries by default.
+    params:
+      sprint_name:
+        type: string
+        required: true
+        description: "Full sprint name"
+      assignee:
+        type: string
+        description: "Filter by assignee (use 'currentUser()' for self)"
+      status:
+        type: string
+        description: "Filter by status (e.g. Closed, In Progress)"
+      max_results:
+        type: integer
+        default: 200
+      brief:
+        type: boolean
+        default: true
+
+  - name: jira_get_all_sprints
+    description: >
+      Get all sprints for a board with optional state filter.
+    params:
+      board_id:
+        type: string
+        required: true
+      state:
+        type: string
+        description: "Filter: active, closed, future"
+      max_results:
+        type: integer
+        description: "Return only the N most recent sprints"
+
+  - name: jira_get_all_active_sprints
+    description: >
+      Get all active sprints for a board.
+    params:
+      board_id:
+        type: string
+        required: true
+
+  - name: jira_get_sprint_details
+    description: >
+      Get detailed information about a specific sprint.
+    params:
+      sprint_id:
+        type: integer
+        required: true
+
+  - name: jira_get_sprint_report
+    description: >
+      Get sprint report with metrics (Server/DC only).
+      Not available on Jira Cloud.
+    params:
+      board_id:
+        type: string
+        required: true
+      sprint_id:
+        type: integer
+        required: true
+
+  - name: jira_get_all_agile_boards
+    description: >
+      Get agile boards with compact output (id, name, type,
+      projectKey). Can filter by project or board type.
+    params:
+      project_key:
+        type: string
+        description: "Filter by project key"
+      board_type:
+        type: string
+        description: "Filter by type: scrum or kanban"
+
+  - name: jira_get_issues_for_board
+    description: >
+      Get issues for a board with brief mode.
+    params:
+      board_id:
+        type: string
+        required: true
+      max_results:
+        type: integer
+        default: 50
+      brief:
+        type: boolean
+        default: true
+
+  - name: jira_get_all_issues_for_sprint_in_board
+    description: >
+      Get issues for a specific sprint in a board with brief mode.
+    params:
+      board_id:
+        type: string
+        required: true
+      sprint_id:
+        type: integer
+        required: true
+      max_results:
+        type: integer
+        default: 200
+      brief:
+        type: boolean
+        default: true
+
 setup:
   credentials:
     JIRA_URL:
