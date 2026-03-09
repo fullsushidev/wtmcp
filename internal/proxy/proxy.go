@@ -171,6 +171,9 @@ func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.M
 	// Must come after plugin headers to override any plugin-set Content-Type.
 	if contentType != "" {
 		httpReq.Header.Set("Content-Type", contentType)
+	} else if req.Body != nil && httpReq.Header.Get("Content-Type") == "" {
+		// Default to application/json for requests with a body
+		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
 	return httpReq, nil

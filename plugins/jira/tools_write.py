@@ -49,7 +49,11 @@ def create_issue(params):
 
     status, body, _ = handler.http("POST", "/rest/api/2/issue", body={"fields": fields})
     if status < 200 or status >= 300:
-        return body
+        if isinstance(body, dict):
+            return {"error": body.get("errors", body.get("errorMessages", body)), "status": status}
+        return {"error": str(body) if body else f"HTTP {status} with no response body", "status": status}
+    if not isinstance(body, dict) or "key" not in body:
+        return {"error": "Unexpected response from Jira", "raw": str(body)[:200], "status": status}
     return {"key": body.get("key"), "id": body.get("id"), "self": body.get("self")}
 
 

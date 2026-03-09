@@ -68,7 +68,8 @@ class TestCreateIssue:
                     "dry_run": False,
                 }
             )
-            assert "errors" in result
+            assert "error" in result
+            assert result["status"] == 400
 
     def test_cloud_description_uses_adf(self):
         with patch.object(handler, "is_cloud", True):
