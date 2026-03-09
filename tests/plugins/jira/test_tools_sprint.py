@@ -38,7 +38,7 @@ SEARCH_ISSUES = {
 
 
 def _mock_http(status, body):
-    return patch.object(handler, "http", return_value=(status, body))
+    return patch.object(handler, "http", return_value=(status, body, {}))
 
 
 # --- jira_list_available_sprints ---

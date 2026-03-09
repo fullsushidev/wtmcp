@@ -47,7 +47,7 @@ def create_issue(params):
     if dry_run:
         return {"dry_run": True, "action": "jira_create_issue", "fields": fields}
 
-    status, body = handler.http("POST", "/rest/api/2/issue", body={"fields": fields})
+    status, body, _ = handler.http("POST", "/rest/api/2/issue", body={"fields": fields})
     if status < 200 or status >= 300:
         return body
     return {"key": body.get("key"), "id": body.get("id"), "self": body.get("self")}
@@ -63,7 +63,7 @@ def add_comment(params):
         return {"dry_run": True, "action": "jira_add_comment", "issue_key": issue_key, "comment_preview": comment[:200]}
 
     body_data = {"body": text_to_adf(comment)} if handler.is_cloud else {"body": comment}
-    status, body = handler.http("POST", f"/rest/api/2/issue/{issue_key}/comment", body=body_data)
+    status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/comment", body=body_data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "id": body.get("id"), "issue_key": issue_key}
@@ -89,7 +89,7 @@ def edit_comment(params):
         }
 
     body_data = {"body": text_to_adf(comment)} if handler.is_cloud else {"body": comment}
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}/comment/{comment_id}", body=body_data)
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}/comment/{comment_id}", body=body_data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "comment_id": comment_id}
@@ -117,7 +117,7 @@ def transition_issue(params):
     if resolution:
         data["fields"] = {"resolution": {"name": resolution}}
 
-    status, body = handler.http("POST", f"/rest/api/2/issue/{issue_key}/transitions", body=data)
+    status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/transitions", body=data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "transition_id": transition_id}
@@ -137,7 +137,7 @@ def assign_issue(params):
     else:
         body_data = {"name": assignee}
 
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}/assignee", body=body_data)
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}/assignee", body=body_data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "assignee": assignee}
@@ -153,7 +153,7 @@ def set_priority(params):
         return {"dry_run": True, "action": "jira_set_priority", "issue_key": issue_key, "priority": priority}
 
     fields = {"priority": {"name": priority} if isinstance(priority, str) else priority}
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": fields})
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": fields})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "priority": priority}
@@ -168,7 +168,7 @@ def set_labels(params):
     if dry_run:
         return {"dry_run": True, "action": "jira_set_labels", "issue_key": issue_key, "labels": labels}
 
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {"labels": labels}})
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {"labels": labels}})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "labels": labels}
@@ -184,7 +184,7 @@ def add_labels(params):
         return {"dry_run": True, "action": "jira_add_labels", "issue_key": issue_key, "labels_to_add": labels}
 
     data = {"update": {"labels": [{"add": lbl} for lbl in labels]}}
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body=data)
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body=data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "labels_added": labels}
@@ -200,7 +200,7 @@ def remove_labels(params):
         return {"dry_run": True, "action": "jira_remove_labels", "issue_key": issue_key, "labels_to_remove": labels}
 
     data = {"update": {"labels": [{"remove": lbl} for lbl in labels]}}
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body=data)
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body=data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "labels_removed": labels}
@@ -226,7 +226,7 @@ def set_text_field(params):
     if isinstance(value, str) and handler.is_cloud and field_name == "description":
         value = text_to_adf(value)
 
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_name: value}})
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_name: value}})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "field_name": field_name}
@@ -271,7 +271,7 @@ def set_custom_field(params):
             "value": str(field_value)[:200],
         }
 
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_id: field_value}})
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_id: field_value}})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "field_id": field_id, "field_type": field_type}
@@ -293,7 +293,7 @@ def set_story_points(params):
             "field_id": field_id,
         }
 
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_id: float(points)}})
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_id: float(points)}})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "story_points": points, "field_id": field_id}
@@ -310,7 +310,7 @@ def set_components(params):
     if dry_run:
         return {"dry_run": True, "action": "jira_set_components", "issue_key": issue_key, "components": comp_list}
 
-    status, body = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {"components": comp_list}})
+    status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {"components": comp_list}})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "components": comp_list}
@@ -335,7 +335,7 @@ def add_issue_link(params):
     if dry_run:
         return {"dry_run": True, "action": "jira_add_issue_link", "payload": payload}
 
-    status, body = handler.http("POST", "/rest/api/2/issueLink", body=payload)
+    status, body, _ = handler.http("POST", "/rest/api/2/issueLink", body=payload)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "link_type": link_type, "inward": inward_key, "outward": outward_key}
@@ -345,7 +345,7 @@ def delete_issue_link(params):
     """Delete an issue link."""
     link_id = params.get("link_id", "")
 
-    status, body = handler.http("DELETE", f"/rest/api/2/issueLink/{link_id}")
+    status, body, _ = handler.http("DELETE", f"/rest/api/2/issueLink/{link_id}")
     if status < 200 or status >= 300:
         return body
     return {"success": True, "link_id": link_id}
@@ -371,7 +371,7 @@ def issue_worklog(params):
     if comment:
         body_data["comment"] = comment
 
-    status, body = handler.http("POST", f"/rest/api/2/issue/{issue_key}/worklog", body=body_data)
+    status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/worklog", body=body_data)
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_key": issue_key, "time_spent": time_spent}
@@ -394,7 +394,7 @@ def add_issues_to_sprint(params):
             "issue_keys": issue_keys,
         }
 
-    status, body = handler.http("POST", f"/rest/agile/1.0/sprint/{sprint_id}/issue", body={"issues": issue_keys})
+    status, body, _ = handler.http("POST", f"/rest/agile/1.0/sprint/{sprint_id}/issue", body={"issues": issue_keys})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "sprint_id": sprint_id, "issue_keys": issue_keys}
@@ -411,7 +411,7 @@ def add_issues_to_backlog(params):
     if dry_run:
         return {"dry_run": True, "action": "jira_add_issues_to_backlog", "issue_keys": issue_keys}
 
-    status, body = handler.http("POST", "/rest/agile/1.0/backlog/issue", body={"issues": issue_keys})
+    status, body, _ = handler.http("POST", "/rest/agile/1.0/backlog/issue", body={"issues": issue_keys})
     if status < 200 or status >= 300:
         return body
     return {"success": True, "issue_keys": issue_keys}

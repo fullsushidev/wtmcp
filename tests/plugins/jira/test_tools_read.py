@@ -7,8 +7,8 @@ import tools_read
 
 
 def _mock_http(status, body):
-    """Return a mock for handler.http that returns (status, body)."""
-    return patch.object(handler, "http", return_value=(status, body))
+    """Return a mock for handler.http that returns (status, body, headers)."""
+    return patch.object(handler, "http", return_value=(status, body, {}))
 
 
 def _mock_cache_get(value=None):

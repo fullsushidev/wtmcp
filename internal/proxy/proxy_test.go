@@ -280,3 +280,30 @@ func TestExecuteFullURLOverride(t *testing.T) {
 		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
 	}
 }
+
+func TestResponseHeaders(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Custom", "test-value")
+		w.Header().Set("Content-Disposition", `attachment; filename="report.pdf"`)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID: "req-headers", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
+	})
+
+	if resp.Headers == nil {
+		t.Fatal("expected response headers")
+	}
+	if resp.Headers["X-Custom"] != "test-value" {
+		t.Errorf("X-Custom = %q", resp.Headers["X-Custom"])
+	}
+	if resp.Headers["Content-Disposition"] != `attachment; filename="report.pdf"` {
+		t.Errorf("Content-Disposition = %q", resp.Headers["Content-Disposition"])
+	}
+}

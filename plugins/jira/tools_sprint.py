@@ -39,7 +39,7 @@ def _get_board_sprints(board_id, state, limit):
         query = {"startAt": str(start), "maxResults": str(page_size)}
         if state:
             query["state"] = state
-        status, body = handler.http("GET", f"/rest/agile/1.0/board/{board_id}/sprint", query=query)
+        status, body, _ = handler.http("GET", f"/rest/agile/1.0/board/{board_id}/sprint", query=query)
         if status < 200 or status >= 300:
             return body
         values = body.get("values", [])
@@ -55,7 +55,7 @@ def _get_board_sprints(board_id, state, limit):
 def _get_sprints_from_tickets(state, limit):
     """Extract sprint names from recent tickets via JQL."""
     jql = "assignee = currentUser() AND updated >= -60d ORDER BY updated DESC"
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
         query={"jql": jql, "maxResults": "100", "fields": "sprint"},
@@ -91,7 +91,7 @@ def get_sprint_issues(params):
     brief = params.get("brief", True)
 
     jql = f'sprint = "{escape_jql(sprint_name)}" ORDER BY updated DESC'
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
         query={"jql": jql, "maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
@@ -132,7 +132,7 @@ def search_by_sprint(params):
 
     jql = " AND ".join(clauses) + " ORDER BY updated DESC"
 
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
         query={"jql": jql, "maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
@@ -179,7 +179,7 @@ def get_all_active_sprints(params):
 def get_sprint_details(params):
     """Get detailed sprint information."""
     sprint_id = params.get("sprint_id", "")
-    status, body = handler.http("GET", f"/rest/agile/1.0/sprint/{sprint_id}")
+    status, body, _ = handler.http("GET", f"/rest/agile/1.0/sprint/{sprint_id}")
     if status < 200 or status >= 300:
         return body
     return body
@@ -197,7 +197,7 @@ def get_sprint_report(params):
             "Use jira_get_sprint_issues instead."
         }
 
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         "/rest/greenhopper/1.0/rapid/charts/sprintreport",
         query={"rapidViewId": str(board_id), "sprintId": str(sprint_id)},
@@ -218,7 +218,7 @@ def get_all_agile_boards(params):
     if board_type:
         query["type"] = board_type
 
-    status, body = handler.http("GET", "/rest/agile/1.0/board", query=query or None)
+    status, body, _ = handler.http("GET", "/rest/agile/1.0/board", query=query or None)
     if status < 200 or status >= 300:
         return body
 
@@ -239,7 +239,7 @@ def get_issues_for_board(params):
     max_results = min(int(params.get("max_results", 50)), 200)
     brief = params.get("brief", True)
 
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         f"/rest/agile/1.0/board/{board_id}/issue",
         query={"maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
@@ -265,7 +265,7 @@ def get_all_issues_for_sprint_in_board(params):
     max_results = min(int(params.get("max_results", 200)), 1000)
     brief = params.get("brief", True)
 
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         f"/rest/agile/1.0/board/{board_id}/sprint/{sprint_id}/issue",
         query={"maxResults": str(max_results), "fields": "summary,status,assignee,priority"},

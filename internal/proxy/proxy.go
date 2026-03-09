@@ -93,10 +93,11 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 	}
 
 	return protocol.Message{
-		ID:     req.ID,
-		Type:   protocol.TypeHTTPResponse,
-		Status: resp.StatusCode,
-		Body:   body,
+		ID:      req.ID,
+		Type:    protocol.TypeHTTPResponse,
+		Status:  resp.StatusCode,
+		Headers: responseHeaders(resp),
+		Body:    body,
 	}
 }
 
@@ -217,6 +218,17 @@ func (p *Proxy) isDomainAllowed(pluginName string, pa *PluginAuth, rawURL string
 		}
 	}
 	return false
+}
+
+func responseHeaders(resp *http.Response) map[string]string {
+	if len(resp.Header) == 0 {
+		return nil
+	}
+	h := make(map[string]string, len(resp.Header))
+	for k := range resp.Header {
+		h[k] = resp.Header.Get(k)
+	}
+	return h
 }
 
 func errResponse(id, code, message string) protocol.Message {

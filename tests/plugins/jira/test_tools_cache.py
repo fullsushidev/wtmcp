@@ -9,7 +9,7 @@ import tools_cache
 
 
 def _mock_http(status, body):
-    return patch.object(handler, "http", return_value=(status, body))
+    return patch.object(handler, "http", return_value=(status, body, {}))
 
 
 SAMPLE_SPRINT_EXPORT = {
@@ -86,8 +86,8 @@ class TestExportSprintData:
             nonlocal call_count
             call_count += 1
             if "sprint/1" in path and "issue" not in path:
-                return 200, sprint_info
-            return 200, issues_resp
+                return 200, sprint_info, {}
+            return 200, issues_resp, {}
 
         with patch.object(handler, "http", side_effect=mock_http):
             result = tools_cache.export_sprint_data(

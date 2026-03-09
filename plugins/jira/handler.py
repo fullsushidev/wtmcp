@@ -40,7 +40,7 @@ def _recv():
 def http(method, path, query=None, body=None, headers=None):
     """Make an HTTP request via the core proxy.
 
-    Returns (status, body). Status 0 means transport error.
+    Returns (status, body, headers). Status 0 means transport error.
     """
     msg = {
         "id": _gen_id("http"),
@@ -58,8 +58,8 @@ def http(method, path, query=None, body=None, headers=None):
     resp = _recv()
     status = resp.get("status", 0)
     if status == 0:
-        return 0, {"error": resp.get("error", "request failed")}
-    return status, resp.get("body", {})
+        return 0, {"error": resp.get("error", "request failed")}, {}
+    return status, resp.get("body", {}), resp.get("headers", {})
 
 
 def cache_get(key):
@@ -87,7 +87,7 @@ def cache_set(key, value, ttl=None):
 
 def _detect_cloud():
     """Detect if Jira instance is Cloud based on serverInfo."""
-    status, body = http("GET", "/rest/api/2/serverInfo")
+    status, body, _ = http("GET", "/rest/api/2/serverInfo")
     if 200 <= status < 300 and isinstance(body, dict):
         deployment = body.get("deploymentType", "")
         if deployment.lower() == "cloud":

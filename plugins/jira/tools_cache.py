@@ -38,12 +38,12 @@ def export_sprint_data(params):
     path = _validate_export_path(output_file)
 
     # Fetch sprint info
-    status, sprint_info = handler.http("GET", f"/rest/agile/1.0/sprint/{sprint_id}")
+    status, sprint_info, _ = handler.http("GET", f"/rest/agile/1.0/sprint/{sprint_id}")
     if status < 200 or status >= 300:
         return sprint_info
 
     # Fetch issues
-    status, issues_resp = handler.http(
+    status, issues_resp, _ = handler.http(
         "GET",
         f"/rest/agile/1.0/board/{board_id}/sprint/{sprint_id}/issue",
         query={"maxResults": "1000", "fields": "*all"},
@@ -91,7 +91,7 @@ def export_board_sprints(params):
         query: dict = {"startAt": str(start), "maxResults": "50"}
         if state:
             query["state"] = state
-        status, body = handler.http("GET", f"/rest/agile/1.0/board/{board_id}/sprint", query=query)
+        status, body, _ = handler.http("GET", f"/rest/agile/1.0/board/{board_id}/sprint", query=query)
         if status < 200 or status >= 300:
             return body
         values = body.get("values", [])
@@ -129,7 +129,7 @@ def export_sprint_report(params):
 
     path = _validate_export_path(output_file)
 
-    status, report = handler.http(
+    status, report, _ = handler.http(
         "GET",
         "/rest/greenhopper/1.0/rapid/charts/sprintreport",
         query={"rapidViewId": str(board_id), "sprintId": str(sprint_id)},
@@ -354,7 +354,7 @@ def debug_fields(params):
     """List Jira custom fields, optionally filtered by name."""
     search = params.get("search", "")
 
-    status, body = handler.http("GET", "/rest/api/2/field")
+    status, body, _ = handler.http("GET", "/rest/api/2/field")
     if status < 200 or status >= 300:
         return body
 

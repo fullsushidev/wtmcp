@@ -18,7 +18,7 @@ def get_myself(_params):
         handler.log("returning cached user profile")
         return cached
 
-    status, body = handler.http("GET", "/rest/api/2/myself")
+    status, body, _ = handler.http("GET", "/rest/api/2/myself")
     if status < 200 or status >= 300:
         return body
 
@@ -40,7 +40,7 @@ def search(params):
         handler.log(f"returning cached search: {jql[:60]}")
         return cached
 
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
         query={
@@ -84,7 +84,7 @@ def get_issues(params):
     key_list = ",".join(keys)
     jql = f"key in ({key_list})"
 
-    status, body = handler.http(
+    status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
         query={
@@ -120,7 +120,7 @@ def get_user(params):
 
     # Handle self-referencing aliases.
     if is_user_alias(username):
-        status, body = handler.http("GET", "/rest/api/2/myself")
+        status, body, _ = handler.http("GET", "/rest/api/2/myself")
         if 200 <= status < 300 and isinstance(body, dict):
             return extract_user_fields(body)
         return body
@@ -131,7 +131,7 @@ def get_user(params):
     else:
         query = {"username": username}
 
-    status, body = handler.http("GET", "/rest/api/2/user/search", query=query)
+    status, body, _ = handler.http("GET", "/rest/api/2/user/search", query=query)
     if status < 200 or status >= 300:
         return body
 
@@ -145,7 +145,7 @@ def get_user(params):
 def get_transitions(params):
     """Get available workflow transitions for an issue."""
     issue_key = validate_issue_key(params.get("issue_key", ""))
-    status, body = handler.http("GET", f"/rest/api/2/issue/{issue_key}/transitions")
+    status, body, _ = handler.http("GET", f"/rest/api/2/issue/{issue_key}/transitions")
     if status < 200 or status >= 300:
         return body
     return body
@@ -153,7 +153,7 @@ def get_transitions(params):
 
 def get_resolutions(_params):
     """Get all available resolution values."""
-    status, body = handler.http("GET", "/rest/api/2/resolution")
+    status, body, _ = handler.http("GET", "/rest/api/2/resolution")
     if status < 200 or status >= 300:
         return body
     if isinstance(body, list):
@@ -163,7 +163,7 @@ def get_resolutions(_params):
 
 def get_link_types(_params):
     """List available issue link types."""
-    status, body = handler.http("GET", "/rest/api/2/issueLinkType")
+    status, body, _ = handler.http("GET", "/rest/api/2/issueLinkType")
     if status < 200 or status >= 300:
         return body
     return body
