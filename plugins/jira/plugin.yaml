@@ -114,5 +114,40 @@ tools:
       link type names.
     params: {}
 
+setup:
+  credentials:
+    JIRA_URL:
+      description: "Base URL of your Jira instance"
+      example: "https://your-company.atlassian.net"
+      secret: false
+    JIRA_TOKEN:
+      description: "API token (Cloud) or Personal Access Token (Server/DC)"
+      help_url: "https://id.atlassian.com/manage-profile/security/api-tokens"
+      instructions: >
+        Cloud: Go to Atlassian API tokens page, click 'Create API token',
+        give it a name, and copy the generated token.
+        Server/DC: In Jira, go to Profile > Personal Access Tokens >
+        Create token. Copy the generated token.
+      secret: true
+    JIRA_EMAIL:
+      description: "Email address associated with your Atlassian account"
+      example: "your-email@company.com"
+      secret: false
+  variants:
+    cloud:
+      label: "Jira Cloud (Atlassian-hosted)"
+      description: "For *.atlassian.net instances"
+      required: [JIRA_URL, JIRA_EMAIL, JIRA_TOKEN]
+    server-token:
+      label: "Jira Server / Data Center (token)"
+      description: "For self-hosted Jira with Personal Access Token"
+      required: [JIRA_URL, JIRA_TOKEN]
+    server-kerberos:
+      label: "Jira Server / Data Center (Kerberos)"
+      description: "For self-hosted Jira with Kerberos/SPNEGO authentication"
+      required: [JIRA_URL]
+  validation_tool: jira_get_myself
+  post_setup_message: "Restart the MCP server for changes to take effect."
+
 enabled: true
 priority: 10
