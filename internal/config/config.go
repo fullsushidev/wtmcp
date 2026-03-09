@@ -1,5 +1,5 @@
 // Package config handles core configuration loading and environment
-// variable resolution for what-the-mcp.
+// variable resolution for what-the-mcp-ng.
 package config
 
 import (
@@ -12,6 +12,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// AppName is used for FHS paths (/usr/share/<AppName>/plugins, etc.).
+const AppName = "what-the-mcp-ng"
 
 // Config holds the core server configuration.
 type Config struct {
@@ -160,9 +163,9 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 //
 // Search order:
 //  1. {binary}/plugins (dev: plugins next to binary)
-//  2. {binary}/../share/what-the-mcp/plugins (installed: FHS layout)
-//  3. /usr/share/what-the-mcp/plugins (system packages)
-//  4. /usr/local/share/what-the-mcp/plugins (local installs, Homebrew)
+//  2. {binary}/../share/<AppName>/plugins (installed: FHS layout)
+//  3. /usr/share/<AppName>/plugins (system packages)
+//  4. /usr/local/share/<AppName>/plugins (local installs, Homebrew)
 //  5. {workdir}/plugins (user plugins, highest priority)
 func defaultPluginDirs(userDir string) []string {
 	var dirs []string
@@ -175,8 +178,8 @@ func defaultPluginDirs(userDir string) []string {
 			devPlugins := filepath.Join(binDir, "plugins")
 			dirs = append(dirs, filepath.Clean(devPlugins))
 
-			// Installed: {prefix}/share/what-the-mcp/plugins
-			installed := filepath.Join(binDir, "..", "share", "what-the-mcp", "plugins")
+			// Installed: {prefix}/share/<AppName>/plugins
+			installed := filepath.Join(binDir, "..", "share", AppName, "plugins")
 			cleaned := filepath.Clean(installed)
 			if !containsPath(dirs, cleaned) {
 				dirs = append(dirs, cleaned)
@@ -186,8 +189,8 @@ func defaultPluginDirs(userDir string) []string {
 
 	// Standard system paths
 	for _, sysDir := range []string{
-		"/usr/share/what-the-mcp/plugins",
-		"/usr/local/share/what-the-mcp/plugins",
+		filepath.Join("/usr/share", AppName, "plugins"),
+		filepath.Join("/usr/local/share", AppName, "plugins"),
 	} {
 		if !containsPath(dirs, sysDir) {
 			dirs = append(dirs, sysDir)

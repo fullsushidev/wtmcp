@@ -1,4 +1,4 @@
-// what-the-mcp is an MCP server with a language-agnostic plugin protocol.
+// what-the-mcp-ng is an MCP server with a language-agnostic plugin protocol.
 package main
 
 import (
@@ -27,7 +27,7 @@ var (
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("what-the-mcp %s (built %s)\n", Version, BuildDate)
+		fmt.Printf("what-the-mcp-ng %s (built %s)\n", Version, BuildDate)
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "check" {
@@ -104,7 +104,7 @@ func run() error {
 	}()
 
 	srv := server.New(Version, mgr, cfg)
-	log.Printf("what-the-mcp %s starting (workdir: %s)", Version, workdir)
+	log.Printf("what-the-mcp-ng %s starting (workdir: %s)", Version, workdir)
 	return mcpserver.ServeStdio(srv)
 }
 
@@ -135,7 +135,7 @@ func runCheck() error {
 		return err
 	}
 
-	fmt.Printf("what-the-mcp %s\n", Version)
+	fmt.Printf("what-the-mcp-ng %s\n", Version)
 	fmt.Printf("workdir: %s\n", workdir)
 	fmt.Printf("\nplugin search path:\n")
 	for i, dir := range cfg.PluginDirs {

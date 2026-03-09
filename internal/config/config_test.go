@@ -189,12 +189,12 @@ func TestDefaultPluginDirs(t *testing.T) {
 }
 
 func TestContainsPath(t *testing.T) {
-	dirs := []string{"/usr/share/what-the-mcp/plugins", "/home/user/plugins"}
+	dirs := []string{"/usr/share/" + AppName + "/plugins", "/home/user/plugins"}
 
-	if !containsPath(dirs, "/usr/share/what-the-mcp/plugins") {
+	if !containsPath(dirs, "/usr/share/"+AppName+"/plugins") {
 		t.Error("should contain exact path")
 	}
-	if !containsPath(dirs, "/usr/share/what-the-mcp/plugins/") {
+	if !containsPath(dirs, "/usr/share/"+AppName+"/plugins/") {
 		t.Error("should match with trailing slash")
 	}
 	if containsPath(dirs, "/opt/plugins") {

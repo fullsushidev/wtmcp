@@ -9,8 +9,8 @@ all: build
 
 # Build the binary
 build:
-	@echo "Building what-the-mcp..."
-	go build -ldflags "$(LDFLAGS)" -o what-the-mcp ./cmd/...
+	@echo "Building what-the-mcp-ng..."
+	go build -ldflags "$(LDFLAGS)" -o what-the-mcp-ng ./cmd/...
 
 # Run tests
 test:
@@ -50,12 +50,12 @@ pre-commit:
 # Clean build artifacts
 clean:
 	@echo "Cleaning..."
-	rm -f what-the-mcp
+	rm -f what-the-mcp-ng
 	rm -f coverage.out
 
 # Show help
 help:
-	@echo "what-the-mcp Makefile"
+	@echo "what-the-mcp-ng Makefile"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  all         - Build (default)"
