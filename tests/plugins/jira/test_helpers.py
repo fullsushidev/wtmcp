@@ -2,10 +2,14 @@
 
 import pytest
 from helpers import (
+    escape_jql,
     extract_brief_issue,
+    extract_sprint_summary,
     extract_user_fields,
     is_user_alias,
+    natural_sort_key,
     normalize_components,
+    parse_sprint_field,
     text_to_adf,
     validate_issue_key,
 )
@@ -225,3 +229,79 @@ class TestNormalizeComponents:
 
     def test_empty(self):
         assert normalize_components([]) == []
+
+
+# --- parse_sprint_field ---
+
+
+class TestParseSprintField:
+    def test_cloud_dict(self):
+        data = {"id": 123, "name": "Sprint 1", "state": "active"}
+        assert parse_sprint_field(data) == data
+
+    def test_server_string(self):
+        data = "com.atlassian.greenhopper.service.sprint.Sprint@abc[id=123,name=Sprint 1,state=active]"
+        result = parse_sprint_field(data)
+        assert result["id"] == "123"
+        assert result["name"] == "Sprint 1"
+        assert result["state"] == "active"
+
+    def test_empty(self):
+        assert parse_sprint_field(None) == {}
+        assert parse_sprint_field(42) == {}
+
+
+# --- natural_sort_key ---
+
+
+class TestNaturalSortKey:
+    def test_numeric_sorting(self):
+        names = ["Sprint 10", "Sprint 2", "Sprint 1", "Sprint 9"]
+        sorted_names = sorted(names, key=natural_sort_key)
+        assert sorted_names == ["Sprint 1", "Sprint 2", "Sprint 9", "Sprint 10"]
+
+    def test_alpha_sorting(self):
+        names = ["Beta", "Alpha", "Gamma"]
+        assert sorted(names, key=natural_sort_key) == ["Alpha", "Beta", "Gamma"]
+
+
+# --- escape_jql ---
+
+
+class TestEscapeJql:
+    def test_quotes(self):
+        assert escape_jql('Sprint "1"') == 'Sprint \\"1\\"'
+
+    def test_backslash(self):
+        assert escape_jql("a\\b") == "a\\\\b"
+
+    def test_newlines(self):
+        assert escape_jql("a\nb") == "a\\nb"
+
+    def test_null_bytes(self):
+        assert escape_jql("a\0b") == "ab"
+
+    def test_clean_string(self):
+        assert escape_jql("Sprint 35") == "Sprint 35"
+
+
+# --- extract_sprint_summary ---
+
+
+class TestExtractSprintSummary:
+    def test_full(self):
+        sprint = {
+            "id": 1,
+            "name": "S1",
+            "state": "active",
+            "startDate": "2026-01-01",
+            "endDate": "2026-01-14",
+            "extra": "x",
+        }
+        result = extract_sprint_summary(sprint)
+        assert result == {"id": 1, "name": "S1", "state": "active", "startDate": "2026-01-01", "endDate": "2026-01-14"}
+        assert "extra" not in result
+
+    def test_partial(self):
+        result = extract_sprint_summary({"id": 1, "name": "S1"})
+        assert result["state"] is None

@@ -68,6 +68,58 @@ def normalize_components(components):
     return [c if isinstance(c, dict) else {"name": str(c)} for c in components]
 
 
+def parse_sprint_field(sprint_data):
+    """Parse sprint field from Cloud (dict) or Server (string) format.
+
+    Server format: "com.atlassian...@abc[id=123,name=Sprint 1,state=active,...]"
+    Cloud format: {"id": 123, "name": "Sprint 1", "state": "active", ...}
+    """
+    if isinstance(sprint_data, dict):
+        return sprint_data
+    if isinstance(sprint_data, str):
+        content = sprint_data
+        bracket_start = content.find("[")
+        bracket_end = content.rfind("]")
+        if bracket_start != -1 and bracket_end != -1:
+            content = content[bracket_start + 1 : bracket_end]
+        info = {}
+        for pair in content.split(","):
+            if "=" in pair:
+                key, value = pair.split("=", 1)
+                info[key.strip()] = value.strip()
+        return info
+    return {}
+
+
+def natural_sort_key(name):
+    """Sort key for numeric-aware ordering of sprint names.
+
+    "Sprint 9" sorts before "Sprint 10" instead of after.
+    """
+    return [(0, int(c), "") if c.isdigit() else (1, 0, c.lower()) for c in re.split(r"(\d+)", name)]
+
+
+def escape_jql(value):
+    """Escape a value for safe use in double-quoted JQL strings."""
+    value = value.replace("\\", "\\\\")
+    value = value.replace('"', '\\"')
+    value = value.replace("\n", "\\n")
+    value = value.replace("\r", "\\r")
+    value = value.replace("\0", "")
+    return value
+
+
+def extract_sprint_summary(sprint):
+    """Extract compact sprint info: id, name, state, dates."""
+    return {
+        "id": sprint.get("id"),
+        "name": sprint.get("name"),
+        "state": sprint.get("state"),
+        "startDate": sprint.get("startDate"),
+        "endDate": sprint.get("endDate"),
+    }
+
+
 def extract_user_fields(user):
     """Extract standard fields from a Jira user dict."""
     return {
