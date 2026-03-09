@@ -4,13 +4,16 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strings"
 
@@ -124,7 +127,15 @@ func (p *Proxy) resolveURL(pluginName string, pa *PluginAuth, req protocol.Messa
 
 func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.Message) (*http.Request, error) {
 	var bodyReader io.Reader
-	if req.Body != nil {
+	var contentType string
+
+	if len(req.Multipart) > 0 {
+		var err error
+		bodyReader, contentType, err = buildMultipart(req.Multipart)
+		if err != nil {
+			return nil, fmt.Errorf("build multipart: %w", err)
+		}
+	} else if req.Body != nil {
 		bodyReader = strings.NewReader(string(req.Body))
 	}
 
@@ -156,7 +167,61 @@ func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.M
 		httpReq.Header.Set(k, v)
 	}
 
+	// Proxy sets Content-Type for multipart (includes boundary).
+	// Must come after plugin headers to override any plugin-set Content-Type.
+	if contentType != "" {
+		httpReq.Header.Set("Content-Type", contentType)
+	}
+
 	return httpReq, nil
+}
+
+// buildMultipart assembles a multipart/form-data body from protocol parts.
+func buildMultipart(parts []protocol.MultipartPart) (io.Reader, string, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	for _, part := range parts {
+		var content []byte
+		if part.BodyEncoding == "base64" {
+			var err error
+			content, err = base64.StdEncoding.DecodeString(part.Body)
+			if err != nil {
+				return nil, "", fmt.Errorf("base64 decode field %q: %w", part.Field, err)
+			}
+		} else {
+			content = []byte(part.Body)
+		}
+
+		if part.Filename != "" {
+			ct := part.ContentType
+			if ct == "" {
+				ct = "application/octet-stream"
+			}
+			h := make(textproto.MIMEHeader)
+			h.Set("Content-Disposition",
+				fmt.Sprintf(`form-data; name=%q; filename=%q`, part.Field, part.Filename))
+			h.Set("Content-Type", ct)
+
+			pw, err := w.CreatePart(h)
+			if err != nil {
+				return nil, "", fmt.Errorf("create file part %q: %w", part.Field, err)
+			}
+			if _, err := pw.Write(content); err != nil {
+				return nil, "", fmt.Errorf("write file part %q: %w", part.Field, err)
+			}
+		} else {
+			if err := w.WriteField(part.Field, string(content)); err != nil {
+				return nil, "", fmt.Errorf("write field %q: %w", part.Field, err)
+			}
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, "", fmt.Errorf("close multipart writer: %w", err)
+	}
+
+	return &buf, w.FormDataContentType(), nil
 }
 
 func (p *Proxy) injectAuth(ctx context.Context, provider auth.Provider, httpReq *http.Request) error {

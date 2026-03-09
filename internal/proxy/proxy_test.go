@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
@@ -374,5 +376,141 @@ func TestTextResponse(t *testing.T) {
 	}
 	if text != "hello world" {
 		t.Errorf("text = %q", text)
+	}
+}
+
+func TestMultipartFileUpload(t *testing.T) {
+	pngData := []byte{0x89, 0x50, 0x4e, 0x47}
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ct := r.Header.Get("Content-Type")
+		if !strings.HasPrefix(ct, "multipart/form-data") {
+			t.Fatalf("Content-Type = %q, want multipart/form-data", ct)
+		}
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			t.Fatalf("FormFile: %v", err)
+		}
+		defer func() { _ = file.Close() }()
+
+		if header.Filename != "test.png" {
+			t.Errorf("filename = %q, want test.png", header.Filename)
+		}
+		if header.Header.Get("Content-Type") != "image/png" {
+			t.Errorf("part Content-Type = %q, want image/png", header.Header.Get("Content-Type"))
+		}
+		content, _ := io.ReadAll(file)
+		if string(content) != string(pngData) {
+			t.Errorf("content = %x, want %x", content, pngData)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[{"id":"att-1","filename":"test.png"}]`))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-mp-1",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "POST",
+		Path:   "/upload",
+		Multipart: []protocol.MultipartPart{{
+			Field:        "file",
+			Filename:     "test.png",
+			ContentType:  "image/png",
+			Body:         base64.StdEncoding.EncodeToString(pngData),
+			BodyEncoding: "base64",
+		}},
+	})
+
+	if resp.Status != 200 {
+		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
+
+func TestMultipartTextField(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(10 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		comment := r.FormValue("comment")
+		if comment != "test comment" {
+			t.Errorf("comment = %q, want 'test comment'", comment)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-mp-2",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "POST",
+		Path:   "/form",
+		Multipart: []protocol.MultipartPart{
+			{Field: "comment", Body: "test comment"},
+		},
+	})
+
+	if resp.Status != 200 {
+		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
+
+func TestMultipartInvalidBase64(t *testing.T) {
+	p := New(nil, 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: "https://example.com"})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-mp-bad",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "POST",
+		Path:   "/upload",
+		Multipart: []protocol.MultipartPart{
+			{Field: "file", Filename: "bad.bin", Body: "not-valid-base64!!!", BodyEncoding: "base64"},
+		},
+	})
+
+	if resp.Error == nil || resp.Error.Code != "build_request" {
+		t.Errorf("expected build_request error, got %v", resp.Error)
+	}
+}
+
+func TestMultipartOverridesContentType(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ct := r.Header.Get("Content-Type")
+		if !strings.HasPrefix(ct, "multipart/form-data; boundary=") {
+			t.Errorf("Content-Type = %q, want multipart/form-data with boundary", ct)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:      "req-mp-ct",
+		Type:    protocol.TypeHTTPRequest,
+		Method:  "POST",
+		Path:    "/upload",
+		Headers: map[string]string{"Content-Type": "application/json"},
+		Multipart: []protocol.MultipartPart{
+			{Field: "file", Filename: "f.txt", Body: "data"},
+		},
+	})
+
+	if resp.Status != 200 {
+		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
 	}
 }

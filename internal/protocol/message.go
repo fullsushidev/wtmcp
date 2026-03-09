@@ -32,6 +32,7 @@ type Message struct {
 	Headers      map[string]string `json:"headers,omitempty"`
 	Body         json.RawMessage   `json:"body,omitempty"`
 	BodyEncoding string            `json:"body_encoding,omitempty"`
+	Multipart    []MultipartPart   `json:"multipart,omitempty"`
 	Status       int               `json:"status,omitempty"`
 
 	// cache fields
@@ -54,6 +55,16 @@ type Message struct {
 type AuthTarget struct {
 	Method string `json:"method"`
 	URL    string `json:"url"`
+}
+
+// MultipartPart describes one part of a multipart/form-data request.
+// If Filename is set, the part is a file upload; otherwise it's a text field.
+type MultipartPart struct {
+	Field        string `json:"field"`
+	Filename     string `json:"filename,omitempty"`
+	ContentType  string `json:"content_type,omitempty"`
+	Body         string `json:"body"`
+	BodyEncoding string `json:"body_encoding,omitempty"`
 }
 
 // Error is a structured error returned by plugins.

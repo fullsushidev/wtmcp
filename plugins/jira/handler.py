@@ -68,6 +68,58 @@ def http(method, path, query=None, body=None, headers=None):
     return status, resp_body, resp_headers
 
 
+def http_upload(method, path, field, filename, content, content_type=None, extra_fields=None, headers=None, query=None):
+    """Upload a file via the core proxy using multipart/form-data.
+
+    Args:
+        method: HTTP method (usually "POST").
+        path: API path relative to base_url.
+        field: Form field name for the file (e.g., "file").
+        filename: Filename for Content-Disposition.
+        content: File content as bytes.
+        content_type: MIME type (default: application/octet-stream).
+        extra_fields: Optional dict of additional text form fields.
+        headers: Optional extra headers (do NOT set Content-Type).
+        query: Optional query parameters.
+
+    Returns (status, body, headers).
+    """
+    import base64 as b64
+
+    parts = [
+        {
+            "field": field,
+            "filename": filename,
+            "body": b64.b64encode(content).decode("ascii"),
+            "body_encoding": "base64",
+        }
+    ]
+    if content_type:
+        parts[0]["content_type"] = content_type
+
+    if extra_fields:
+        for k, v in extra_fields.items():
+            parts.append({"field": k, "body": str(v)})
+
+    msg = {"id": _gen_id("http"), "type": "http_request", "method": method, "path": path, "multipart": parts}
+    if query:
+        msg["query"] = query
+    if headers:
+        msg["headers"] = headers
+    _send(msg)
+    resp = _recv()
+    status = resp.get("status", 0)
+    if status == 0:
+        return 0, {"error": resp.get("error", "request failed")}, {}
+    resp_body = resp.get("body", {})
+    resp_headers = resp.get("headers", {})
+    if resp.get("body_encoding") == "base64" and isinstance(resp_body, str):
+        import base64
+
+        resp_body = base64.b64decode(resp_body)
+    return status, resp_body, resp_headers
+
+
 def cache_get(key):
     """Get a value from the core cache. Returns value or None."""
     _send({"id": _gen_id("cache"), "type": "cache_get", "key": key})
