@@ -93,6 +93,16 @@ handled automatically:
 - User assignment uses accountId on Cloud, username on Server
 - Sprint report (Greenhopper API) is only available on Server/DC
 
+### Attachments
+
+Use `file_path` with an **absolute path** when attaching files.
+Relative paths won't resolve correctly since the plugin runs
+from a different working directory:
+```
+jira_add_attachment(issue_key="PROJ-123",
+                    file_path="/home/user/path/to/file.png")
+```
+
 ### Brief Mode
 
 Search and sprint tools return compact summaries by default
