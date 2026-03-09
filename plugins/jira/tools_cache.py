@@ -404,8 +404,15 @@ def download_attachment(params):
     mime_type = meta.get("mimeType", default_mime) if isinstance(meta, dict) else default_mime
     size = meta.get("size", 0) if isinstance(meta, dict) else 0
 
-    # Download content via the content URL path
-    status, content, headers = handler.http("GET", f"/rest/api/2/attachment/content/{attachment_id}")
+    # Get the content URL from metadata — on Server/DC this is a full URL
+    # like https://jira.example.com/secure/attachment/123/file.txt,
+    # on Cloud it's the REST content endpoint.
+    content_url = meta.get("content", "") if isinstance(meta, dict) else ""
+    if not content_url:
+        return {"error": f"No content URL in attachment metadata for {attachment_id}"}
+
+    # Download using the full URL from metadata
+    status, content, headers = handler.http("GET", "", url=content_url)
     if status < 200 or status >= 300:
         return content if not isinstance(content, bytes) else {"error": "Download failed"}
 

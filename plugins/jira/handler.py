@@ -37,10 +37,12 @@ def _recv():
     return json.loads(line.strip())
 
 
-def http(method, path, query=None, body=None, headers=None):
+def http(method, path, query=None, body=None, headers=None, url=None):
     """Make an HTTP request via the core proxy.
 
     Returns (status, body, headers). Status 0 means transport error.
+    When url is provided, it overrides base_url + path (must match
+    an allowed domain).
     """
     msg = {
         "id": _gen_id("http"),
@@ -48,6 +50,8 @@ def http(method, path, query=None, body=None, headers=None):
         "method": method,
         "path": path,
     }
+    if url:
+        msg["url"] = url
     if query:
         msg["query"] = query
     if body is not None:

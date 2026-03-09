@@ -266,14 +266,15 @@ class TestDebugFields:
 
 class TestDownloadAttachment:
     def test_text_content(self):
-        meta = {"filename": "notes.txt", "mimeType": "text/plain", "size": 11}
+        meta = {
+            "filename": "notes.txt",
+            "mimeType": "text/plain",
+            "size": 11,
+            "content": "https://jira.example.com/secure/attachment/123/notes.txt",
+        }
 
-        call_count = 0
-
-        def mock_http(_method, path, **_kwargs):
-            nonlocal call_count
-            call_count += 1
-            if "content" in path:
+        def mock_http(_method, _path, **kwargs):
+            if kwargs.get("url"):
                 return 200, "hello world", {"Content-Type": "text/plain"}
             return 200, meta, {}
 
@@ -284,10 +285,15 @@ class TestDownloadAttachment:
             assert result["content"] == "hello world"
 
     def test_binary_content(self):
-        meta = {"filename": "image.png", "mimeType": "image/png", "size": 4}
+        meta = {
+            "filename": "image.png",
+            "mimeType": "image/png",
+            "size": 4,
+            "content": "https://jira.example.com/secure/attachment/456/image.png",
+        }
 
-        def mock_http(_method, path, **_kwargs):
-            if "content" in path:
+        def mock_http(_method, _path, **kwargs):
+            if kwargs.get("url"):
                 return 200, b"\x89PNG", {"Content-Type": "image/png"}
             return 200, meta, {}
 
@@ -304,6 +310,36 @@ class TestDownloadAttachment:
 
         with pytest.raises(ValueError, match="Invalid attachment_id"):
             tools_cache.download_attachment({"attachment_id": "abc"})
+
+    def test_no_content_url(self):
+        meta = {"filename": "notes.txt", "mimeType": "text/plain", "size": 11}
+        with _mock_http(200, meta):
+            result = tools_cache.download_attachment({"attachment_id": "123"})
+            assert "error" in result
+            assert "No content URL" in result["error"]
+
+    def test_metadata_fetch_failure(self):
+        with _mock_http(404, {"error": "Not Found"}):
+            result = tools_cache.download_attachment({"attachment_id": "999"})
+            assert "error" in result
+
+    def test_uses_full_url_from_metadata(self):
+        """Verify the content URL from metadata is passed as url= kwarg."""
+        content_url = "https://jira.example.com/secure/attachment/789/file.txt"
+        meta = {"filename": "file.txt", "mimeType": "text/plain", "size": 5, "content": content_url}
+
+        calls = []
+
+        def mock_http(_method, _path, **kwargs):
+            calls.append(kwargs)
+            if kwargs.get("url"):
+                return 200, "hello", {}
+            return 200, meta, {}
+
+        with patch.object(handler, "http", side_effect=mock_http):
+            tools_cache.download_attachment({"attachment_id": "789"})
+            # Second call should use url= with the content URL
+            assert calls[1].get("url") == content_url
 
 
 # --- jira_add_attachment ---
