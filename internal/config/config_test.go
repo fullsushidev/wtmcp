@@ -162,3 +162,42 @@ func TestDefaultConfig(t *testing.T) {
 		t.Errorf("Cache.Backend = %q, want %q", cfg.Cache.Backend, "memory")
 	}
 }
+
+func TestDefaultPluginDirs(t *testing.T) {
+	userDir := "/tmp/test-user-plugins"
+	dirs := defaultPluginDirs(userDir)
+
+	// User dir must always be last
+	if dirs[len(dirs)-1] != userDir {
+		t.Errorf("last dir = %q, want user dir %q", dirs[len(dirs)-1], userDir)
+	}
+
+	// Must have at least 2 entries (some system path + user)
+	if len(dirs) < 2 {
+		t.Errorf("got %d dirs, want at least 2", len(dirs))
+	}
+
+	// No duplicates
+	seen := make(map[string]bool)
+	for _, d := range dirs {
+		cleaned := filepath.Clean(d)
+		if seen[cleaned] {
+			t.Errorf("duplicate dir: %s", cleaned)
+		}
+		seen[cleaned] = true
+	}
+}
+
+func TestContainsPath(t *testing.T) {
+	dirs := []string{"/usr/share/what-the-mcp/plugins", "/home/user/plugins"}
+
+	if !containsPath(dirs, "/usr/share/what-the-mcp/plugins") {
+		t.Error("should contain exact path")
+	}
+	if !containsPath(dirs, "/usr/share/what-the-mcp/plugins/") {
+		t.Error("should match with trailing slash")
+	}
+	if containsPath(dirs, "/opt/plugins") {
+		t.Error("should not contain unknown path")
+	}
+}

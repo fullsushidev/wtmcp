@@ -146,10 +146,58 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 		cfg.Cache.Dir = ResolveEnvVars(cfg.Cache.Dir)
 	}
 
-	// Add user plugins dir if not already in the list
+	// Build plugin dirs: system dir first, then user dir.
+	// User plugins override system plugins with the same name.
 	if len(cfg.PluginDirs) == 0 {
-		cfg.PluginDirs = []string{paths.PluginsDir}
+		cfg.PluginDirs = defaultPluginDirs(paths.PluginsDir)
 	}
+}
+
+// defaultPluginDirs returns the plugin search path. System dirs are
+// checked first; user dir is last (highest priority — overrides system
+// plugins with the same name). Non-existent directories are included
+// but silently skipped by Manager.Discover().
+//
+// Search order:
+//  1. {binary}/../share/what-the-mcp/plugins (binary-relative)
+//  2. /usr/share/what-the-mcp/plugins (system packages)
+//  3. /usr/local/share/what-the-mcp/plugins (local installs, Homebrew)
+//  4. {workdir}/plugins (user plugins)
+func defaultPluginDirs(userDir string) []string {
+	var dirs []string
+
+	// Binary-relative: supports Homebrew, /usr/local, /opt, custom prefixes
+	if exe, err := os.Executable(); err == nil {
+		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
+			binRelative := filepath.Join(filepath.Dir(resolved), "..", "share", "what-the-mcp", "plugins")
+			cleaned := filepath.Clean(binRelative)
+			dirs = append(dirs, cleaned)
+		}
+	}
+
+	// Standard system paths
+	for _, sysDir := range []string{
+		"/usr/share/what-the-mcp/plugins",
+		"/usr/local/share/what-the-mcp/plugins",
+	} {
+		if !containsPath(dirs, sysDir) {
+			dirs = append(dirs, sysDir)
+		}
+	}
+
+	// User plugins last (highest priority override)
+	dirs = append(dirs, userDir)
+	return dirs
+}
+
+func containsPath(dirs []string, path string) bool {
+	cleaned := filepath.Clean(path)
+	for _, d := range dirs {
+		if filepath.Clean(d) == cleaned {
+			return true
+		}
+	}
+	return false
 }
 
 // envVarPattern matches ${VAR} and ${VAR:-default} syntax.
