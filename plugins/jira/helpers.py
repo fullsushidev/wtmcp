@@ -120,6 +120,44 @@ def extract_sprint_summary(sprint):
     }
 
 
+def extract_nested_field(fields_data, field_name):
+    """Extract a possibly nested field value from Jira issue fields.
+
+    Handles dotted paths like "status.name", "assignee.displayName".
+    For simple names, returns the raw value. For dict values without
+    a dotted path, extracts .name or .value if present.
+    """
+    if "." in field_name:
+        parts = field_name.split(".", 1)
+        obj = fields_data.get(parts[0])
+        if isinstance(obj, dict):
+            return obj.get(parts[1])
+        return None
+
+    value = fields_data.get(field_name)
+    if isinstance(value, dict):
+        return value.get("name", value.get("value", str(value)))
+    return value
+
+
+def calculate_sprint_metrics(issues):
+    """Calculate basic sprint metrics from an issues list.
+
+    Returns total_issues, completed_issues, completion_rate.
+    """
+    total = len(issues)
+    completed = sum(
+        1
+        for i in issues
+        if (i.get("fields", {}).get("status", {}) or {}).get("statusCategory", {}).get("key") == "done"
+    )
+    return {
+        "total_issues": total,
+        "completed_issues": completed,
+        "completion_rate": round(completed / total * 100, 1) if total > 0 else 0,
+    }
+
+
 def extract_user_fields(user):
     """Extract standard fields from a Jira user dict."""
     return {

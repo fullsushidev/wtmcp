@@ -2,8 +2,10 @@
 
 import pytest
 from helpers import (
+    calculate_sprint_metrics,
     escape_jql,
     extract_brief_issue,
+    extract_nested_field,
     extract_sprint_summary,
     extract_user_fields,
     is_user_alias,
@@ -305,3 +307,60 @@ class TestExtractSprintSummary:
     def test_partial(self):
         result = extract_sprint_summary({"id": 1, "name": "S1"})
         assert result["state"] is None
+
+
+# --- extract_nested_field ---
+
+
+class TestExtractNestedField:
+    def test_simple_string(self):
+        assert extract_nested_field({"summary": "Hello"}, "summary") == "Hello"
+
+    def test_dotted_path(self):
+        assert extract_nested_field({"status": {"name": "Open"}}, "status.name") == "Open"
+
+    def test_dotted_missing(self):
+        assert extract_nested_field({"status": {"id": 1}}, "status.name") is None
+
+    def test_dict_auto_extract_name(self):
+        assert extract_nested_field({"priority": {"name": "High"}}, "priority") == "High"
+
+    def test_dict_auto_extract_value(self):
+        assert extract_nested_field({"team": {"value": "Alpha"}}, "team") == "Alpha"
+
+    def test_missing_field(self):
+        assert extract_nested_field({}, "nope") is None
+
+    def test_non_dict_parent(self):
+        assert extract_nested_field({"status": "Open"}, "status.name") is None
+
+
+# --- calculate_sprint_metrics ---
+
+
+class TestCalculateSprintMetrics:
+    def test_basic_metrics(self):
+        issues = [
+            {"fields": {"status": {"statusCategory": {"key": "done"}}}},
+            {"fields": {"status": {"statusCategory": {"key": "done"}}}},
+            {"fields": {"status": {"statusCategory": {"key": "indeterminate"}}}},
+        ]
+        result = calculate_sprint_metrics(issues)
+        assert result["total_issues"] == 3
+        assert result["completed_issues"] == 2
+        assert result["completion_rate"] == 66.7
+
+    def test_empty(self):
+        result = calculate_sprint_metrics([])
+        assert result["total_issues"] == 0
+        assert result["completion_rate"] == 0
+
+    def test_all_done(self):
+        issues = [{"fields": {"status": {"statusCategory": {"key": "done"}}}}]
+        result = calculate_sprint_metrics(issues)
+        assert result["completion_rate"] == 100.0
+
+    def test_missing_status(self):
+        issues = [{"fields": {}}]
+        result = calculate_sprint_metrics(issues)
+        assert result["completed_issues"] == 0
