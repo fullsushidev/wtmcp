@@ -112,12 +112,14 @@ def main():
     # Import here to avoid circular import — handler defines protocol
     # functions that tools_read needs, and handler needs TOOLS from
     # tools_read.
+    from tools_cache import TOOLS as CACHE_TOOLS
     from tools_read import TOOLS
     from tools_sprint import TOOLS as SPRINT_TOOLS
     from tools_write import TOOLS as WRITE_TOOLS
 
     TOOLS.update(WRITE_TOOLS)
     TOOLS.update(SPRINT_TOOLS)
+    TOOLS.update(CACHE_TOOLS)
 
     log("handler starting")
 

@@ -604,6 +604,141 @@ tools:
         type: boolean
         default: true
 
+  # --- Phase 4: Export/Cache Tools ---
+
+  - name: jira_export_sprint_data
+    description: >
+      Export all issues for a sprint to a local JSON file.
+    params:
+      board_id:
+        type: string
+        required: true
+      sprint_id:
+        type: integer
+        required: true
+      output_file:
+        type: string
+        required: true
+        description: "Path to write the JSON file"
+
+  - name: jira_export_board_sprints
+    description: >
+      Export all sprints for a board to a local JSON file.
+    params:
+      board_id:
+        type: string
+        required: true
+      state:
+        type: string
+        description: "Filter: active, closed, future"
+      output_file:
+        type: string
+        required: true
+
+  - name: jira_export_sprint_report
+    description: >
+      Export sprint report to a local JSON file (Server/DC only).
+    params:
+      board_id:
+        type: string
+        required: true
+      sprint_id:
+        type: integer
+        required: true
+      output_file:
+        type: string
+        required: true
+
+  - name: jira_query_local_sprint_data
+    description: >
+      Query and filter locally exported sprint data by assignee,
+      status, issue type, labels, or priority.
+    params:
+      file_path:
+        type: string
+        required: true
+        description: "Path to exported sprint JSON file"
+      assignee:
+        type: string
+        description: "Filter by assignee display name (substring)"
+      status:
+        type: string
+        description: "Filter by status name (substring)"
+      issue_type:
+        type: string
+        description: "Filter by issue type (substring)"
+      labels:
+        type: array
+        items:
+          type: string
+        description: "Filter by labels (must have all)"
+      priority:
+        type: string
+        description: "Filter by priority (substring)"
+      brief:
+        type: boolean
+        default: true
+
+  - name: jira_compare_sprints
+    description: >
+      Compare metrics across multiple exported sprint files.
+      Returns completion rate and issue counts per sprint.
+    params:
+      file_paths:
+        type: string
+        required: true
+        description: "Comma-separated paths to sprint export files"
+
+  - name: jira_sprint_metrics_summary
+    description: >
+      Generate metrics summary from an exported sprint file.
+    params:
+      file_path:
+        type: string
+        required: true
+
+  - name: jira_read_cache_summary
+    description: >
+      Read and summarize a cached/exported Jira response file.
+      Extracts key fields from each issue for quick overview.
+    params:
+      file_path:
+        type: string
+        required: true
+      fields:
+        type: array
+        items:
+          type: string
+        description: "Fields to extract (e.g. key, summary, status.name)"
+      issue_keys:
+        type: string
+        description: "Comma-separated keys to filter"
+      max_issues:
+        type: integer
+        default: 20
+
+  - name: jira_get_issue_from_cache
+    description: >
+      Get full details of a specific issue from a cached file.
+      Extracts core fields into a readable flat format.
+    params:
+      file_path:
+        type: string
+        required: true
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+
+  - name: jira_debug_fields
+    description: >
+      List Jira custom fields. Optionally filter by name to find
+      field IDs for story points, sprint, team, etc.
+    params:
+      search:
+        type: string
+        description: "Case-insensitive name substring to filter by"
+
 setup:
   credentials:
     JIRA_URL:
