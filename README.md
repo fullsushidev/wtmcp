@@ -40,6 +40,193 @@ proxying, caching, and output encoding so plugins stay minimal.
 - **Output**: TOON encoding for ~40% token savings (optional)
 - **Plugin setup**: Manifest-declared wizard metadata for CLI tooling
 
+## Building and Running
+
+```bash
+make build
+
+# Run with a workdir containing plugins and env config
+./what-the-mcp --workdir ~/.bragctl
+```
+
+The workdir layout:
+
+```
+~/.bragctl/
+  config.yaml           Core config (optional)
+  .env                  Environment variables
+  env.d/*.env           Additional env files
+  plugins/
+    jira/
+      plugin.yaml       Plugin manifest
+      handler.py        Plugin executable
+```
+
+## Writing Plugins
+
+A plugin is a directory with a manifest (`plugin.yaml`) and a handler
+executable. The core discovers plugins, starts handlers as child
+processes, and routes tool calls over stdin/stdout using JSON-lines.
+
+See [docs/plugin-guide.md](docs/plugin-guide.md) for the full guide
+with examples in multiple languages.
+
+### Minimal Example (bash)
+
+A oneshot plugin that runs the handler once per tool call:
+
+**plugin.yaml:**
+```yaml
+name: hello
+version: "1.0.0"
+description: "A greeting plugin"
+execution: oneshot
+handler: ./handler.sh
+tools:
+  - name: hello_world
+    description: "Says hello to someone"
+    params:
+      name:
+        type: string
+        default: "World"
+        description: "Who to greet"
+enabled: true
+```
+
+**handler.sh:**
+```bash
+#!/bin/bash
+read -r INPUT
+ID=$(echo "$INPUT" | jq -r '.id')
+NAME=$(echo "$INPUT" | jq -r '.params.name // "World"')
+
+echo "{}" | jq -c --arg id "$ID" --arg name "$NAME" \
+  '{id: $id, type: "tool_result", result: {message: ("Hello, " + $name + "!")}}'
+```
+
+### API Plugin Example (Python)
+
+A persistent plugin that calls an API through the core's HTTP proxy.
+The handler stays running and processes multiple tool calls. Auth
+headers are injected automatically — the plugin never sees tokens.
+
+**plugin.yaml:**
+```yaml
+name: myapi
+version: "1.0.0"
+description: "Example API plugin"
+execution: persistent
+handler: ./handler.py
+
+services:
+  auth:
+    type: bearer
+    token: "${MY_API_TOKEN}"
+  http:
+    base_url: "${MY_API_URL}"
+
+tools:
+  - name: myapi_get_status
+    description: "Get API status"
+    params: {}
+  - name: myapi_search
+    description: "Search the API"
+    params:
+      query:
+        type: string
+        required: true
+enabled: true
+```
+
+**handler.py:**
+```python
+#!/usr/bin/env python3
+import json, sys
+
+def _send(msg):
+    print(json.dumps(msg, separators=(",", ":")), flush=True)
+
+def _recv():
+    line = sys.stdin.readline()
+    if not line:
+        sys.exit(0)
+    return json.loads(line.strip())
+
+def http(method, path, query=None):
+    msg = {"id": "1", "type": "http_request", "method": method, "path": path}
+    if query:
+        msg["query"] = query
+    _send(msg)
+    resp = _recv()
+    return resp.get("status", 0), resp.get("body", {})
+
+def get_status(_params):
+    status, body = http("GET", "/status")
+    return body
+
+def search(params):
+    status, body = http("GET", "/search", query={"q": params["query"]})
+    return body
+
+TOOLS = {"myapi_get_status": get_status, "myapi_search": search}
+
+while True:
+    msg = _recv()
+    if msg.get("type") == "init":
+        _send({"id": msg["id"], "type": "init_ok"})
+    elif msg.get("type") == "shutdown":
+        _send({"id": msg["id"], "type": "shutdown_ok"})
+        break
+    elif msg.get("type") == "tool_call":
+        fn = TOOLS.get(msg.get("tool"))
+        if fn:
+            result = fn(msg.get("params", {}))
+            _send({"id": msg["id"], "type": "tool_result", "result": result})
+        else:
+            _send({"id": msg["id"], "type": "tool_result",
+                   "error": {"code": "unknown_tool", "message": msg.get("tool")}})
+```
+
+### Key Concepts
+
+- **Oneshot** plugins are spawned per tool call. Simplest to write.
+- **Persistent** plugins start once and handle many calls via a main loop.
+- **HTTP proxy**: plugins send `http_request` messages, the core makes
+  the call with auth and returns `http_response`. No HTTP library needed.
+- **Cache**: plugins send `cache_get`/`cache_set` messages. The core
+  manages storage and TTL.
+- **Auth variants**: a single plugin can support multiple auth methods
+  (e.g., Cloud Basic + Server Bearer + Kerberos) with auto-detection.
+
+## Jira Plugin
+
+The included Jira plugin covers read, write, sprint, and export
+operations:
+
+| Category | Examples |
+|----------|---------|
+| Read | `jira_search`, `jira_get_myself`, `jira_get_transitions` |
+| Write | `jira_create_issue`, `jira_add_comment`, `jira_assign_issue` |
+| Sprint | `jira_list_available_sprints`, `jira_get_sprint_issues` |
+| Export | `jira_export_sprint_data`, `jira_download_attachment` |
+
+All write tools default to `dry_run=true`. Cloud-aware (ADF format,
+accountId assignments). Auth variants: Cloud Basic, Server Bearer,
+Server Kerberos.
+
+## Testing
+
+```bash
+# Go core tests
+go test ./...
+
+# Python plugin tests
+.venv/bin/pytest tests/ -v
+
+# All pre-commit checks
+pre-commit run --all-files
+```
+
 ## Project Layout
 
 ```
@@ -56,132 +243,9 @@ internal/
 plugins/
   jira/                 Jira plugin (Python, zero external deps)
 tests/
-  plugins/jira/         Plugin unit tests
-staging/                Dev/test files (gitignored)
-```
-
-## Building
-
-```bash
-make build
-```
-
-The binary gets version and build date via ldflags.
-
-## Running
-
-```bash
-# With a workdir containing plugins and env config
-./what-the-mcp --workdir ~/.bragctl
-
-# Or with explicit config
-./what-the-mcp --config config.yaml --workdir /path/to/workdir
-```
-
-The workdir layout:
-
-```
-~/.bragctl/
-  config.yaml           Core config (optional)
-  .env                  Environment variables
-  env.d/*.env           Additional env files
-  plugins/
-    jira/
-      plugin.yaml       Plugin manifest
-      handler.py        Plugin executable
-```
-
-## Plugin Protocol
-
-Plugins are directories with a `plugin.yaml` manifest and a handler
-executable. The core starts the handler as a child process and
-communicates over stdin/stdout using JSON-lines.
-
-```yaml
-# plugin.yaml
-name: jira
-version: "0.2.0"
-execution: persistent
-handler: ./handler.py
-
-services:
-  auth:
-    type: bearer
-    token: "${JIRA_TOKEN}"
-  http:
-    base_url: "${JIRA_URL}"
-
-tools:
-  - name: jira_search
-    description: "Search Jira issues using JQL"
-    params:
-      jql:
-        type: string
-        required: true
-```
-
-The handler uses simple read/write loops:
-
-```python
-# handler.py — zero dependencies beyond stdlib
-import json, sys
-
-def http(method, path, query=None):
-    """All HTTP goes through the core proxy (auth injected)."""
-    msg = {"id": "1", "type": "http_request", "method": method, "path": path}
-    if query:
-        msg["query"] = query
-    print(json.dumps(msg), flush=True)
-    return json.loads(sys.stdin.readline())
-```
-
-See `design/plugin-protocol.md` for the full specification.
-
-## Jira Plugin
-
-Tools across read, write, sprint, and export operations:
-
-| Category | Examples |
-|----------|---------|
-| Read | `jira_search`, `jira_get_myself`, `jira_get_transitions` |
-| Write | `jira_create_issue`, `jira_add_comment`, `jira_assign_issue` |
-| Sprint | `jira_list_available_sprints`, `jira_get_sprint_issues` |
-| Export | `jira_export_sprint_data`, `jira_download_attachment` |
-
-All write tools default to `dry_run=true`. Cloud-aware (ADF format,
-accountId assignments). Auth variants: Cloud Basic, Server Bearer,
-Server Kerberos.
-
-## Testing
-
-```bash
-# Go tests
-go test ./...
-
-# Python plugin tests
-.venv/bin/pytest tests/ -v
-
-# All pre-commit checks
-pre-commit run --all-files
-```
-
-Pre-commit hooks: trailing whitespace, YAML, golangci-lint, gofmt,
-go vet, go test, ruff lint, ruff format, ty type check, pytest.
-
-## Development
-
-```bash
-# Create Python venv for plugin tooling
-uv venv .venv
-uv pip install ruff ty pytest
-
-# Build and run e2e test
-make build
-bash staging/e2e_test.sh
-
-# Live Jira integration test (requires credentials)
-source staging/env.d/jira.env
-TEST_ISSUE_KEY=PROJ-123 python3 staging/tests/live_jira_test.py
+  plugins/              Plugin unit tests
+docs/
+  plugin-guide.md       Plugin development guide
 ```
 
 ## License
