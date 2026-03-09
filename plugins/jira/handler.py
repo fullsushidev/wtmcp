@@ -59,7 +59,13 @@ def http(method, path, query=None, body=None, headers=None):
     status = resp.get("status", 0)
     if status == 0:
         return 0, {"error": resp.get("error", "request failed")}, {}
-    return status, resp.get("body", {}), resp.get("headers", {})
+    resp_body = resp.get("body", {})
+    resp_headers = resp.get("headers", {})
+    if resp.get("body_encoding") == "base64" and isinstance(resp_body, str):
+        import base64
+
+        resp_body = base64.b64decode(resp_body)
+    return status, resp_body, resp_headers
 
 
 def cache_get(key):

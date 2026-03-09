@@ -5,6 +5,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -87,17 +88,18 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 		}
 	}()
 
-	body, err := p.readBody(resp)
+	body, encoding, err := p.readBody(resp)
 	if err != nil {
 		return errResponse(req.ID, "response_too_large", err.Error())
 	}
 
 	return protocol.Message{
-		ID:      req.ID,
-		Type:    protocol.TypeHTTPResponse,
-		Status:  resp.StatusCode,
-		Headers: responseHeaders(resp),
-		Body:    body,
+		ID:           req.ID,
+		Type:         protocol.TypeHTTPResponse,
+		Status:       resp.StatusCode,
+		Headers:      responseHeaders(resp),
+		Body:         body,
+		BodyEncoding: encoding,
 	}
 }
 
@@ -170,22 +172,33 @@ func (p *Proxy) injectAuth(ctx context.Context, provider auth.Provider, httpReq 
 	return nil
 }
 
-func (p *Proxy) readBody(resp *http.Response) (json.RawMessage, error) {
+func (p *Proxy) readBody(resp *http.Response) (json.RawMessage, string, error) {
 	limited := io.LimitReader(resp.Body, p.maxBodySize+1)
 	body, err := io.ReadAll(limited)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if int64(len(body)) > p.maxBodySize {
-		return nil, fmt.Errorf("response body exceeds %d bytes", p.maxBodySize)
+		return nil, "", fmt.Errorf("response body exceeds %d bytes", p.maxBodySize)
 	}
 
 	ct := resp.Header.Get("Content-Type")
+
+	// JSON: return raw bytes as-is
 	if strings.Contains(ct, "application/json") {
-		return json.RawMessage(body), nil
+		return json.RawMessage(body), "", nil
 	}
-	// Non-JSON: return as quoted string
-	return json.Marshal(string(body))
+
+	// Text: return as quoted JSON string
+	if strings.HasPrefix(ct, "text/") {
+		b, err := json.Marshal(string(body))
+		return json.RawMessage(b), "", err
+	}
+
+	// Binary (or unknown): base64-encode
+	encoded := base64.StdEncoding.EncodeToString(body)
+	b, err := json.Marshal(encoded)
+	return json.RawMessage(b), "base64", err
 }
 
 func (p *Proxy) isDomainAllowed(pluginName string, pa *PluginAuth, rawURL string) bool {

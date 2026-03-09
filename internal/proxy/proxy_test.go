@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -305,5 +306,73 @@ func TestResponseHeaders(t *testing.T) {
 	}
 	if resp.Headers["Content-Disposition"] != `attachment; filename="report.pdf"` {
 		t.Errorf("Content-Disposition = %q", resp.Headers["Content-Disposition"])
+	}
+}
+
+func TestBinaryResponse(t *testing.T) {
+	// PNG magic bytes
+	pngData := []byte{0x89, 0x50, 0x4e, 0x47}
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(pngData)
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID: "req-bin", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/image.png",
+	})
+
+	if resp.Status != 200 {
+		t.Fatalf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+	if resp.BodyEncoding != "base64" {
+		t.Errorf("BodyEncoding = %q, want base64", resp.BodyEncoding)
+	}
+
+	// Body should be a JSON string containing the base64 data
+	var b64str string
+	if err := json.Unmarshal(resp.Body, &b64str); err != nil {
+		t.Fatalf("unmarshal base64 string: %v", err)
+	}
+	decoded, err := base64.StdEncoding.DecodeString(b64str)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	if string(decoded) != string(pngData) {
+		t.Errorf("decoded = %x, want %x", decoded, pngData)
+	}
+}
+
+func TestTextResponse(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain")
+		_, _ = w.Write([]byte("hello world"))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID: "req-text", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/text",
+	})
+
+	if resp.Status != 200 {
+		t.Fatalf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+	if resp.BodyEncoding != "" {
+		t.Errorf("BodyEncoding = %q, want empty for text", resp.BodyEncoding)
+	}
+
+	var text string
+	if err := json.Unmarshal(resp.Body, &text); err != nil {
+		t.Fatalf("unmarshal text: %v", err)
+	}
+	if text != "hello world" {
+		t.Errorf("text = %q", text)
 	}
 }

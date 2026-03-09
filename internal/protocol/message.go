@@ -25,13 +25,14 @@ type Message struct {
 	Error  *Error          `json:"error,omitempty"`
 
 	// http_request / http_response fields
-	Method  string            `json:"method,omitempty"`
-	Path    string            `json:"path,omitempty"`
-	URL     string            `json:"url,omitempty"`
-	Query   map[string]any    `json:"query,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Body    json.RawMessage   `json:"body,omitempty"`
-	Status  int               `json:"status,omitempty"`
+	Method       string            `json:"method,omitempty"`
+	Path         string            `json:"path,omitempty"`
+	URL          string            `json:"url,omitempty"`
+	Query        map[string]any    `json:"query,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	Body         json.RawMessage   `json:"body,omitempty"`
+	BodyEncoding string            `json:"body_encoding,omitempty"`
+	Status       int               `json:"status,omitempty"`
 
 	// cache fields
 	Key     string          `json:"key,omitempty"`
