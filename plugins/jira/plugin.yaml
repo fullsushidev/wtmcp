@@ -756,25 +756,27 @@ tools:
 
   - name: jira_add_attachment
     description: >
-      Add a file attachment to a Jira issue. Content must be
-      base64-encoded. Defaults to dry_run=true.
+      Add a file attachment to a Jira issue. Provide either
+      file_path (preferred, reads from disk) or content
+      (base64-encoded). Defaults to dry_run=true.
     params:
       issue_key:
         type: string
         required: true
         description: "Issue key (e.g. PROJ-123)"
+      file_path:
+        type: string
+        description: "Path to the file on disk (preferred over content)"
       filename:
         type: string
-        required: true
-        description: "Filename for the attachment"
+        description: "Filename for the attachment (auto-detected from file_path)"
       content:
         type: string
-        required: true
-        description: "File content, base64-encoded"
+        description: "File content, base64-encoded (alternative to file_path)"
       content_type:
         type: string
         default: "application/octet-stream"
-        description: "MIME type of the file"
+        description: "MIME type (auto-detected from file_path)"
       dry_run:
         type: boolean
         default: true

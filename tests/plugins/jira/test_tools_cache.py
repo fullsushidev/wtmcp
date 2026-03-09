@@ -379,11 +379,59 @@ class TestAddAttachment:
             assert result["success"] is True
             assert result["id"] == "att-1"
 
-    def test_missing_filename(self):
+    def test_missing_filename_with_content(self):
         import pytest
 
         with pytest.raises(ValueError, match="filename is required"):
             tools_cache.add_attachment({"issue_key": "PROJ-1", "content": "abc", "dry_run": False})
+
+    def test_missing_both_file_path_and_content(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="either file_path or content"):
+            tools_cache.add_attachment({"issue_key": "PROJ-1", "filename": "x.txt", "dry_run": False})
+
+    def test_file_path_dry_run(self, tmp_path):
+        test_file = tmp_path / "screenshot.png"
+        test_file.write_bytes(b"\x89PNG")
+        result = tools_cache.add_attachment(
+            {
+                "issue_key": "PROJ-1",
+                "file_path": str(test_file),
+                "dry_run": True,
+            }
+        )
+        assert result["dry_run"] is True
+        assert result["filename"] == "screenshot.png"
+        assert result["size_bytes"] == 4
+        assert result["content_type"] == "image/png"
+
+    def test_file_path_upload(self, tmp_path):
+        test_file = tmp_path / "doc.txt"
+        test_file.write_text("hello")
+        resp = [{"id": "att-2", "filename": "doc.txt", "size": 5, "mimeType": "text/plain"}]
+
+        with patch.object(handler, "http_upload", return_value=(200, resp, {})):
+            result = tools_cache.add_attachment(
+                {
+                    "issue_key": "PROJ-1",
+                    "file_path": str(test_file),
+                    "dry_run": False,
+                }
+            )
+            assert result["success"] is True
+            assert result["id"] == "att-2"
+
+    def test_file_path_not_found(self):
+        result = tools_cache.add_attachment(
+            {
+                "issue_key": "PROJ-1",
+                "file_path": "/nonexistent/file.png",
+                "dry_run": False,
+            }
+        )
+        assert "error" in result
+        assert "not found" in result["error"].lower()
 
 
 # --- jira_delete_attachment ---

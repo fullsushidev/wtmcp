@@ -436,21 +436,35 @@ def add_attachment(params):
     """Add a file attachment to a Jira issue."""
     issue_key = validate_issue_key(params.get("issue_key", ""))
     filename = params.get("filename", "")
+    file_path = params.get("file_path", "")
     content_b64 = params.get("content", "")
     content_type = params.get("content_type", "application/octet-stream")
     dry_run = params.get("dry_run", True)
 
-    if not filename:
-        raise ValueError("filename is required")
-    if not content_b64:
-        raise ValueError("content is required (base64-encoded)")
-
     import base64
+    import mimetypes
 
-    try:
-        content = base64.b64decode(content_b64)
-    except Exception as e:
-        raise ValueError(f"content is not valid base64: {e}") from e
+    # Read from file_path or decode from base64 content
+    if file_path:
+        path = Path(file_path)
+        if not path.is_file():
+            return {"error": f"File not found: {file_path}"}
+        content = path.read_bytes()
+        if not filename:
+            filename = path.name
+        if content_type == "application/octet-stream":
+            guessed = mimetypes.guess_type(path.name)[0]
+            if guessed:
+                content_type = guessed
+    elif content_b64:
+        if not filename:
+            raise ValueError("filename is required when using content parameter")
+        try:
+            content = base64.b64decode(content_b64)
+        except Exception as e:
+            raise ValueError(f"content is not valid base64: {e}") from e
+    else:
+        raise ValueError("either file_path or content is required")
 
     if dry_run:
         return {
