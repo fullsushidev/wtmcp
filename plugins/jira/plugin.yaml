@@ -344,7 +344,7 @@ tools:
       field_type:
         type: string
         default: "auto"
-        description: "Type: text, number, select, multi-select, user, or auto"
+        description: "Type: text, number, select, multi-select, version, user, or auto"
       dry_run:
         type: boolean
         default: true

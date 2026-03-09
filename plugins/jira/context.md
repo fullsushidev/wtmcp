@@ -84,6 +84,15 @@ jira_debug_fields(search="team")      → find team field
 
 Then use `jira_set_custom_field` with the discovered field ID.
 
+For version fields (Affects Version/s, Fix Version/s), use
+`field_type: "version"`:
+```
+jira_set_custom_field(issue_key="PROJ-123",
+                      field_id="versions",
+                      value="rhel-10.2",
+                      field_type="version")
+```
+
 ### Cloud vs Server
 
 The plugin auto-detects Cloud vs Server at startup. Differences

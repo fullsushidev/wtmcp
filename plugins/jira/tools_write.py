@@ -260,6 +260,9 @@ def set_custom_field(params):
     elif field_type == "multi-select":
         values = value if isinstance(value, list) else [value]
         field_value = [{"value": v} for v in values]
+    elif field_type == "version":
+        values = value if isinstance(value, list) else [value]
+        field_value = [{"name": v} for v in values]
     elif field_type == "user":
         field_value = {"accountId": value} if handler.is_cloud else {"name": value}
     else:
