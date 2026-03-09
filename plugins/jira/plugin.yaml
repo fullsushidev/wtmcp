@@ -739,6 +739,55 @@ tools:
         type: string
         description: "Case-insensitive name substring to filter by"
 
+  # --- Attachment Tools ---
+
+  - name: jira_download_attachment
+    description: >
+      Download a Jira attachment by ID. Returns filename, mimeType,
+      and content (base64 for binary, text for text files).
+    params:
+      attachment_id:
+        type: string
+        required: true
+        description: "Numeric attachment ID"
+
+  - name: jira_add_attachment
+    description: >
+      Add a file attachment to a Jira issue. Content must be
+      base64-encoded. Defaults to dry_run=true.
+    params:
+      issue_key:
+        type: string
+        required: true
+        description: "Issue key (e.g. PROJ-123)"
+      filename:
+        type: string
+        required: true
+        description: "Filename for the attachment"
+      content:
+        type: string
+        required: true
+        description: "File content, base64-encoded"
+      content_type:
+        type: string
+        default: "application/octet-stream"
+        description: "MIME type of the file"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: jira_delete_attachment
+    description: >
+      Delete a Jira attachment by ID. Defaults to dry_run=true.
+    params:
+      attachment_id:
+        type: string
+        required: true
+        description: "Numeric attachment ID"
+      dry_run:
+        type: boolean
+        default: true
+
 setup:
   credentials:
     JIRA_URL:

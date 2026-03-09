@@ -388,6 +388,115 @@ def debug_fields(params):
     return result
 
 
+def download_attachment(params):
+    """Download a Jira attachment by ID."""
+    attachment_id = params.get("attachment_id", "")
+    if not str(attachment_id).isdigit():
+        raise ValueError(f"Invalid attachment_id: {attachment_id!r} (must be numeric)")
+
+    # Get attachment metadata first
+    status, meta, _ = handler.http("GET", f"/rest/api/2/attachment/{attachment_id}")
+    if status < 200 or status >= 300:
+        return meta
+
+    filename = meta.get("filename", "unknown") if isinstance(meta, dict) else "unknown"
+    default_mime = "application/octet-stream"
+    mime_type = meta.get("mimeType", default_mime) if isinstance(meta, dict) else default_mime
+    size = meta.get("size", 0) if isinstance(meta, dict) else 0
+
+    # Download content via the content URL path
+    status, content, headers = handler.http("GET", f"/rest/api/2/attachment/content/{attachment_id}")
+    if status < 200 or status >= 300:
+        return content if not isinstance(content, bytes) else {"error": "Download failed"}
+
+    # If content came back as bytes (binary, auto-decoded from base64), re-encode for transport
+    if isinstance(content, bytes):
+        import base64
+
+        return {
+            "filename": filename,
+            "mimeType": mime_type,
+            "size": size,
+            "encoding": "base64",
+            "content": base64.b64encode(content).decode("ascii"),
+        }
+
+    # Text content
+    return {"filename": filename, "mimeType": mime_type, "size": size, "encoding": "utf-8", "content": content}
+
+
+def add_attachment(params):
+    """Add a file attachment to a Jira issue."""
+    issue_key = validate_issue_key(params.get("issue_key", ""))
+    filename = params.get("filename", "")
+    content_b64 = params.get("content", "")
+    content_type = params.get("content_type", "application/octet-stream")
+    dry_run = params.get("dry_run", True)
+
+    if not filename:
+        raise ValueError("filename is required")
+    if not content_b64:
+        raise ValueError("content is required (base64-encoded)")
+
+    import base64
+
+    try:
+        content = base64.b64decode(content_b64)
+    except Exception as e:
+        raise ValueError(f"content is not valid base64: {e}") from e
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "action": "jira_add_attachment",
+            "issue_key": issue_key,
+            "filename": filename,
+            "content_type": content_type,
+            "size_bytes": len(content),
+        }
+
+    status, body, _ = handler.http_upload(
+        "POST",
+        f"/rest/api/2/issue/{issue_key}/attachments",
+        field="file",
+        filename=filename,
+        content=content,
+        content_type=content_type,
+        headers={"X-Atlassian-Token": "no-check"},
+    )
+    if status < 200 or status >= 300:
+        return body
+
+    if isinstance(body, list) and body:
+        att = body[0]
+        return {
+            "success": True,
+            "issue_key": issue_key,
+            "id": att.get("id"),
+            "filename": att.get("filename"),
+            "size": att.get("size"),
+            "mimeType": att.get("mimeType"),
+        }
+    return {"success": True, "issue_key": issue_key, "raw": body}
+
+
+def delete_attachment(params):
+    """Delete a Jira attachment by ID."""
+    attachment_id = params.get("attachment_id", "")
+    dry_run = params.get("dry_run", True)
+
+    if not str(attachment_id).isdigit():
+        raise ValueError(f"Invalid attachment_id: {attachment_id!r} (must be numeric)")
+
+    if dry_run:
+        return {"dry_run": True, "action": "jira_delete_attachment", "attachment_id": attachment_id}
+
+    status, body, _ = handler.http("DELETE", f"/rest/api/2/attachment/{attachment_id}")
+    if status < 200 or status >= 300:
+        return body
+    return {"success": True, "attachment_id": attachment_id}
+
+
 TOOLS = {
     "jira_export_sprint_data": export_sprint_data,
     "jira_export_board_sprints": export_board_sprints,
@@ -398,4 +507,7 @@ TOOLS = {
     "jira_read_cache_summary": read_cache_summary,
     "jira_get_issue_from_cache": get_issue_from_cache,
     "jira_debug_fields": debug_fields,
+    "jira_download_attachment": download_attachment,
+    "jira_add_attachment": add_attachment,
+    "jira_delete_attachment": delete_attachment,
 }

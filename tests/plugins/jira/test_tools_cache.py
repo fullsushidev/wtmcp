@@ -259,3 +259,112 @@ class TestDebugFields:
         with _mock_http(500, {"error": "Server Error"}):
             result = tools_cache.debug_fields({})
             assert "error" in result
+
+
+# --- jira_download_attachment ---
+
+
+class TestDownloadAttachment:
+    def test_text_content(self):
+        meta = {"filename": "notes.txt", "mimeType": "text/plain", "size": 11}
+
+        call_count = 0
+
+        def mock_http(_method, path, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            if "content" in path:
+                return 200, "hello world", {"Content-Type": "text/plain"}
+            return 200, meta, {}
+
+        with patch.object(handler, "http", side_effect=mock_http):
+            result = tools_cache.download_attachment({"attachment_id": "123"})
+            assert result["filename"] == "notes.txt"
+            assert result["encoding"] == "utf-8"
+            assert result["content"] == "hello world"
+
+    def test_binary_content(self):
+        meta = {"filename": "image.png", "mimeType": "image/png", "size": 4}
+
+        def mock_http(_method, path, **_kwargs):
+            if "content" in path:
+                return 200, b"\x89PNG", {"Content-Type": "image/png"}
+            return 200, meta, {}
+
+        with patch.object(handler, "http", side_effect=mock_http):
+            result = tools_cache.download_attachment({"attachment_id": "456"})
+            assert result["filename"] == "image.png"
+            assert result["encoding"] == "base64"
+            import base64
+
+            assert base64.b64decode(result["content"]) == b"\x89PNG"
+
+    def test_invalid_id(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid attachment_id"):
+            tools_cache.download_attachment({"attachment_id": "abc"})
+
+
+# --- jira_add_attachment ---
+
+
+class TestAddAttachment:
+    def test_dry_run(self):
+        import base64
+
+        content = base64.b64encode(b"hello").decode()
+        result = tools_cache.add_attachment(
+            {
+                "issue_key": "PROJ-1",
+                "filename": "test.txt",
+                "content": content,
+                "dry_run": True,
+            }
+        )
+        assert result["dry_run"] is True
+        assert result["size_bytes"] == 5
+
+    def test_upload_success(self):
+        import base64
+
+        content = base64.b64encode(b"data").decode()
+        resp = [{"id": "att-1", "filename": "test.txt", "size": 4, "mimeType": "text/plain"}]
+
+        with patch.object(handler, "http_upload", return_value=(200, resp, {})):
+            result = tools_cache.add_attachment(
+                {
+                    "issue_key": "PROJ-1",
+                    "filename": "test.txt",
+                    "content": content,
+                    "dry_run": False,
+                }
+            )
+            assert result["success"] is True
+            assert result["id"] == "att-1"
+
+    def test_missing_filename(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="filename is required"):
+            tools_cache.add_attachment({"issue_key": "PROJ-1", "content": "abc", "dry_run": False})
+
+
+# --- jira_delete_attachment ---
+
+
+class TestDeleteAttachment:
+    def test_dry_run(self):
+        result = tools_cache.delete_attachment({"attachment_id": "123", "dry_run": True})
+        assert result["dry_run"] is True
+
+    def test_success(self):
+        with _mock_http(204, {}):
+            result = tools_cache.delete_attachment({"attachment_id": "123", "dry_run": False})
+            assert result["success"] is True
+
+    def test_invalid_id(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="Invalid attachment_id"):
+            tools_cache.delete_attachment({"attachment_id": "abc"})
