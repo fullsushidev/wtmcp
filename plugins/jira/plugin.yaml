@@ -5,6 +5,9 @@ description: "Jira integration for issue tracking and project management"
 execution: persistent
 handler: ./handler.py
 
+context_files:
+  - context.md
+
 services:
   auth:
     select: "${JIRA_AUTH_TYPE:-auto}"
