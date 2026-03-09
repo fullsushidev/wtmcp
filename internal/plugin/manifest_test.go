@@ -320,6 +320,99 @@ func TestProvidesAuth(t *testing.T) {
 	}
 }
 
+func TestManifestSetup(t *testing.T) {
+	dir := t.TempDir()
+	handlerPath := filepath.Join(dir, "handler")
+	if err := os.WriteFile(handlerPath, []byte("#!/bin/bash\n"), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+
+	manifest := `
+name: test-setup
+version: "1.0.0"
+description: "Setup section test"
+handler: ./handler
+tools:
+  - name: test_validate
+    description: "validation tool"
+    params: {}
+
+setup:
+  credentials:
+    API_URL:
+      description: "Base URL"
+      example: "https://api.example.com"
+      secret: false
+    API_TOKEN:
+      description: "API token"
+      help_url: "https://example.com/tokens"
+      instructions: "Create a token in Settings > API."
+      secret: true
+  variants:
+    cloud:
+      label: "Cloud"
+      description: "Hosted instance"
+      required: [API_URL, API_TOKEN]
+    server:
+      label: "Self-hosted"
+      description: "On-premise"
+      required: [API_URL, API_TOKEN]
+  validation_tool: test_validate
+  post_setup_message: "Restart for changes to take effect."
+`
+	path := filepath.Join(dir, "plugin.yaml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config file
+		t.Fatal(err)
+	}
+
+	m, err := LoadManifest(path)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+
+	if len(m.Setup.Credentials) != 2 {
+		t.Fatalf("got %d credentials, want 2", len(m.Setup.Credentials))
+	}
+
+	url := m.Setup.Credentials["API_URL"]
+	if url.Description != "Base URL" {
+		t.Errorf("API_URL description = %q", url.Description)
+	}
+	if url.Example != "https://api.example.com" {
+		t.Errorf("API_URL example = %q", url.Example)
+	}
+	if url.Secret {
+		t.Error("API_URL should not be secret")
+	}
+
+	token := m.Setup.Credentials["API_TOKEN"]
+	if !token.Secret {
+		t.Error("API_TOKEN should be secret")
+	}
+	if token.HelpURL != "https://example.com/tokens" {
+		t.Errorf("API_TOKEN help_url = %q", token.HelpURL)
+	}
+
+	if len(m.Setup.Variants) != 2 {
+		t.Fatalf("got %d variants, want 2", len(m.Setup.Variants))
+	}
+
+	cloud := m.Setup.Variants["cloud"]
+	if cloud.Label != "Cloud" {
+		t.Errorf("cloud label = %q", cloud.Label)
+	}
+	if len(cloud.Required) != 2 {
+		t.Errorf("cloud required = %v, want 2 items", cloud.Required)
+	}
+
+	if m.Setup.ValidationTool != "test_validate" {
+		t.Errorf("ValidationTool = %q", m.Setup.ValidationTool)
+	}
+	if m.Setup.PostSetupMessage != "Restart for changes to take effect." {
+		t.Errorf("PostSetupMessage = %q", m.Setup.PostSetupMessage)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchSubstring(s, substr)
 }

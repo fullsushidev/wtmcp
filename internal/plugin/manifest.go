@@ -42,6 +42,7 @@ type Manifest struct {
 	Enabled      *bool     `yaml:"enabled"`
 
 	Output OutputConfig `yaml:"output"`
+	Setup  SetupConfig  `yaml:"setup"`
 
 	// Dir is the directory containing this manifest (set at load time).
 	Dir string `yaml:"-"`
@@ -102,6 +103,31 @@ type ProvidesAuthConfig struct {
 // OutputConfig allows per-plugin output format override.
 type OutputConfig struct {
 	Format string `yaml:"format"`
+}
+
+// SetupConfig holds human-facing metadata for configuration wizards.
+// The core parses it but does not act on it — consumed by CLI tools.
+type SetupConfig struct {
+	Credentials      map[string]CredentialMeta `yaml:"credentials"`
+	Variants         map[string]SetupVariant   `yaml:"variants"`
+	ValidationTool   string                    `yaml:"validation_tool"`
+	PostSetupMessage string                    `yaml:"post_setup_message"`
+}
+
+// CredentialMeta describes how to obtain a credential value.
+type CredentialMeta struct {
+	Description  string `yaml:"description"`
+	Example      string `yaml:"example"`
+	HelpURL      string `yaml:"help_url"`
+	Instructions string `yaml:"instructions"`
+	Secret       bool   `yaml:"secret"`
+}
+
+// SetupVariant adds human-facing labels to auth variants.
+type SetupVariant struct {
+	Label       string   `yaml:"label"`
+	Description string   `yaml:"description"`
+	Required    []string `yaml:"required"`
 }
 
 // ToolDef declares an MCP tool with its parameter schema.
