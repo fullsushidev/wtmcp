@@ -30,6 +30,12 @@ func main() {
 		fmt.Printf("what-the-mcp %s (built %s)\n", Version, BuildDate)
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "check" {
+		if err := runCheck(); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
@@ -100,4 +106,64 @@ func run() error {
 	srv := server.New(Version, mgr, cfg)
 	log.Printf("what-the-mcp %s starting (workdir: %s)", Version, workdir)
 	return mcpserver.ServeStdio(srv)
+}
+
+// runCheck prints diagnostic info about the config and discovered plugins.
+func runCheck() error {
+	configPath := ""
+	workdirOverride := ""
+	for i, arg := range os.Args[2:] {
+		if arg == "--config" && i+3 < len(os.Args) {
+			configPath = os.Args[i+3]
+		}
+		if arg == "--workdir" && i+3 < len(os.Args) {
+			workdirOverride = os.Args[i+3]
+		}
+	}
+
+	workdir := config.WorkDir()
+	if workdirOverride != "" {
+		workdir = workdirOverride
+	}
+
+	if err := config.LoadDotEnv(workdir); err != nil {
+		return err
+	}
+
+	cfg, err := config.Load(configPath, workdir)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("what-the-mcp %s\n", Version)
+	fmt.Printf("workdir: %s\n", workdir)
+	fmt.Printf("\nplugin search path:\n")
+	for i, dir := range cfg.PluginDirs {
+		exists := "missing"
+		if info, statErr := os.Stat(dir); statErr == nil && info.IsDir() {
+			exists = "ok"
+		}
+		fmt.Printf("  %d. %s [%s]\n", i+1, dir, exists)
+	}
+
+	// Discover plugins (without loading/starting them)
+	mgr := plugin.NewManager(nil, nil, nil, cfg)
+	if err := mgr.Discover(cfg.PluginDirs); err != nil {
+		return err
+	}
+
+	manifests := mgr.Manifests()
+	fmt.Printf("\ndiscovered plugins: %d\n", len(manifests))
+	for _, m := range manifests {
+		fmt.Printf("  - %s v%s (%s)\n", m.Name, m.Version, m.Dir)
+		fmt.Printf("    handler: %s | execution: %s | tools: %d\n",
+			m.Handler, m.Execution, len(m.Tools))
+	}
+
+	if len(manifests) == 0 {
+		fmt.Println("\nno plugins found. check that plugin directories contain")
+		fmt.Println("subdirectories with plugin.yaml files.")
+	}
+
+	return nil
 }

@@ -159,19 +159,28 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 // but silently skipped by Manager.Discover().
 //
 // Search order:
-//  1. {binary}/../share/what-the-mcp/plugins (binary-relative)
-//  2. /usr/share/what-the-mcp/plugins (system packages)
-//  3. /usr/local/share/what-the-mcp/plugins (local installs, Homebrew)
-//  4. {workdir}/plugins (user plugins)
+//  1. {binary}/plugins (dev: plugins next to binary)
+//  2. {binary}/../share/what-the-mcp/plugins (installed: FHS layout)
+//  3. /usr/share/what-the-mcp/plugins (system packages)
+//  4. /usr/local/share/what-the-mcp/plugins (local installs, Homebrew)
+//  5. {workdir}/plugins (user plugins, highest priority)
 func defaultPluginDirs(userDir string) []string {
 	var dirs []string
 
-	// Binary-relative: supports Homebrew, /usr/local, /opt, custom prefixes
 	if exe, err := os.Executable(); err == nil {
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-			binRelative := filepath.Join(filepath.Dir(resolved), "..", "share", "what-the-mcp", "plugins")
-			cleaned := filepath.Clean(binRelative)
-			dirs = append(dirs, cleaned)
+			binDir := filepath.Dir(resolved)
+
+			// Dev: plugins/ next to the binary (build directory)
+			devPlugins := filepath.Join(binDir, "plugins")
+			dirs = append(dirs, filepath.Clean(devPlugins))
+
+			// Installed: {prefix}/share/what-the-mcp/plugins
+			installed := filepath.Join(binDir, "..", "share", "what-the-mcp", "plugins")
+			cleaned := filepath.Clean(installed)
+			if !containsPath(dirs, cleaned) {
+				dirs = append(dirs, cleaned)
+			}
 		}
 	}
 
