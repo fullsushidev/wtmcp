@@ -1,0 +1,129 @@
+name: google-gmail
+version: "0.1.0"
+description: "Gmail — email listing, search, send, drafts, labels"
+
+execution: persistent
+handler: ./handler
+
+context_files:
+  - context.md
+
+env:
+  - GOOGLE_CREDENTIALS_DIR
+
+tools:
+  - name: gmail_list_messages
+    description: "List Gmail messages matching a search query (returns IDs only)"
+    params:
+      query:
+        type: string
+        description: "Gmail search string (e.g. 'from:alice has:attachment')"
+      max_results:
+        type: integer
+        default: 10
+        description: "Max messages (hard limit: 100)"
+      label_ids:
+        type: array
+        description: "Filter by label IDs"
+
+  - name: gmail_get_messages_summary
+    description: "Get lightweight summaries of messages (recommended)"
+    params:
+      message_ids:
+        type: array
+        required: true
+        description: "List of Gmail message IDs"
+      max_messages:
+        type: integer
+        default: 50
+        description: "Max messages (hard limit: 100)"
+
+  - name: gmail_fetch_and_cache
+    description: "Fetch messages and cache locally for processing"
+    params:
+      query:
+        type: string
+        description: "Gmail search query"
+      message_ids:
+        type: array
+        description: "Specific message IDs (alternative to query)"
+      max_messages:
+        type: integer
+        default: 50
+        description: "Max messages (hard limit: 200)"
+      format:
+        type: string
+        default: "full"
+        description: "Gmail format: full, metadata, minimal, raw"
+
+  - name: gmail_get_messages
+    description: "Fetch full messages by ID (deprecated, use summary instead)"
+    params:
+      message_ids:
+        type: array
+        required: true
+        description: "List of message IDs (max 20)"
+      format:
+        type: string
+        default: "metadata"
+
+  - name: gmail_send_message
+    description: "Send an email (dry_run by default)"
+    params:
+      to:
+        type: string
+        required: true
+        description: "Recipient email(s), comma-separated"
+      subject:
+        type: string
+        required: true
+      body:
+        type: string
+        required: true
+        description: "Plain text body"
+      cc:
+        type: string
+      bcc:
+        type: string
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: gmail_create_draft
+    description: "Create an email draft (dry_run by default)"
+    params:
+      to:
+        type: string
+        required: true
+      subject:
+        type: string
+        required: true
+      body:
+        type: string
+        required: true
+      cc:
+        type: string
+      bcc:
+        type: string
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: gmail_modify_labels
+    description: "Add or remove labels on a message (dry_run by default)"
+    params:
+      message_id:
+        type: string
+        required: true
+      add_labels:
+        type: array
+        description: "Label IDs to add"
+      remove_labels:
+        type: array
+        description: "Label IDs to remove"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: gmail_list_labels
+    description: "List available Gmail labels"
