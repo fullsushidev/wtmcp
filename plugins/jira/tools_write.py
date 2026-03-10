@@ -1,4 +1,4 @@
-"""Jira write tool implementations (Phase 2).
+"""Jira write tool implementations.
 
 All write tools default to dry_run=true for safety.
 """

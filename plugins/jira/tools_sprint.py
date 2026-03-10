@@ -1,4 +1,4 @@
-"""Jira sprint and agile board tool implementations (Phase 3)."""
+"""Jira sprint and agile board tool implementations."""
 
 import handler
 from helpers import (

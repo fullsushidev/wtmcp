@@ -1,4 +1,4 @@
-"""Jira read-only tool implementations (Phase 1)."""
+"""Jira read-only tool implementations."""
 
 import hashlib
 

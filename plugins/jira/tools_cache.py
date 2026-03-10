@@ -1,4 +1,4 @@
-"""Jira export, cache query, and diagnostic tools (Phase 4).
+"""Jira export, cache query, and diagnostic tools.
 
 Export tools write JSON files to disk. Cache query tools read local
 JSON files. These are pure local I/O — no Jira API calls (except
