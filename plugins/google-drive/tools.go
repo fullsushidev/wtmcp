@@ -4,9 +4,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"regexp"
 	"strings"
 
+	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
 	googleapi "google.golang.org/api/googleapi"
 )
 
@@ -193,16 +195,9 @@ func exportFile(fileID, mimeType string) (any, error) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	buf := make([]byte, 0, 64*1024)
-	tmp := make([]byte, 32*1024)
-	for {
-		n, readErr := resp.Body.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-		}
-		if readErr != nil {
-			break
-		}
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read export: %w", err)
 	}
 
 	// Text content returned as UTF-8, binary as base64
@@ -216,6 +211,33 @@ func exportFile(fileID, mimeType string) (any, error) {
 		"encoding": "base64",
 		"content":  base64.StdEncoding.EncodeToString(buf),
 	}, nil
+}
+
+// cleanGoogleDocsCSS removes CSS artifacts that Google Docs injects into
+// exported HTML (list styles, @import rules, etc.).
+func cleanGoogleDocsCSS(md string) string {
+	var cleaned []string
+	skip := false
+	for _, line := range strings.Split(md, "\n") {
+		if strings.Contains(line, "@import") ||
+			strings.Contains(line, "list-style-type") ||
+			strings.Contains(line, ".lst-kix") {
+			skip = true
+			continue
+		}
+		if skip && strings.TrimSpace(line) != "" &&
+			!strings.Contains(line, "@import") &&
+			!strings.Contains(line, "list-style") &&
+			!strings.Contains(line, ".lst-kix") &&
+			!strings.Contains(line, "ul.") &&
+			!strings.Contains(line, "> li:before") {
+			skip = false
+		}
+		if !skip {
+			cleaned = append(cleaned, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(cleaned, "\n"))
 }
 
 type exportMarkdownParams struct {
@@ -263,25 +285,25 @@ func toolExportDocMarkdown(params, _ json.RawMessage) (any, error) {
 		}, nil
 	}
 
-	// Export as plain text (lightweight markdown-like output)
-	resp, err := driveSvc.Files.Export(fileID, "text/plain").Download()
+	// Export as HTML and convert to Markdown
+	resp, err := driveSvc.Files.Export(fileID, "text/html").Download()
 	if err != nil {
 		return nil, fmt.Errorf("export doc: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
-	buf := make([]byte, 0, 64*1024)
-	tmp := make([]byte, 32*1024)
-	for {
-		n, readErr := resp.Body.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-		}
-		if readErr != nil {
-			break
-		}
+	htmlBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read export: %w", err)
 	}
-	content := string(buf)
+
+	content, err := htmltomarkdown.ConvertString(string(htmlBytes))
+	if err != nil {
+		return nil, fmt.Errorf("convert to markdown: %w", err)
+	}
+
+	// Clean up Google Docs CSS artifacts
+	content = cleanGoogleDocsCSS(content)
 
 	if !p.SaveToFile {
 		return map[string]any{
