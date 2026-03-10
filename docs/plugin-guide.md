@@ -362,7 +362,7 @@ while True:
 ## Setup Wizard Metadata
 
 Plugins can declare a `setup` section with human-facing metadata for
-configuration wizards (e.g., `bragctl init`):
+configuration wizards:
 
 ```yaml
 setup:
@@ -418,19 +418,19 @@ control directory at `{workdir}/control/commands/`:
 
 ```bash
 # Reload a specific plugin
-touch ~/.bragctl/control/commands/reload-jira
+touch ~/.config/wtmcp/control/commands/reload-jira
 
 # Reload all plugins
-touch ~/.bragctl/control/commands/reload-all
+touch ~/.config/wtmcp/control/commands/reload-all
 
 # List loaded plugins
-touch ~/.bragctl/control/commands/list
+touch ~/.config/wtmcp/control/commands/list
 ```
 
 Results appear in `{workdir}/control/results/` as JSON:
 
 ```bash
-cat ~/.bragctl/control/results/reload-jira.json
+cat ~/.config/wtmcp/control/results/reload-jira.json
 ```
 
 The command file is consumed (deleted) after processing.
@@ -458,7 +458,7 @@ startup and removes it on shutdown. Use this to check if the
 server is running:
 
 ```bash
-kill -0 $(cat ~/.bragctl/control/mcp.pid) 2>/dev/null && echo "running" || echo "stopped"
+kill -0 $(cat ~/.config/wtmcp/control/mcp.pid) 2>/dev/null && echo "running" || echo "stopped"
 ```
 
 ## Plugin Environment

@@ -45,14 +45,14 @@ proxying, caching, and output encoding so plugins stay minimal.
 ```bash
 make build
 
-# Run with a workdir containing plugins and env config
-./wtmcp --workdir ~/.bragctl
+# Run with a workdir (default: ~/.config/wtmcp)
+./wtmcp --workdir ~/.config/wtmcp
 ```
 
 The workdir layout:
 
 ```
-~/.bragctl/
+~/.config/wtmcp/
   config.yaml           Core config (optional)
   .env                  Environment variables
   env.d/*.env           Additional env files
@@ -210,12 +210,12 @@ plugin_list()
 
 **From a terminal** (control directory):
 ```bash
-touch ~/.bragctl/control/commands/reload-jira
-touch ~/.bragctl/control/commands/reload-all
+touch ~/.config/wtmcp/control/commands/reload-jira
+touch ~/.config/wtmcp/control/commands/reload-all
 ```
 
-Results appear in `~/.bragctl/control/results/`. The server writes
-its PID to `~/.bragctl/control/mcp.pid` for process tracking.
+Results appear in `~/.config/wtmcp/control/results/`. The server writes
+its PID to `~/.config/wtmcp/control/mcp.pid` for process tracking.
 
 MCP clients are automatically notified when tools or resources change.
 

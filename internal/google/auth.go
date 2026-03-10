@@ -23,7 +23,7 @@ type tokenJSON struct {
 }
 
 // CredentialsDir returns the Google credentials directory.
-// Uses GOOGLE_CREDENTIALS_DIR env var, falls back to ~/.bragctl/credentials/google/.
+// Uses GOOGLE_CREDENTIALS_DIR env var, falls back to ~/.config/wtmcp/credentials/google/.
 func CredentialsDir() string {
 	if dir := os.Getenv("GOOGLE_CREDENTIALS_DIR"); dir != "" {
 		return dir
@@ -32,7 +32,7 @@ func CredentialsDir() string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, ".bragctl", "credentials", "google")
+	return filepath.Join(home, ".config", "wtmcp", "credentials", "google")
 }
 
 // NewHTTPClient creates an HTTP client authenticated with OAuth2 credentials.
