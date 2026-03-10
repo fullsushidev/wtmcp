@@ -17,9 +17,10 @@ func TestBuildPluginEnv(t *testing.T) {
 		Name: "test-plugin",
 		Env:  []string{"CUSTOM_VAR"},
 	}
-	t.Setenv("CUSTOM_VAR", "custom-value")
 
-	env := buildPluginEnv(m)
+	// CUSTOM_VAR comes from the scoped group vars, not process env
+	groupVars := map[string]string{"CUSTOM_VAR": "custom-value"}
+	env := buildPluginEnv(m, groupVars)
 
 	envMap := make(map[string]string)
 	for _, e := range env {
@@ -40,6 +41,27 @@ func TestBuildPluginEnv(t *testing.T) {
 	}
 	if envMap["CUSTOM_VAR"] != "custom-value" {
 		t.Errorf("CUSTOM_VAR = %q, want custom-value", envMap["CUSTOM_VAR"])
+	}
+}
+
+func TestBuildPluginEnvIgnoresProcessEnv(t *testing.T) {
+	// Even if a var exists in the process env, it should NOT be
+	// passed through unless it's in the group vars
+	t.Setenv("JIRA_TOKEN", "process-secret")
+
+	m := &Manifest{
+		Name: "test-plugin",
+		Env:  []string{"JIRA_TOKEN"},
+	}
+
+	// No group vars — plugin should not get JIRA_TOKEN
+	env := buildPluginEnv(m, nil)
+
+	for _, e := range env {
+		parts := splitEnvVar(e)
+		if len(parts) == 2 && parts[0] == "JIRA_TOKEN" {
+			t.Error("JIRA_TOKEN should not be passed from process env")
+		}
 	}
 }
 
@@ -90,7 +112,7 @@ done
 		ShutdownTimeout:   5 * time.Second,
 		ShutdownKillAfter: 2 * time.Second,
 		MaxMessageSize:    1024 * 1024,
-	})
+	}, nil)
 
 	if proc.State() != StateUnloaded {
 		t.Errorf("initial state = %d, want Unloaded", proc.State())
@@ -138,7 +160,7 @@ echo "{\"id\":\"$ID\",\"type\":\"tool_result\",\"result\":{\"ok\":true}}"
 		ShutdownTimeout:   5 * time.Second,
 		ShutdownKillAfter: 2 * time.Second,
 		MaxMessageSize:    1024 * 1024,
-	})
+	}, nil)
 
 	// Oneshot plugins start without init
 	ctx := context.Background()
@@ -180,7 +202,7 @@ done
 		ShutdownTimeout:   5 * time.Second,
 		ShutdownKillAfter: 2 * time.Second,
 		MaxMessageSize:    1024 * 1024,
-	})
+	}, nil)
 
 	err := proc.Start(context.Background())
 	if err == nil {

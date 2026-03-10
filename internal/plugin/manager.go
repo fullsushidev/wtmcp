@@ -20,6 +20,7 @@ import (
 type Manager struct {
 	handles    map[string]*Handle
 	manifests  map[string]*Manifest
+	envGroups  config.EnvGroups
 	authReg    *auth.Registry
 	proxy      *proxy.Proxy
 	cache      cache.Store
@@ -28,10 +29,11 @@ type Manager struct {
 }
 
 // NewManager creates a plugin manager.
-func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *config.Config) *Manager {
+func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *config.Config, envGroups config.EnvGroups) *Manager {
 	return &Manager{
 		handles:    make(map[string]*Handle),
 		manifests:  make(map[string]*Manifest),
+		envGroups:  envGroups,
 		authReg:    authReg,
 		proxy:      p,
 		cache:      c,
@@ -128,13 +130,14 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	manifest.SetResolvedConfig(cfgJSON)
 
 	// Register with proxy
+	vars := m.pluginVars(manifest)
 	pa := &proxy.PluginAuth{
-		BaseURL:        config.ResolveEnvVars(manifest.Services.HTTP.BaseURL),
+		BaseURL:        config.ResolveVars(manifest.Services.HTTP.BaseURL, vars),
 		AllowedDomains: manifest.Services.HTTP.AllowedDomains,
 	}
 
 	if m.isKerberosAuth(manifest) {
-		spn := config.ResolveEnvVars(manifest.Services.Auth.SPN)
+		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
 		pa.Client = proxy.NewKerberosClient(spn)
 		log.Printf("[%s] using kerberos client (spn=%q)", name, spn)
 	} else {
@@ -151,7 +154,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		MaxMessageSize:    int(m.cfg.Plugins.MaxMessageSize),
 	}
 
-	handle := NewHandle(manifest, m.svcHandler, processCfg, m.cfg.Plugins.ToolCallTimeout)
+	handle := NewHandle(manifest, m.svcHandler, processCfg, m.cfg.Plugins.ToolCallTimeout, vars)
 
 	if manifest.Execution == "persistent" {
 		if err := handle.Start(ctx); err != nil {
@@ -224,8 +227,18 @@ func (m *Manager) ToolOwner(toolName string) string {
 	return name
 }
 
+// pluginVars returns the scoped env.d variables for a plugin based
+// on its credential_group. Returns nil if no group is declared or
+// no matching env.d file exists.
+func (m *Manager) pluginVars(manifest *Manifest) map[string]string {
+	if manifest.CredentialGroup == "" {
+		return nil
+	}
+	return m.envGroups.Get(manifest.CredentialGroup)
+}
+
 func (m *Manager) resolveConfig(manifest *Manifest) map[string]string {
-	return config.ResolveEnvMap(manifest.Config)
+	return config.ResolveVarsMap(manifest.Config, m.pluginVars(manifest))
 }
 
 // isKerberosAuth checks if a plugin uses Kerberos auth (without variants).
@@ -245,43 +258,46 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 		return nil
 	}
 
+	vars := m.pluginVars(manifest)
+	resolve := func(s string) string { return config.ResolveVars(s, vars) }
+
 	var variantCfg auth.VariantConfig
 	if len(authCfg.Variants) > 0 {
-		variantCfg.Select = config.ResolveEnvVars(authCfg.Select)
+		variantCfg.Select = resolve(authCfg.Select)
 		variantCfg.VariantOrder = authCfg.VariantOrder
 		variantCfg.Variants = make(map[string]auth.SingleAuthConfig)
 		for name, v := range authCfg.Variants {
 			variantCfg.Variants[name] = auth.SingleAuthConfig{
 				Type:            v.Type,
-				Token:           config.ResolveEnvVars(v.Token),
+				Token:           resolve(v.Token),
 				Header:          v.Header,
 				Prefix:          v.Prefix,
-				Username:        config.ResolveEnvVars(v.Username),
-				Password:        config.ResolveEnvVars(v.Password),
-				SPN:             config.ResolveEnvVars(v.SPN),
+				Username:        resolve(v.Username),
+				Password:        resolve(v.Password),
+				SPN:             resolve(v.SPN),
 				Scopes:          v.Scopes,
-				CredentialsFile: config.ResolveEnvVars(v.CredentialsFile),
-				TokenFile:       config.ResolveEnvVars(v.TokenFile),
+				CredentialsFile: resolve(v.CredentialsFile),
+				TokenFile:       resolve(v.TokenFile),
 				CredentialsDir:  m.cfg.CredentialsDir,
 			}
 		}
 	} else {
-		// Single auth type — resolve env vars in fields and wrap
-		// as a single variant so ResolveVariant gets the full config.
+		// Single auth type — resolve vars and wrap as a single
+		// variant so ResolveVariant gets the full config.
 		variantCfg.Select = "default"
 		variantCfg.VariantOrder = []string{"default"}
 		variantCfg.Variants = map[string]auth.SingleAuthConfig{
 			"default": {
 				Type:            authCfg.Type,
-				Token:           config.ResolveEnvVars(authCfg.Token),
+				Token:           resolve(authCfg.Token),
 				Header:          authCfg.Header,
 				Prefix:          authCfg.Prefix,
-				Username:        config.ResolveEnvVars(authCfg.Username),
-				Password:        config.ResolveEnvVars(authCfg.Password),
-				SPN:             config.ResolveEnvVars(authCfg.SPN),
+				Username:        resolve(authCfg.Username),
+				Password:        resolve(authCfg.Password),
+				SPN:             resolve(authCfg.SPN),
 				Scopes:          authCfg.Scopes,
-				CredentialsFile: config.ResolveEnvVars(authCfg.CredentialsFile),
-				TokenFile:       config.ResolveEnvVars(authCfg.TokenFile),
+				CredentialsFile: resolve(authCfg.CredentialsFile),
+				TokenFile:       resolve(authCfg.TokenFile),
 				CredentialsDir:  m.cfg.CredentialsDir,
 			},
 		}

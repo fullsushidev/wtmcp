@@ -52,7 +52,7 @@ func newTestManager(t *testing.T) *Manager {
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
 	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
-	return NewManager(authReg, p, cacheStore, cfg)
+	return NewManager(authReg, p, cacheStore, cfg, nil)
 }
 
 var echoScript = `#!/bin/bash

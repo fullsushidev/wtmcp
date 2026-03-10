@@ -78,8 +78,28 @@ func TestResolveEnvVars(t *testing.T) {
 	}
 }
 
-func TestResolveEnvMap(t *testing.T) {
-	t.Setenv("TOKEN", "secret123")
+func TestResolveVars(t *testing.T) {
+	vars := map[string]string{
+		"TOKEN": "secret123",
+	}
+
+	if got := ResolveVars("${TOKEN}", vars); got != "secret123" {
+		t.Errorf("ResolveVars(${TOKEN}) = %q, want secret123", got)
+	}
+	if got := ResolveVars("${MISSING:-fallback}", vars); got != "fallback" {
+		t.Errorf("ResolveVars(${MISSING:-fallback}) = %q, want fallback", got)
+	}
+	// Must NOT resolve from process env
+	t.Setenv("SHELL_VAR", "from_shell")
+	if got := ResolveVars("${SHELL_VAR}", vars); got != "" {
+		t.Errorf("ResolveVars(${SHELL_VAR}) = %q, want empty (should not read process env)", got)
+	}
+}
+
+func TestResolveVarsMap(t *testing.T) {
+	vars := map[string]string{
+		"TOKEN": "secret123",
+	}
 
 	m := map[string]string{
 		"url":   "https://api.example.com",
@@ -87,7 +107,7 @@ func TestResolveEnvMap(t *testing.T) {
 		"file":  "${MISSING:-default.json}",
 	}
 
-	resolved := ResolveEnvMap(m)
+	resolved := ResolveVarsMap(m, vars)
 
 	if resolved["url"] != "https://api.example.com" {
 		t.Errorf("url = %q, want %q", resolved["url"], "https://api.example.com")

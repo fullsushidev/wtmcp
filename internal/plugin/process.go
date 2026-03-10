@@ -29,6 +29,7 @@ type Process struct {
 	Transport         *Transport
 	manifest          *Manifest
 	handler           ServiceHandler
+	groupVars         map[string]string
 	state             State
 	initTimeout       time.Duration
 	shutdownTimeout   time.Duration
@@ -44,11 +45,13 @@ type ProcessConfig struct {
 	MaxMessageSize    int
 }
 
-// NewProcess creates a Process for the given manifest.
-func NewProcess(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig) *Process {
+// NewProcess creates a Process for the given manifest. groupVars are
+// the scoped env.d variables for this plugin's credential_group.
+func NewProcess(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig, groupVars map[string]string) *Process {
 	return &Process{
 		manifest:          manifest,
 		handler:           handler,
+		groupVars:         groupVars,
 		state:             StateUnloaded,
 		initTimeout:       cfg.InitTimeout,
 		shutdownTimeout:   cfg.ShutdownTimeout,
@@ -67,7 +70,7 @@ func (p *Process) Start(ctx context.Context) error {
 
 	p.cmd = exec.CommandContext(ctx, p.manifest.HandlerPath()) //nolint:gosec // handler path is validated by Manifest.Validate()
 	p.cmd.Dir = p.manifest.Dir
-	p.cmd.Env = buildPluginEnv(p.manifest)
+	p.cmd.Env = buildPluginEnv(p.manifest, p.groupVars)
 
 	stdin, err := p.cmd.StdinPipe()
 	if err != nil {
@@ -181,9 +184,11 @@ func (p *Process) kill() {
 }
 
 // buildPluginEnv constructs a filtered environment for plugin processes.
-// Only safe variables are passed through. Credential-bearing variables
-// are excluded.
-func buildPluginEnv(manifest *Manifest) []string {
+// Only safe system variables are passed from the process environment.
+// Plugin-specific variables come exclusively from the scoped env.d
+// vars map (matched by credential_group) — never from the process
+// environment.
+func buildPluginEnv(manifest *Manifest, groupVars map[string]string) []string {
 	allowlist := []string{
 		"PATH", "HOME", "USER", "SHELL", "LANG", "TERM", "TZ", "TMPDIR",
 		"XDG_RUNTIME_DIR", "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
@@ -196,9 +201,10 @@ func buildPluginEnv(manifest *Manifest) []string {
 		}
 	}
 
-	// Pass through additional env vars declared in the manifest
+	// Pass through env vars declared in the manifest, but only from
+	// the plugin's own credential_group env.d file.
 	for _, key := range manifest.Env {
-		if val, ok := os.LookupEnv(key); ok {
+		if val, ok := groupVars[key]; ok {
 			env = append(env, key+"="+val)
 		}
 	}

@@ -60,8 +60,9 @@ func run() error {
 		workdir = workdirOverride
 	}
 
-	// Load .env files before anything else
-	if err := config.LoadDotEnv(workdir); err != nil {
+	// Load scoped env.d groups (not into process env)
+	envGroups, err := config.LoadEnvGroups(workdir)
+	if err != nil {
 		return fmt.Errorf("load env: %w", err)
 	}
 
@@ -87,7 +88,7 @@ func run() error {
 	cacheStore := cache.NewMemoryStore()
 	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize)
 
-	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg)
+	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envGroups)
 
 	if err := mgr.Discover(cfg.PluginDirs); err != nil {
 		return fmt.Errorf("plugin discovery: %w", err)
@@ -134,7 +135,8 @@ func runCheck() error {
 		workdir = workdirOverride
 	}
 
-	if err := config.LoadDotEnv(workdir); err != nil {
+	envGroups, err := config.LoadEnvGroups(workdir)
+	if err != nil {
 		return err
 	}
 
@@ -146,6 +148,10 @@ func runCheck() error {
 	fmt.Printf("wtmcp %s\n", Version)
 	fmt.Printf("workdir: %s\n", workdir)
 	fmt.Printf("user plugins: %v\n", cfg.Plugins.UserPlugins)
+	fmt.Printf("env groups: %d\n", len(envGroups))
+	for group := range envGroups {
+		fmt.Printf("  - %s\n", group)
+	}
 	fmt.Printf("\nplugin search path:\n")
 	for i, dir := range cfg.PluginDirs {
 		exists := "missing"
@@ -156,7 +162,7 @@ func runCheck() error {
 	}
 
 	// Discover plugins (without loading/starting them)
-	mgr := plugin.NewManager(nil, nil, nil, cfg)
+	mgr := plugin.NewManager(nil, nil, nil, cfg, envGroups)
 	if err := mgr.Discover(cfg.PluginDirs); err != nil {
 		return err
 	}

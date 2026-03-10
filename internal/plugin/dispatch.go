@@ -18,16 +18,18 @@ type Handle struct {
 	process     *Process
 	manifest    *Manifest
 	handler     ServiceHandler
+	groupVars   map[string]string
 	processCfg  ProcessConfig
 	mu          sync.Mutex // serialize tool calls for concurrency:1
 	toolTimeout time.Duration
 }
 
 // NewHandle creates a Handle for dispatching tool calls to a plugin.
-func NewHandle(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig, toolTimeout time.Duration) *Handle {
+func NewHandle(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig, toolTimeout time.Duration, groupVars map[string]string) *Handle {
 	return &Handle{
 		manifest:    manifest,
 		handler:     handler,
+		groupVars:   groupVars,
 		processCfg:  cfg,
 		toolTimeout: toolTimeout,
 	}
@@ -35,7 +37,7 @@ func NewHandle(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig, to
 
 // Start launches the plugin process.
 func (h *Handle) Start(ctx context.Context) error {
-	h.process = NewProcess(h.manifest, h.handler, h.processCfg)
+	h.process = NewProcess(h.manifest, h.handler, h.processCfg, h.groupVars)
 	return h.process.Start(ctx)
 }
 
@@ -120,7 +122,7 @@ func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.R
 
 	cmd := exec.CommandContext(ctx, h.manifest.HandlerPath()) //nolint:gosec // handler path validated by Manifest.Validate()
 	cmd.Dir = h.manifest.Dir
-	cmd.Env = buildPluginEnv(h.manifest)
+	cmd.Env = buildPluginEnv(h.manifest, h.groupVars)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

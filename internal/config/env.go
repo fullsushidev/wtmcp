@@ -27,29 +27,38 @@ func WorkDir() string {
 	return filepath.Join(home, ".config", "wtmcp")
 }
 
-// LoadDotEnv loads environment variables from .env files in the workdir.
-//
-// Loading order:
-//  1. workdir/.env (if exists)
-//  2. workdir/env.d/*.env (alphabetical order, if directory exists)
-//
-// Existing environment variables are NOT overwritten — process env
-// takes precedence. This allows temporary overrides via shell export.
-func LoadDotEnv(workdir string) error {
-	// Load main .env
-	mainEnv := filepath.Join(workdir, ".env")
-	if err := loadEnvFile(mainEnv); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("load %s: %w", mainEnv, err)
-	}
+// EnvGroups maps credential group names to their variables.
+// Group name is derived from the env.d filename without the .env
+// extension (e.g., env.d/jira.env → group "jira").
+type EnvGroups map[string]map[string]string
 
-	// Load env.d/*.env
+// Get returns the variables for a credential group, or nil if the
+// group does not exist.
+func (g EnvGroups) Get(group string) map[string]string {
+	if g == nil {
+		return nil
+	}
+	return g[group]
+}
+
+// LoadEnvGroups reads env.d/*.env files and returns them as scoped
+// groups. Each file becomes a group keyed by its filename without
+// the .env extension. Variables are NOT loaded into the process
+// environment — they are only available through the returned map.
+//
+// Plugin credentials and configuration must be set via env.d files;
+// shell-exported environment variables are not used for plugin
+// variable resolution.
+func LoadEnvGroups(workdir string) (EnvGroups, error) {
+	groups := make(EnvGroups)
+
 	envDir := filepath.Join(workdir, "env.d")
 	entries, err := os.ReadDir(envDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return groups, nil
 		}
-		return fmt.Errorf("read %s: %w", envDir, err)
+		return nil, fmt.Errorf("read %s: %w", envDir, err)
 	}
 
 	// Sort for deterministic order
@@ -63,27 +72,30 @@ func LoadDotEnv(workdir string) error {
 
 	for _, name := range files {
 		path := filepath.Join(envDir, name)
-		if err := loadEnvFile(path); err != nil {
-			return fmt.Errorf("load %s: %w", path, err)
+		vars, err := parseEnvFile(path)
+		if err != nil {
+			return nil, fmt.Errorf("load %s: %w", path, err)
 		}
-		log.Printf("loaded env: %s", name)
+		group := strings.TrimSuffix(name, ".env")
+		groups[group] = vars
+		log.Printf("loaded env group: %s (%d vars)", group, len(vars))
 	}
 
-	return nil
+	return groups, nil
 }
 
-// loadEnvFile reads a .env file and sets environment variables.
+// parseEnvFile reads a .env file and returns its variables as a map.
 // Lines starting with # are comments. Empty lines are skipped.
-// Format: KEY=VALUE (no quotes handling needed for simple values,
-// but double-quoted values have quotes stripped).
-// Existing env vars are NOT overwritten.
-func loadEnvFile(path string) error {
+// Format: KEY=VALUE (double-quoted and single-quoted values have
+// quotes stripped). The "export" prefix is also stripped.
+func parseEnvFile(path string) (map[string]string, error) {
 	f, err := os.Open(path) //nolint:gosec // env file path from config
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
+	vars := make(map[string]string)
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -114,20 +126,16 @@ func loadEnvFile(path string) error {
 			value = value[1 : len(value)-1]
 		}
 
-		// Don't overwrite existing env vars
-		if _, exists := os.LookupEnv(key); !exists {
-			_ = os.Setenv(key, value)
-		}
+		vars[key] = value
 	}
 
-	return scanner.Err()
+	return vars, scanner.Err()
 }
 
 // StandardPaths returns the conventional paths derived from the workdir.
 type StandardPaths struct {
 	WorkDir        string
 	ConfigFile     string
-	EnvFile        string
 	EnvDir         string
 	CredentialsDir string
 	PluginsDir     string
@@ -139,7 +147,6 @@ func Paths(workdir string) StandardPaths {
 	return StandardPaths{
 		WorkDir:        workdir,
 		ConfigFile:     filepath.Join(workdir, "config.yaml"),
-		EnvFile:        filepath.Join(workdir, ".env"),
 		EnvDir:         filepath.Join(workdir, "env.d"),
 		CredentialsDir: filepath.Join(workdir, "credentials"),
 		PluginsDir:     filepath.Join(workdir, "plugins"),

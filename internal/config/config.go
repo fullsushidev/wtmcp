@@ -228,13 +228,40 @@ func containsPath(dirs []string, path string) bool {
 // envVarPattern matches ${VAR} and ${VAR:-default} syntax.
 var envVarPattern = regexp.MustCompile(`\$\$|\$\{([^}]+)\}`)
 
-// ResolveEnvVars expands environment variable references in a string.
+// ResolveEnvVars expands environment variable references in a string
+// using the process environment. Use this only for server-level config
+// (credentials_dir, cache.dir) — never for plugin-scoped values.
 //
 // Supported syntax:
 //   - ${VAR}           — value of VAR, empty string if unset
 //   - ${VAR:-default}  — value of VAR, or "default" if unset/empty
 //   - $$               — literal dollar sign
 func ResolveEnvVars(s string) string {
+	return resolveVarsFunc(s, os.LookupEnv)
+}
+
+// ResolveVars expands ${VAR} references using only the provided vars
+// map. Shell-exported environment variables are not consulted. This
+// is the scoped resolver for plugin configuration — each plugin only
+// sees variables from its own credential_group env.d file.
+func ResolveVars(s string, vars map[string]string) string {
+	return resolveVarsFunc(s, func(key string) (string, bool) {
+		val, ok := vars[key]
+		return val, ok
+	})
+}
+
+// ResolveVarsMap resolves all ${VAR} references in a string map using
+// only the provided vars map.
+func ResolveVarsMap(m map[string]string, vars map[string]string) map[string]string {
+	resolved := make(map[string]string, len(m))
+	for k, v := range m {
+		resolved[k] = ResolveVars(v, vars)
+	}
+	return resolved
+}
+
+func resolveVarsFunc(s string, lookup func(string) (string, bool)) string {
 	return envVarPattern.ReplaceAllStringFunc(s, func(match string) string {
 		if match == "$$" {
 			return "$"
@@ -247,23 +274,14 @@ func ResolveEnvVars(s string) string {
 		if idx := strings.Index(inner, ":-"); idx >= 0 {
 			varName := inner[:idx]
 			defaultVal := inner[idx+2:]
-			if val, ok := os.LookupEnv(varName); ok && val != "" {
+			if val, ok := lookup(varName); ok && val != "" {
 				return val
 			}
 			return defaultVal
 		}
 
 		// Simple ${VAR}
-		return os.Getenv(inner)
+		val, _ := lookup(inner)
+		return val
 	})
-}
-
-// ResolveEnvMap resolves all environment variable references in a
-// string map, returning a new map with resolved values.
-func ResolveEnvMap(m map[string]string) map[string]string {
-	resolved := make(map[string]string, len(m))
-	for k, v := range m {
-		resolved[k] = ResolveEnvVars(v)
-	}
-	return resolved
 }

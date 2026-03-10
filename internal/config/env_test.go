@@ -22,89 +22,92 @@ func TestWorkDir(t *testing.T) {
 	}
 }
 
-func TestLoadDotEnvMainFile(t *testing.T) {
-	dir := t.TempDir()
-
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TEST_MAIN_VAR=main_value\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	// Clear so it can be set
-	t.Setenv("TEST_MAIN_VAR", "")
-	_ = os.Unsetenv("TEST_MAIN_VAR")
-
-	if err := LoadDotEnv(dir); err != nil {
-		t.Fatalf("LoadDotEnv: %v", err)
-	}
-
-	if got := os.Getenv("TEST_MAIN_VAR"); got != "main_value" {
-		t.Errorf("TEST_MAIN_VAR = %q, want main_value", got)
-	}
-}
-
-func TestLoadDotEnvDir(t *testing.T) {
+func TestLoadEnvGroups(t *testing.T) {
 	dir := t.TempDir()
 	envDir := filepath.Join(dir, "env.d")
-	if err := os.MkdirAll(envDir, 0o750); err != nil {
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(envDir, "aaa.env"), []byte("TEST_AAA=aaa_val\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(envDir, "jira.env"), []byte("JIRA_URL=https://jira.example.com\nJIRA_TOKEN=secret123\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(envDir, "bbb.env"), []byte("TEST_BBB=bbb_val\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(envDir, "google.env"), []byte("GOOGLE_PROJECT=myproject\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Non-.env files should be ignored
-	if err := os.WriteFile(filepath.Join(envDir, "skip.txt"), []byte("TEST_SKIP=nope\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(envDir, "skip.txt"), []byte("SKIP=nope\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	_ = os.Unsetenv("TEST_AAA")
-	_ = os.Unsetenv("TEST_BBB")
-	_ = os.Unsetenv("TEST_SKIP")
-
-	if err := LoadDotEnv(dir); err != nil {
-		t.Fatalf("LoadDotEnv: %v", err)
+	groups, err := LoadEnvGroups(dir)
+	if err != nil {
+		t.Fatalf("LoadEnvGroups: %v", err)
 	}
 
-	if os.Getenv("TEST_AAA") != "aaa_val" {
-		t.Errorf("TEST_AAA = %q", os.Getenv("TEST_AAA"))
+	if len(groups) != 2 {
+		t.Fatalf("got %d groups, want 2", len(groups))
 	}
-	if os.Getenv("TEST_BBB") != "bbb_val" {
-		t.Errorf("TEST_BBB = %q", os.Getenv("TEST_BBB"))
+
+	jira := groups.Get("jira")
+	if jira == nil {
+		t.Fatal("expected jira group")
 	}
-	if os.Getenv("TEST_SKIP") != "" {
-		t.Error("skip.txt should not have been loaded")
+	if jira["JIRA_URL"] != "https://jira.example.com" {
+		t.Errorf("JIRA_URL = %q", jira["JIRA_URL"])
+	}
+	if jira["JIRA_TOKEN"] != "secret123" {
+		t.Errorf("JIRA_TOKEN = %q", jira["JIRA_TOKEN"])
+	}
+
+	google := groups.Get("google")
+	if google == nil {
+		t.Fatal("expected google group")
+	}
+	if google["GOOGLE_PROJECT"] != "myproject" {
+		t.Errorf("GOOGLE_PROJECT = %q", google["GOOGLE_PROJECT"])
+	}
+
+	// Nonexistent group
+	if groups.Get("nonexistent") != nil {
+		t.Error("expected nil for nonexistent group")
 	}
 }
 
-func TestLoadDotEnvNoOverwrite(t *testing.T) {
+func TestLoadEnvGroupsNotInProcessEnv(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".env"), []byte("TEST_EXISTING=from_file\n"), 0o600); err != nil {
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 
-	// Set it first — should NOT be overwritten
-	t.Setenv("TEST_EXISTING", "from_shell")
-
-	if err := LoadDotEnv(dir); err != nil {
+	_ = os.Unsetenv("TEST_SCOPED_VAR")
+	if err := os.WriteFile(filepath.Join(envDir, "test.env"), []byte("TEST_SCOPED_VAR=from_envd\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
-	if got := os.Getenv("TEST_EXISTING"); got != "from_shell" {
-		t.Errorf("TEST_EXISTING = %q, want from_shell (env should not be overwritten)", got)
+	_, err := LoadEnvGroups(dir)
+	if err != nil {
+		t.Fatalf("LoadEnvGroups: %v", err)
+	}
+
+	// Variable must NOT be in the process environment
+	if val := os.Getenv("TEST_SCOPED_VAR"); val != "" {
+		t.Errorf("TEST_SCOPED_VAR leaked into process env: %q", val)
 	}
 }
 
-func TestLoadDotEnvMissingDir(t *testing.T) {
-	// Should not error on missing workdir
-	if err := LoadDotEnv("/nonexistent/path"); err != nil {
+func TestLoadEnvGroupsMissingDir(t *testing.T) {
+	groups, err := LoadEnvGroups("/nonexistent/path")
+	if err != nil {
 		t.Errorf("should not error on missing dir: %v", err)
 	}
+	if len(groups) != 0 {
+		t.Errorf("expected empty groups, got %d", len(groups))
+	}
 }
 
-func TestLoadEnvFile(t *testing.T) {
+func TestParseEnvFile(t *testing.T) {
 	dir := t.TempDir()
 	envFile := filepath.Join(dir, "test.env")
 
@@ -122,11 +125,8 @@ EMPTY_LINE_ABOVE=yes
 		t.Fatal(err)
 	}
 
-	for _, key := range []string{"PLAIN_VAR", "QUOTED_VAR", "SINGLE_QUOTED", "EXPORTED_VAR", "SPACED_VAR", "EMPTY_LINE_ABOVE"} {
-		_ = os.Unsetenv(key)
-	}
-
-	if err := loadEnvFile(envFile); err != nil {
+	vars, err := parseEnvFile(envFile)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -140,7 +140,7 @@ EMPTY_LINE_ABOVE=yes
 	}
 
 	for key, want := range tests {
-		if got := os.Getenv(key); got != want {
+		if got := vars[key]; got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
 	}
@@ -151,9 +151,6 @@ func TestPaths(t *testing.T) {
 
 	if p.ConfigFile != "/opt/wtmcp/config.yaml" {
 		t.Errorf("ConfigFile = %q", p.ConfigFile)
-	}
-	if p.EnvFile != "/opt/wtmcp/.env" {
-		t.Errorf("EnvFile = %q", p.EnvFile)
 	}
 	if p.EnvDir != "/opt/wtmcp/env.d" {
 		t.Errorf("EnvDir = %q", p.EnvDir)

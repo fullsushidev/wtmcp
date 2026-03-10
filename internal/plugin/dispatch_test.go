@@ -61,7 +61,7 @@ done
 		Dir:         dir,
 	}
 
-	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second)
+	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second, nil)
 
 	ctx := context.Background()
 	if err := h.Start(ctx); err != nil {
@@ -106,7 +106,7 @@ echo "{}" | jq -c --arg id "$ID" --arg tool "$TOOL" \
 		Dir:         dir,
 	}
 
-	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second)
+	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second, nil)
 
 	result, err := h.CallTool(context.Background(), "greet", json.RawMessage(`{}`))
 	if err != nil {
@@ -157,7 +157,7 @@ echo "{}" | jq -c --arg id "$ID" --arg status "$STATUS" \
 		},
 	}
 
-	h := NewHandle(m, handler, testProcessConfig(), 5*time.Second)
+	h := NewHandle(m, handler, testProcessConfig(), 5*time.Second, nil)
 
 	result, err := h.CallTool(context.Background(), "fetch", json.RawMessage(`{}`))
 	if err != nil {
@@ -205,7 +205,7 @@ done
 		Dir:         dir,
 	}
 
-	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second)
+	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second, nil)
 	ctx := context.Background()
 	if err := h.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)
@@ -260,7 +260,7 @@ done
 		Dir:         dir,
 	}
 
-	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second)
+	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second, nil)
 	ctx := context.Background()
 	if err := h.Start(ctx); err != nil {
 		t.Fatalf("Start: %v", err)

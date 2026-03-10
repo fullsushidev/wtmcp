@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/LeGambiArt/wtmcp/internal/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -29,8 +28,9 @@ type Manifest struct {
 	Concurrency int    `yaml:"concurrency"` // default: 1
 	Handler     string `yaml:"handler"`
 
-	DependsOn []string `yaml:"depends_on"`
-	Env       []string `yaml:"env"` // additional env vars to pass through
+	DependsOn       []string `yaml:"depends_on"`
+	CredentialGroup string   `yaml:"credential_group"` // scopes env.d access
+	Env             []string `yaml:"env"`              // env vars to pass from credential group
 
 	Services ServiceConfig     `yaml:"services"`
 	Provides ProvidesConfig    `yaml:"provides"`
@@ -220,9 +220,6 @@ func LoadManifest(path string) (*Manifest, error) {
 		}
 	}
 
-	// Resolve env vars in service URLs before validation
-	m.Services.HTTP.BaseURL = config.ResolveEnvVars(m.Services.HTTP.BaseURL)
-
 	if err := m.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid manifest %s: %w", path, err)
 	}
@@ -268,8 +265,8 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("handler path escapes plugin directory: %s", m.Handler)
 	}
 
-	// Validate base_url if set
-	if m.Services.HTTP.BaseURL != "" {
+	// Validate base_url if set and not a template (${VAR} resolved later)
+	if m.Services.HTTP.BaseURL != "" && !strings.Contains(m.Services.HTTP.BaseURL, "${") {
 		u, err := url.Parse(m.Services.HTTP.BaseURL)
 		if err != nil {
 			return fmt.Errorf("invalid base_url: %w", err)
