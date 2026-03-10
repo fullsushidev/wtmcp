@@ -485,6 +485,42 @@ func TestMultipartInvalidBase64(t *testing.T) {
 	}
 }
 
+func TestStripDangerousHeaders(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// These headers must have been stripped
+		for _, h := range []string{"Cookie", "X-Forwarded-For", "X-Forwarded-Host", "X-Real-Ip"} {
+			if v := r.Header.Get(h); v != "" {
+				t.Errorf("header %s = %q, should have been stripped", h, v)
+			}
+		}
+		// Safe headers should pass through
+		if v := r.Header.Get("X-Custom"); v != "keep-me" {
+			t.Errorf("X-Custom = %q, want keep-me", v)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID: "req-headers", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
+		Headers: map[string]string{
+			"Cookie":           "session=stolen",
+			"X-Forwarded-For":  "1.2.3.4",
+			"X-Forwarded-Host": "evil.com",
+			"X-Real-Ip":        "10.0.0.1",
+			"X-Custom":         "keep-me",
+		},
+	})
+
+	if resp.Status != 200 {
+		t.Fatalf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
+
 func TestMultipartOverridesContentType(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ct := r.Header.Get("Content-Type")

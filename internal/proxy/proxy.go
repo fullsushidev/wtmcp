@@ -195,10 +195,12 @@ func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.M
 		httpReq.URL.RawQuery = q.Encode()
 	}
 
-	// Add plugin-specified headers
+	// Add plugin-specified headers, then strip security-sensitive ones
+	// that plugins should not control.
 	for k, v := range req.Headers {
 		httpReq.Header.Set(k, v)
 	}
+	stripDangerousHeaders(httpReq)
 
 	// Proxy sets Content-Type for multipart (includes boundary).
 	// Must come after plugin headers to override any plugin-set Content-Type.
@@ -351,5 +353,24 @@ func errResponse(id, code, message string) protocol.Message {
 		Type:   protocol.TypeHTTPResponse,
 		Status: 0,
 		Error:  &protocol.Error{Code: code, Message: message},
+	}
+}
+
+// dangerousHeaders are headers that plugins must not control.
+// Authorization is handled separately by auth injection (overwritten).
+var dangerousHeaders = []string{
+	"Host",
+	"Cookie",
+	"Set-Cookie",
+	"X-Forwarded-For",
+	"X-Forwarded-Host",
+	"X-Real-Ip",
+}
+
+// stripDangerousHeaders removes security-sensitive headers that
+// plugins should not set on proxied requests.
+func stripDangerousHeaders(req *http.Request) {
+	for _, h := range dangerousHeaders {
+		req.Header.Del(h)
 	}
 }

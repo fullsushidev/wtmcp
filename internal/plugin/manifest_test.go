@@ -3,6 +3,7 @@ package plugin
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -415,6 +416,73 @@ setup:
 	}
 	if m.Setup.PostSetupMessage != "Restart for changes to take effect." {
 		t.Errorf("PostSetupMessage = %q", m.Setup.PostSetupMessage)
+	}
+}
+
+func TestValidateDomain(t *testing.T) {
+	valid := []string{
+		"api.example.com",
+		"jira.corp.redhat.com",
+		"sub.domain.co.uk",
+	}
+	for _, d := range valid {
+		if err := validateDomain(d); err != nil {
+			t.Errorf("validateDomain(%q) = %v, want nil", d, err)
+		}
+	}
+
+	invalid := []struct {
+		domain  string
+		wantErr string
+	}{
+		{"localhost", "localhost"},
+		{"127.0.0.1", "IP addresses"},
+		{"192.168.1.1", "IP addresses"},
+		{"10.0.0.1", "IP addresses"},
+		{"::1", "IP addresses"},
+		{"[::1]", "IP addresses"},
+	}
+	for _, tt := range invalid {
+		err := validateDomain(tt.domain)
+		if err == nil {
+			t.Errorf("validateDomain(%q) = nil, want error", tt.domain)
+			continue
+		}
+		if !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("validateDomain(%q) = %q, want substring %q", tt.domain, err, tt.wantErr)
+		}
+	}
+}
+
+func TestManifestValidationAllowedDomains(t *testing.T) {
+	dir := t.TempDir()
+	handlerPath := filepath.Join(dir, "handler")
+	if err := os.WriteFile(handlerPath, []byte("#!/bin/bash\n"), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+
+	manifest := `
+name: test-domains
+version: "1.0.0"
+handler: ./handler
+tools: []
+services:
+  http:
+    base_url: "https://api.example.com"
+    allowed_domains:
+      - "127.0.0.1"
+`
+	path := filepath.Join(dir, "plugin.yaml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config file
+		t.Fatal(err)
+	}
+
+	_, err := LoadManifest(path)
+	if err == nil {
+		t.Fatal("expected error for IP in allowed_domains")
+	}
+	if !contains(err.Error(), "IP addresses") {
+		t.Errorf("error = %q, want substring 'IP addresses'", err.Error())
 	}
 }
 

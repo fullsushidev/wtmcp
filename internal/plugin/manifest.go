@@ -5,6 +5,7 @@ package plugin
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -287,6 +288,13 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
+	// Validate allowed_domains
+	for _, domain := range m.Services.HTTP.AllowedDomains {
+		if err := validateDomain(domain); err != nil {
+			return fmt.Errorf("allowed_domains: %w", err)
+		}
+	}
+
 	// Validate tools
 	for _, tool := range m.Tools {
 		if tool.Name == "" {
@@ -335,6 +343,28 @@ func (t *ToolDef) ParamsSchema() map[string]any {
 
 // extractVariantOrder parses the YAML to get auth variant keys in
 // declaration order, since Go maps don't preserve insertion order.
+// validateDomain rejects domain entries that are IP addresses,
+// localhost, or private/link-local ranges.
+func validateDomain(domain string) error {
+	lower := strings.ToLower(domain)
+
+	if lower == "localhost" {
+		return fmt.Errorf("%q is not allowed (localhost)", domain)
+	}
+
+	ip := net.ParseIP(domain)
+	if ip != nil {
+		return fmt.Errorf("%q is not allowed (IP addresses are not permitted, use domain names)", domain)
+	}
+
+	// Check for IPv6 in brackets (e.g., [::1])
+	if strings.HasPrefix(domain, "[") && strings.HasSuffix(domain, "]") {
+		return fmt.Errorf("%q is not allowed (IP addresses are not permitted)", domain)
+	}
+
+	return nil
+}
+
 func extractVariantOrder(data []byte) ([]string, error) {
 	var raw struct {
 		Services struct {
