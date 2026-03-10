@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -143,6 +144,43 @@ EMPTY_LINE_ABOVE=yes
 		if got := vars[key]; got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
+	}
+}
+
+func TestLoadEnvGroupsRejectsLooseFilePerms(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// World-readable env file — must be rejected
+	if err := os.WriteFile(filepath.Join(envDir, "jira.env"), []byte("JIRA_TOKEN=secret\n"), 0o644); err != nil { //nolint:gosec // intentionally insecure for test
+		t.Fatal(err)
+	}
+
+	_, err := LoadEnvGroups(dir)
+	if err == nil {
+		t.Fatal("expected error for world-readable env file")
+	}
+	if !strings.Contains(err.Error(), "must not be accessible") {
+		t.Errorf("error = %q, want permission error", err)
+	}
+}
+
+func TestLoadEnvGroupsRejectsLooseDirPerms(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o755); err != nil { //nolint:gosec // intentionally insecure for test
+		t.Fatal(err)
+	}
+
+	_, err := LoadEnvGroups(dir)
+	if err == nil {
+		t.Fatal("expected error for world-readable env.d directory")
+	}
+	if !strings.Contains(err.Error(), "must not be accessible") {
+		t.Errorf("error = %q, want permission error", err)
 	}
 }
 

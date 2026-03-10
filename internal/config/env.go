@@ -53,11 +53,21 @@ func LoadEnvGroups(workdir string) (EnvGroups, error) {
 	groups := make(EnvGroups)
 
 	envDir := filepath.Join(workdir, "env.d")
-	entries, err := os.ReadDir(envDir)
+
+	// Check env.d directory permissions
+	dirInfo, err := os.Stat(envDir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return groups, nil
 		}
+		return nil, fmt.Errorf("stat %s: %w", envDir, err)
+	}
+	if err := checkPermissions(envDir, dirInfo); err != nil {
+		return nil, err
+	}
+
+	entries, err := os.ReadDir(envDir)
+	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", envDir, err)
 	}
 
@@ -72,6 +82,16 @@ func LoadEnvGroups(workdir string) (EnvGroups, error) {
 
 	for _, name := range files {
 		path := filepath.Join(envDir, name)
+
+		// Check file permissions before reading
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, fmt.Errorf("stat %s: %w", path, err)
+		}
+		if err := checkPermissions(path, info); err != nil {
+			return nil, err
+		}
+
 		vars, err := parseEnvFile(path)
 		if err != nil {
 			return nil, fmt.Errorf("load %s: %w", path, err)
@@ -82,6 +102,20 @@ func LoadEnvGroups(workdir string) (EnvGroups, error) {
 	}
 
 	return groups, nil
+}
+
+// checkPermissions refuses to proceed if a file or directory has
+// group or other read/write/execute bits set, like OpenSSH does for
+// private keys.
+func checkPermissions(path string, info os.FileInfo) error {
+	mode := info.Mode().Perm()
+	if mode&0o077 != 0 {
+		return fmt.Errorf(
+			"%s has mode %04o, must not be accessible by group/other — run: chmod %04o %s",
+			path, mode, mode&0o700, path,
+		)
+	}
+	return nil
 }
 
 // parseEnvFile reads a .env file and returns its variables as a map.
