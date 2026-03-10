@@ -1,4 +1,4 @@
-# what-the-mcp
+# wtmcp
 
 MCP server with a language-agnostic plugin system. Plugins are simple
 executables (Python, bash, or any language) that communicate with the
@@ -9,7 +9,7 @@ proxying, caching, and output encoding so plugins stay minimal.
 
 ```
 ┌─────────────────────────────────────────────────┐
-│  what-the-mcp (Go)                              │
+│  wtmcp (Go)                              │
 │                                                 │
 │  MCP Server ─── Plugin Manager ─── HTTP Proxy   │
 │  (mcp-go)       Discovery         Auth inject   │
@@ -46,7 +46,7 @@ proxying, caching, and output encoding so plugins stay minimal.
 make build
 
 # Run with a workdir containing plugins and env config
-./what-the-mcp --workdir ~/.bragctl
+./wtmcp --workdir ~/.bragctl
 ```
 
 The workdir layout:

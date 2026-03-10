@@ -118,7 +118,7 @@ func (o *OAuth2Provider) refreshLocked(ctx context.Context) error {
 
 // tokenJSON is the on-disk format for cached OAuth2 tokens.
 // Compatible with Google's token.json format used by the
-// existing Python what-the-mcp.
+// existing Python version.
 type tokenJSON struct {
 	AccessToken  string `json:"access_token"`
 	TokenType    string `json:"token_type"`
@@ -248,5 +248,5 @@ func resolveCredentialPath(path, credentialsDir string) string {
 	if err != nil {
 		return path
 	}
-	return filepath.Join(home, ".config", "what-the-mcp", "credentials", path)
+	return filepath.Join(home, ".config", "wtmcp", "credentials", path)
 }

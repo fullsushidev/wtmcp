@@ -10,18 +10,18 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/encoding"
+	"github.com/LeGambiArt/wtmcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/encoding"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/pluginctx"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/plugin"
+	"github.com/LeGambiArt/wtmcp/internal/pluginctx"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
 // New creates an MCP server with tools from all loaded plugins.
 func New(version string, manager *plugin.Manager, cfg *config.Config) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer(
-		"what-the-mcp",
+		"wtmcp",
 		version,
 		mcpserver.WithToolCapabilities(true),
 		mcpserver.WithResourceCapabilities(true, false),

@@ -1,5 +1,5 @@
 // Package handler provides helpers for writing Go plugin handlers
-// that communicate with what-the-mcp-ng via the JSON-lines protocol.
+// that communicate with wtmcp via the JSON-lines protocol.
 //
 // A Go plugin handler reads messages from stdin, processes tool calls,
 // and writes responses to stdout. Logging goes to stderr.

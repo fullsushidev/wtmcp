@@ -9,8 +9,8 @@ all: build
 
 # Build the binary and plugin handlers
 build:
-	@echo "Building what-the-mcp-ng..."
-	go build -ldflags "$(LDFLAGS)" -o what-the-mcp-ng ./cmd/...
+	@echo "Building wtmcp..."
+	go build -ldflags "$(LDFLAGS)" -o wtmcp ./cmd/...
 	@echo "Building plugin handlers..."
 	@for plugin in plugins/google-*/; do \
 		if ls $$plugin*.go >/dev/null 2>&1; then \
@@ -57,13 +57,13 @@ pre-commit:
 # Clean build artifacts
 clean:
 	@echo "Cleaning..."
-	rm -f what-the-mcp-ng
+	rm -f wtmcp
 	rm -f coverage.out
 	rm -f plugins/google-*/handler
 
 # Show help
 help:
-	@echo "what-the-mcp-ng Makefile"
+	@echo "wtmcp Makefile"
 	@echo ""
 	@echo "Available targets:"
 	@echo "  all         - Build (default)"

@@ -7,10 +7,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/cache"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/proxy"
+	"github.com/LeGambiArt/wtmcp/internal/auth"
+	"github.com/LeGambiArt/wtmcp/internal/cache"
+	"github.com/LeGambiArt/wtmcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/proxy"
 )
 
 func setupTestPlugin(t *testing.T, name, script string) string {

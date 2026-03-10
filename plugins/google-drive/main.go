@@ -10,8 +10,8 @@ import (
 	"google.golang.org/api/drive/v3"
 	"google.golang.org/api/option"
 
-	googleauth "gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/google"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/pkg/handler"
+	googleauth "github.com/LeGambiArt/wtmcp/internal/google"
+	"github.com/LeGambiArt/wtmcp/pkg/handler"
 )
 
 var driveSvc *drive.Service

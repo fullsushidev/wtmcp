@@ -1,4 +1,4 @@
-// what-the-mcp-ng is an MCP server with a language-agnostic plugin protocol.
+// wtmcp is an MCP server with a language-agnostic plugin protocol.
 package main
 
 import (
@@ -11,12 +11,12 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/cache"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/proxy"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/server"
+	"github.com/LeGambiArt/wtmcp/internal/auth"
+	"github.com/LeGambiArt/wtmcp/internal/cache"
+	"github.com/LeGambiArt/wtmcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/plugin"
+	"github.com/LeGambiArt/wtmcp/internal/proxy"
+	"github.com/LeGambiArt/wtmcp/internal/server"
 )
 
 // Version and BuildDate are set via ldflags at build time.
@@ -27,7 +27,7 @@ var (
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("what-the-mcp-ng %s (built %s)\n", Version, BuildDate)
+		fmt.Printf("wtmcp %s (built %s)\n", Version, BuildDate)
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "check" {
@@ -112,7 +112,7 @@ func run() error {
 		mgr.ShutdownAll(context.Background())
 	}()
 
-	log.Printf("what-the-mcp-ng %s starting (workdir: %s)", Version, workdir)
+	log.Printf("wtmcp %s starting (workdir: %s)", Version, workdir)
 	return mcpserver.ServeStdio(srv)
 }
 
@@ -143,7 +143,7 @@ func runCheck() error {
 		return err
 	}
 
-	fmt.Printf("what-the-mcp-ng %s\n", Version)
+	fmt.Printf("wtmcp %s\n", Version)
 	fmt.Printf("workdir: %s\n", workdir)
 	fmt.Printf("\nplugin search path:\n")
 	for i, dir := range cfg.PluginDirs {

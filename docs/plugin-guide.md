@@ -1,6 +1,6 @@
 # Plugin Development Guide
 
-This guide covers everything you need to write a what-the-mcp plugin.
+This guide covers everything you need to write a wtmcp plugin.
 Plugins can be written in any language — the protocol is JSON-lines
 over stdin/stdout.
 

@@ -18,9 +18,9 @@ import (
 	"net/url"
 	"strings"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth/kerberos"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/auth"
+	"github.com/LeGambiArt/wtmcp/internal/auth/kerberos"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
 // PluginAuth holds the resolved auth and HTTP config for a plugin.

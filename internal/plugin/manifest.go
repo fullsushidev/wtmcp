@@ -11,7 +11,7 @@ import (
 	"regexp"
 	"strings"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/config"
 	"gopkg.in/yaml.v3"
 )
 

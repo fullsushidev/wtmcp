@@ -10,10 +10,13 @@ import (
 	"strings"
 )
 
-// WorkDir returns the base directory for all what-the-mcp data.
-// Checks WHAT_THE_MCP_WORKDIR env var, falls back to
-// ~/.config/what-the-mcp.
+// WorkDir returns the base directory for all wtmcp data.
+// Checks WTMCP_WORKDIR env var (falls back to WHAT_THE_MCP_WORKDIR
+// for backwards compat), then ~/.config/wtmcp.
 func WorkDir() string {
+	if dir := os.Getenv("WTMCP_WORKDIR"); dir != "" {
+		return dir
+	}
 	if dir := os.Getenv("WHAT_THE_MCP_WORKDIR"); dir != "" {
 		return dir
 	}
@@ -21,7 +24,7 @@ func WorkDir() string {
 	if err != nil {
 		return "."
 	}
-	return filepath.Join(home, ".config", "what-the-mcp")
+	return filepath.Join(home, ".config", "wtmcp")
 }
 
 // LoadDotEnv loads environment variables from .env files in the workdir.

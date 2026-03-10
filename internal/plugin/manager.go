@@ -4,16 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"log"
 	"os"
 	"path/filepath"
 	"time"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/cache"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/proxy"
+	"github.com/LeGambiArt/wtmcp/internal/auth"
+	"github.com/LeGambiArt/wtmcp/internal/cache"
+	"github.com/LeGambiArt/wtmcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/proxy"
 )
 
 // Manager discovers, loads, and manages plugin lifecycles.

@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"log"
 	"os/exec"
 	"sync"

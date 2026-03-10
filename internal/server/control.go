@@ -12,8 +12,8 @@ import (
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/config"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/plugin"
+	"github.com/LeGambiArt/wtmcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/plugin"
 )
 
 // ControlWatcher monitors a control directory for external reload commands.

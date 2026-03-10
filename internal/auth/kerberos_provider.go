@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth/kerberos"
+	"github.com/LeGambiArt/wtmcp/internal/auth/kerberos"
 )
 
 // KerberosProvider injects SPNEGO authentication via GSSAPI.

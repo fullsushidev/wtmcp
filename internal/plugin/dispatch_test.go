@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"os"
 	"path/filepath"
 	"testing"

@@ -3,7 +3,7 @@ package plugin
 import (
 	"bytes"
 	"encoding/json"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"io"
 	"strings"
 	"testing"

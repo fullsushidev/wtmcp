@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
-	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/auth"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
 func TestExecuteGET(t *testing.T) {

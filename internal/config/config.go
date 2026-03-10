@@ -1,5 +1,5 @@
 // Package config handles core configuration loading and environment
-// variable resolution for what-the-mcp-ng.
+// variable resolution for wtmcp.
 package config
 
 import (
@@ -14,7 +14,7 @@ import (
 )
 
 // AppName is used for FHS paths (/usr/share/<AppName>/plugins, etc.).
-const AppName = "what-the-mcp-ng"
+const AppName = "wtmcp"
 
 // Config holds the core server configuration.
 type Config struct {

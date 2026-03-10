@@ -1,4 +1,4 @@
-module gitlab.cee.redhat.com/bragctl/what-the-mcp
+module github.com/LeGambiArt/wtmcp
 
 go 1.24.3
 
