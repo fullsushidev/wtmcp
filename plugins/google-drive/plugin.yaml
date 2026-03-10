@@ -46,7 +46,7 @@ tools:
         type: string
 
   - name: drive_export_google_doc_text
-    description: "Export a Google Doc as plain text"
+    description: "Export a Google Doc as plain text (saves to file by default)"
     params:
       file_id:
         type: string
@@ -54,13 +54,27 @@ tools:
       mime_type:
         type: string
         default: "text/plain"
+      save_to_file:
+        type: boolean
+        default: true
+        description: "Save to local file (default: true)"
+      output_path:
+        type: string
+        description: "Custom output path"
 
   - name: drive_export_google_sheet_csv
-    description: "Export first worksheet of a Google Sheet as CSV"
+    description: "Export first worksheet of a Google Sheet as CSV (saves to file by default)"
     params:
       file_id:
         type: string
         required: true
+      save_to_file:
+        type: boolean
+        default: true
+        description: "Save to local file (default: true)"
+      output_path:
+        type: string
+        description: "Custom output path"
 
   - name: drive_export_slides_pdf
     description: "Export Google Slides as PDF (base64 encoded)"

@@ -46,10 +46,14 @@ Supported URL formats:
 
 | Tool | Source | Output |
 |------|--------|--------|
-| `drive_export_google_doc_text` | Google Doc | Plain text (UTF-8) |
-| `drive_export_google_doc_markdown` | Google Doc | Text saved to local file |
-| `drive_export_google_sheet_csv` | Google Sheet | CSV (first worksheet) |
+| `drive_export_google_doc_text` | Google Doc | Saved to file (default) or plain text |
+| `drive_export_google_doc_markdown` | Google Doc | Saved to file (default) or markdown |
+| `drive_export_google_sheet_csv` | Google Sheet | Saved to file (default) or CSV |
 | `drive_export_slides_pdf` | Google Slides | PDF (base64 encoded) |
+
+All text export tools default to `save_to_file: true` to avoid
+consuming context tokens with large documents. Set `save_to_file: false`
+to get content inline.
 
 ## Saving Exports Locally
 

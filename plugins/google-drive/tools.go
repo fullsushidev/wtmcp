@@ -141,12 +141,14 @@ func toolExtractAndGet(params, _ json.RawMessage) (any, error) {
 }
 
 type exportParams struct {
-	FileID   string `json:"file_id"`
-	MIMEType string `json:"mime_type"`
+	FileID     string `json:"file_id"`
+	MIMEType   string `json:"mime_type"`
+	SaveToFile bool   `json:"save_to_file"`
+	OutputPath string `json:"output_path"`
 }
 
 func toolExportDocText(params, _ json.RawMessage) (any, error) {
-	var p exportParams
+	p := exportParams{SaveToFile: true}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
@@ -157,13 +159,14 @@ func toolExportDocText(params, _ json.RawMessage) (any, error) {
 		p.MIMEType = "text/plain"
 	}
 
-	return exportFile(p.FileID, p.MIMEType)
+	if !p.SaveToFile {
+		return exportFile(p.FileID, p.MIMEType)
+	}
+	return exportFileToLocal(p.FileID, p.MIMEType, p.OutputPath, ".txt")
 }
 
 func toolExportSheetCSV(params, _ json.RawMessage) (any, error) {
-	var p struct {
-		FileID string `json:"file_id"`
-	}
+	p := exportParams{SaveToFile: true}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
@@ -171,7 +174,10 @@ func toolExportSheetCSV(params, _ json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("file_id is required")
 	}
 
-	return exportFile(p.FileID, "text/csv")
+	if !p.SaveToFile {
+		return exportFile(p.FileID, "text/csv")
+	}
+	return exportFileToLocal(p.FileID, "text/csv", p.OutputPath, ".csv")
 }
 
 func toolExportSlidesPDF(params, _ json.RawMessage) (any, error) {
@@ -210,6 +216,43 @@ func exportFile(fileID, mimeType string) (any, error) {
 	return map[string]string{
 		"encoding": "base64",
 		"content":  base64.StdEncoding.EncodeToString(buf),
+	}, nil
+}
+
+func exportFileToLocal(fileID, mimeType, outputPath, ext string) (any, error) {
+	resp, err := driveSvc.Files.Export(fileID, mimeType).Download()
+	if err != nil {
+		return nil, fmt.Errorf("export file: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	buf, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read export: %w", err)
+	}
+	content := string(buf)
+
+	if outputPath == "" {
+		outputPath = fmt.Sprintf("drive/%s%s", fileID, ext)
+	}
+	savedPath, err := saveExportFile("", outputPath, content)
+	if err != nil {
+		return nil, fmt.Errorf("save file: %w", err)
+	}
+
+	lines := strings.Count(content, "\n") + 1
+	words := len(strings.Fields(content))
+
+	return map[string]any{
+		"status":      "saved",
+		"file_id":     fileID,
+		"output_path": savedPath,
+		"stats": map[string]int{
+			"lines":      lines,
+			"words":      words,
+			"characters": len(content),
+		},
+		"note": fmt.Sprintf("Saved to %s. File is NOT loaded into context.", savedPath),
 	}, nil
 }
 
