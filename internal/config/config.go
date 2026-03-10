@@ -13,7 +13,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// AppName is used for FHS paths (/usr/share/<AppName>/plugins, etc.).
+// AppName is used for FHS paths (/usr/share/<AppName>/plugins,
+// /usr/libexec/<AppName>/plugins, etc.).
 const AppName = "wtmcp"
 
 // Config holds the core server configuration.
@@ -163,10 +164,12 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 //
 // Search order:
 //  1. {binary}/plugins (dev: plugins next to binary)
-//  2. {binary}/../share/<AppName>/plugins (installed: FHS layout)
-//  3. /usr/share/<AppName>/plugins (system packages)
-//  4. /usr/local/share/<AppName>/plugins (local installs, Homebrew)
-//  5. {workdir}/plugins (user plugins, highest priority)
+//  2. {binary}/../share/<AppName>/plugins (installed: share layout)
+//  3. {binary}/../libexec/<AppName>/plugins (installed: libexec layout)
+//  4. /usr/share/<AppName>/plugins (system share)
+//  5. /usr/libexec/<AppName>/plugins (system libexec — RPM)
+//  6. /usr/local/share/<AppName>/plugins (local installs, Homebrew)
+//  7. {workdir}/plugins (user plugins, highest priority)
 func defaultPluginDirs(userDir string) []string {
 	var dirs []string
 
@@ -184,12 +187,20 @@ func defaultPluginDirs(userDir string) []string {
 			if !containsPath(dirs, cleaned) {
 				dirs = append(dirs, cleaned)
 			}
+
+			// Installed: {prefix}/libexec/<AppName>/plugins
+			libexec := filepath.Join(binDir, "..", "libexec", AppName, "plugins")
+			cleaned = filepath.Clean(libexec)
+			if !containsPath(dirs, cleaned) {
+				dirs = append(dirs, cleaned)
+			}
 		}
 	}
 
 	// Standard system paths
 	for _, sysDir := range []string{
 		filepath.Join("/usr/share", AppName, "plugins"),
+		filepath.Join("/usr/libexec", AppName, "plugins"),
 		filepath.Join("/usr/local/share", AppName, "plugins"),
 	} {
 		if !containsPath(dirs, sysDir) {
