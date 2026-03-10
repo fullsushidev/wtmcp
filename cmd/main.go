@@ -97,13 +97,21 @@ func run() error {
 		return fmt.Errorf("plugin loading: %w", err)
 	}
 
+	srv := server.New(Version, mgr, cfg)
+
+	// Start control directory watcher for external reload triggers
+	controlWatcher := server.NewControlWatcher(workdir, srv, mgr, cfg)
+	if err := controlWatcher.Start(); err != nil {
+		log.Printf("control watcher disabled: %v", err)
+	}
+
 	go func() {
 		<-ctx.Done()
+		controlWatcher.Stop()
 		log.Println("shutting down plugins...")
 		mgr.ShutdownAll(context.Background())
 	}()
 
-	srv := server.New(Version, mgr, cfg)
 	log.Printf("what-the-mcp-ng %s starting (workdir: %s)", Version, workdir)
 	return mcpserver.ServeStdio(srv)
 }
