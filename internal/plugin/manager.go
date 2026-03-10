@@ -122,12 +122,20 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	manifest.SetResolvedConfig(cfgJSON)
 
 	// Register with proxy
-	authProvider := m.resolveAuth(manifest)
-	m.proxy.RegisterPlugin(name, &proxy.PluginAuth{
-		Provider:       authProvider,
+	pa := &proxy.PluginAuth{
 		BaseURL:        config.ResolveEnvVars(manifest.Services.HTTP.BaseURL),
 		AllowedDomains: manifest.Services.HTTP.AllowedDomains,
-	})
+	}
+
+	if m.isKerberosAuth(manifest) {
+		spn := config.ResolveEnvVars(manifest.Services.Auth.SPN)
+		pa.Client = proxy.NewKerberosClient(spn)
+		log.Printf("[%s] using kerberos client (spn=%q)", name, spn)
+	} else {
+		pa.Provider = m.resolveAuth(manifest)
+	}
+
+	m.proxy.RegisterPlugin(name, pa)
 
 	// Create handle and start
 	processCfg := ProcessConfig{
@@ -214,6 +222,17 @@ func (m *Manager) resolveConfig(manifest *Manifest) map[string]string {
 	return config.ResolveEnvMap(manifest.Config)
 }
 
+// isKerberosAuth checks if a plugin uses Kerberos auth (without variants).
+// Variant-based Kerberos (like Jira's server-kerberos) goes through the
+// normal resolveAuth path; only pure Kerberos plugins get a per-plugin client.
+func (m *Manager) isKerberosAuth(manifest *Manifest) bool {
+	authCfg := manifest.Services.Auth
+	if len(authCfg.Variants) > 0 {
+		return false
+	}
+	return authCfg.Type == "kerberos" || authCfg.Type == "kerberos/spnego"
+}
+
 func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 	authCfg := manifest.Services.Auth
 	if authCfg.Type == "" && len(authCfg.Variants) == 0 {
@@ -241,7 +260,25 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 			}
 		}
 	} else {
-		variantCfg.Type = authCfg.Type
+		// Single auth type — resolve env vars in fields and wrap
+		// as a single variant so ResolveVariant gets the full config.
+		variantCfg.Select = "default"
+		variantCfg.VariantOrder = []string{"default"}
+		variantCfg.Variants = map[string]auth.SingleAuthConfig{
+			"default": {
+				Type:            authCfg.Type,
+				Token:           config.ResolveEnvVars(authCfg.Token),
+				Header:          authCfg.Header,
+				Prefix:          authCfg.Prefix,
+				Username:        config.ResolveEnvVars(authCfg.Username),
+				Password:        config.ResolveEnvVars(authCfg.Password),
+				SPN:             config.ResolveEnvVars(authCfg.SPN),
+				Scopes:          authCfg.Scopes,
+				CredentialsFile: config.ResolveEnvVars(authCfg.CredentialsFile),
+				TokenFile:       config.ResolveEnvVars(authCfg.TokenFile),
+				CredentialsDir:  m.cfg.CredentialsDir,
+			},
+		}
 	}
 
 	provider, err := auth.ResolveVariant(variantCfg)

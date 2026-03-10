@@ -13,11 +13,13 @@ import (
 	"log"
 	"mime/multipart"
 	"net/http"
+	"net/http/cookiejar"
 	"net/textproto"
 	"net/url"
 	"strings"
 
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth"
+	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/auth/kerberos"
 	"gitlab.cee.redhat.com/bragctl/what-the-mcp/internal/protocol"
 )
 
@@ -26,6 +28,12 @@ type PluginAuth struct {
 	Provider       auth.Provider
 	BaseURL        string
 	AllowedDomains []string
+
+	// Client is an optional per-plugin HTTP client. When set (e.g., for
+	// Kerberos plugins with cookie jar + SPNEGORoundTripper), it is used
+	// instead of the shared proxy client, and header-based auth injection
+	// is skipped.
+	Client *http.Client
 }
 
 // Proxy executes HTTP requests on behalf of plugins, injecting
@@ -53,6 +61,17 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 	p.plugins[name] = pa
 }
 
+// NewKerberosClient creates an HTTP client with a cookie jar and
+// SPNEGORoundTripper for Kerberos-authenticated plugins. If spn is
+// empty, the SPN is derived dynamically from each request's hostname.
+func NewKerberosClient(spn string) *http.Client {
+	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
+	return &http.Client{
+		Jar:       jar,
+		Transport: kerberos.NewSPNEGORoundTripper(spn, nil),
+	}
+}
+
 // Execute handles an http_request message from a plugin.
 func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Message) protocol.Message {
 	pa, ok := p.plugins[pluginName]
@@ -70,13 +89,18 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 		return errResponse(req.ID, "build_request", err.Error())
 	}
 
-	if pa.Provider != nil {
+	// Use per-plugin client (Kerberos with cookie jar + round tripper)
+	// or fall back to the shared client with header-based auth injection.
+	client := p.client
+	if pa.Client != nil {
+		client = pa.Client
+	} else if pa.Provider != nil {
 		if err := p.injectAuth(ctx, pa.Provider, httpReq); err != nil {
 			return errResponse(req.ID, "auth_failed", err.Error())
 		}
 	}
 
-	resp, err := p.client.Do(httpReq)
+	resp, err := client.Do(httpReq)
 	if err != nil {
 		return protocol.Message{
 			ID:     req.ID,
@@ -136,7 +160,16 @@ func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.M
 			return nil, fmt.Errorf("build multipart: %w", err)
 		}
 	} else if req.Body != nil {
-		bodyReader = strings.NewReader(string(req.Body))
+		if len(req.Body) > 0 && req.Body[0] == '"' {
+			var s string
+			if err := json.Unmarshal(req.Body, &s); err == nil {
+				bodyReader = strings.NewReader(s)
+			} else {
+				bodyReader = strings.NewReader(string(req.Body))
+			}
+		} else {
+			bodyReader = strings.NewReader(string(req.Body))
+		}
 	}
 
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, fullURL, bodyReader)
