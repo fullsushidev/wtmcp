@@ -14,6 +14,12 @@ import (
 	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
+func newTestProxy(client *http.Client) *Proxy {
+	p := New(client, 10*1024*1024)
+	p.allowPrivateIP = true
+	return p
+}
+
 func TestExecuteGET(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/test" {
@@ -27,7 +33,7 @@ func TestExecuteGET(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -62,7 +68,7 @@ func TestExecutePOST(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -90,7 +96,7 @@ func TestExecuteWithAuth(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{
 		BaseURL:  srv.URL,
 		Provider: auth.NewBearerProvider("test-token", "", ""),
@@ -119,7 +125,7 @@ func TestExecuteQueryArrays(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -149,6 +155,7 @@ func TestExecuteResponseBodyLimit(t *testing.T) {
 
 	// Set a tiny max body size
 	p := New(srv.Client(), 100)
+	p.allowPrivateIP = true
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -173,7 +180,7 @@ func TestExecuteNonJSONResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -193,7 +200,7 @@ func TestExecuteNonJSONResponse(t *testing.T) {
 }
 
 func TestExecuteUnknownPlugin(t *testing.T) {
-	p := New(nil, 10*1024*1024)
+	p := newTestProxy(nil)
 
 	resp := p.Execute(context.Background(), "nonexistent", protocol.Message{
 		ID: "req-7", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
@@ -205,7 +212,7 @@ func TestExecuteUnknownPlugin(t *testing.T) {
 }
 
 func TestIsDomainAllowed(t *testing.T) {
-	p := New(nil, 10*1024*1024)
+	p := newTestProxy(nil)
 
 	tests := []struct {
 		name    string
@@ -268,7 +275,7 @@ func TestExecuteFullURLOverride(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -293,7 +300,7 @@ func TestResponseHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -321,7 +328,7 @@ func TestBinaryResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -356,7 +363,7 @@ func TestTextResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -412,7 +419,7 @@ func TestMultipartFileUpload(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -448,7 +455,7 @@ func TestMultipartTextField(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -467,7 +474,7 @@ func TestMultipartTextField(t *testing.T) {
 }
 
 func TestMultipartInvalidBase64(t *testing.T) {
-	p := New(nil, 10*1024*1024)
+	p := newTestProxy(nil)
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: "https://example.com"})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -488,7 +495,12 @@ func TestMultipartInvalidBase64(t *testing.T) {
 func TestStripDangerousHeaders(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// These headers must have been stripped
-		for _, h := range []string{"Cookie", "X-Forwarded-For", "X-Forwarded-Host", "X-Real-Ip"} {
+		stripped := []string{
+			"Cookie", "Authorization", "Proxy-Authorization",
+			"X-Forwarded-For", "X-Forwarded-Host", "X-Real-Ip",
+			"Connection", "Upgrade", "Transfer-Encoding",
+		}
+		for _, h := range stripped {
 			if v := r.Header.Get(h); v != "" {
 				t.Errorf("header %s = %q, should have been stripped", h, v)
 			}
@@ -502,17 +514,22 @@ func TestStripDangerousHeaders(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-headers", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
 		Headers: map[string]string{
-			"Cookie":           "session=stolen",
-			"X-Forwarded-For":  "1.2.3.4",
-			"X-Forwarded-Host": "evil.com",
-			"X-Real-Ip":        "10.0.0.1",
-			"X-Custom":         "keep-me",
+			"Cookie":              "session=stolen",
+			"Authorization":       "Bearer stolen-token",
+			"Proxy-Authorization": "Basic creds",
+			"X-Forwarded-For":     "1.2.3.4",
+			"X-Forwarded-Host":    "evil.com",
+			"X-Real-Ip":           "10.0.0.1",
+			"Connection":          "keep-alive",
+			"Upgrade":             "websocket",
+			"Transfer-Encoding":   "chunked",
+			"X-Custom":            "keep-me",
 		},
 	})
 
@@ -532,7 +549,7 @@ func TestMultipartOverridesContentType(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(srv.Client(), 10*1024*1024)
+	p := newTestProxy(srv.Client())
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -548,5 +565,44 @@ func TestMultipartOverridesContentType(t *testing.T) {
 
 	if resp.Status != 200 {
 		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
+
+func TestRejectPrivateHost(t *testing.T) {
+	// SSRF check should block requests to localhost
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+
+	p := New(srv.Client(), 10*1024*1024) // SSRF check enabled (no allowPrivateIP)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID: "req-ssrf", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
+	})
+
+	if resp.Error == nil || resp.Error.Code != "ssrf_blocked" {
+		t.Errorf("expected ssrf_blocked error, got status=%d error=%v", resp.Status, resp.Error)
+	}
+}
+
+func TestRejectPrivateHostUnit(t *testing.T) {
+	// Only test with addresses that resolve locally (no external DNS)
+	tests := []struct {
+		url     string
+		wantErr bool
+	}{
+		{"https://127.0.0.1/api", true},
+		{"https://localhost/api", true},
+	}
+	for _, tt := range tests {
+		err := rejectPrivateHost(tt.url)
+		if tt.wantErr && err == nil {
+			t.Errorf("rejectPrivateHost(%q) = nil, want error", tt.url)
+		}
+		if !tt.wantErr && err != nil {
+			t.Errorf("rejectPrivateHost(%q) = %v, want nil", tt.url, err)
+		}
 	}
 }

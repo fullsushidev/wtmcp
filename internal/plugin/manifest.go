@@ -346,8 +346,15 @@ func (t *ToolDef) ParamsSchema() map[string]any {
 // validateDomain rejects domain entries that are IP addresses,
 // localhost, or private/link-local ranges.
 func validateDomain(domain string) error {
-	lower := strings.ToLower(domain)
+	if domain == "" {
+		return fmt.Errorf("empty domain is not allowed")
+	}
 
+	if strings.HasPrefix(domain, "*") {
+		return fmt.Errorf("%q is not allowed (wildcards are not supported)", domain)
+	}
+
+	lower := strings.ToLower(domain)
 	if lower == "localhost" {
 		return fmt.Errorf("%q is not allowed (localhost)", domain)
 	}

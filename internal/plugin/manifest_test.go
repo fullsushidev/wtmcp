@@ -435,6 +435,8 @@ func TestValidateDomain(t *testing.T) {
 		domain  string
 		wantErr string
 	}{
+		{"", "empty domain"},
+		{"*.example.com", "wildcards"},
 		{"localhost", "localhost"},
 		{"127.0.0.1", "IP addresses"},
 		{"192.168.1.1", "IP addresses"},

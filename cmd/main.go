@@ -90,7 +90,7 @@ func run() error {
 
 	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envGroups)
 
-	if err := mgr.Discover(cfg.PluginDirs); err != nil {
+	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return fmt.Errorf("plugin discovery: %w", err)
 	}
 
@@ -163,7 +163,7 @@ func runCheck() error {
 
 	// Discover plugins (without loading/starting them)
 	mgr := plugin.NewManager(nil, nil, nil, cfg, envGroups)
-	if err := mgr.Discover(cfg.PluginDirs); err != nil {
+	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return err
 	}
 

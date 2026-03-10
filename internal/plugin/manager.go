@@ -44,8 +44,10 @@ func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *conf
 
 // Discover scans directories for plugin.yaml files and loads manifests.
 // First directory wins for a given plugin name; duplicates in later
-// directories are skipped with a warning.
-func (m *Manager) Discover(dirs []string) error {
+// directories are skipped with a warning. userDir, if non-empty,
+// identifies the user plugins directory — plugins from it are
+// restricted (e.g., cannot declare provides.auth).
+func (m *Manager) Discover(dirs []string, userDir string) error {
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -74,6 +76,11 @@ func (m *Manager) Discover(dirs []string) error {
 			if existing, ok := m.manifests[manifest.Name]; ok {
 				log.Printf("WARNING: plugin %q in %s skipped — already registered from %s",
 					manifest.Name, manifest.Dir, existing.Dir)
+				continue
+			}
+			if manifest.ProvidesAuth() && userDir != "" && dir == userDir {
+				log.Printf("WARNING: user plugin %q declares provides.auth — skipped (not allowed)",
+					manifest.Name)
 				continue
 			}
 			m.manifests[manifest.Name] = manifest
@@ -312,9 +319,26 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 }
 
 func (m *Manager) topologicalSort() ([]string, error) {
-	// Build adjacency from depends_on
+	// Pre-filter: skip plugins with unresolvable dependencies
+	// instead of aborting the entire sort.
+	skipped := make(map[string]bool)
+	for name, manifest := range m.manifests {
+		for _, dep := range manifest.DependsOn {
+			if _, exists := m.manifests[dep]; !exists {
+				log.Printf("WARNING: plugin %s depends on %s which is not available — skipping",
+					name, dep)
+				skipped[name] = true
+				break
+			}
+		}
+	}
+
+	// Build adjacency from depends_on (excluding skipped)
 	deps := make(map[string][]string)
 	for name, manifest := range m.manifests {
+		if skipped[name] {
+			continue
+		}
 		deps[name] = manifest.DependsOn
 	}
 
@@ -333,9 +357,6 @@ func (m *Manager) topologicalSort() ([]string, error) {
 		visiting[name] = true
 
 		for _, dep := range deps[name] {
-			if _, exists := m.manifests[dep]; !exists {
-				return fmt.Errorf("plugin %s depends on %s which is not available", name, dep)
-			}
 			if err := visit(dep); err != nil {
 				return err
 			}
@@ -350,6 +371,9 @@ func (m *Manager) topologicalSort() ([]string, error) {
 	// Visit all plugins, sorted by priority for deterministic order
 	names := m.sortedByPriority()
 	for _, name := range names {
+		if skipped[name] {
+			continue
+		}
 		if err := visit(name); err != nil {
 			return nil, err
 		}

@@ -79,7 +79,7 @@ func TestManagerDiscover(t *testing.T) {
 	dir := setupTestPlugin(t, "hello", echoScript)
 
 	m := newTestManager(t)
-	if err := m.Discover([]string{dir}); err != nil {
+	if err := m.Discover([]string{dir}, ""); err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestManagerDiscover(t *testing.T) {
 
 func TestManagerDiscoverSkipsNonexistentDir(t *testing.T) {
 	m := newTestManager(t)
-	if err := m.Discover([]string{"/nonexistent/path"}); err != nil {
+	if err := m.Discover([]string{"/nonexistent/path"}, ""); err != nil {
 		t.Fatalf("Discover should not error on missing dir: %v", err)
 	}
 }
@@ -103,7 +103,7 @@ func TestManagerLoadAndCallTool(t *testing.T) {
 	dir := setupTestPlugin(t, "echo", echoScript)
 
 	m := newTestManager(t)
-	if err := m.Discover([]string{dir}); err != nil {
+	if err := m.Discover([]string{dir}, ""); err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 
@@ -191,13 +191,22 @@ func TestManagerCircularDependency(t *testing.T) {
 	}
 }
 
-func TestManagerMissingDependency(t *testing.T) {
+func TestManagerMissingDependencySkips(t *testing.T) {
 	m := newTestManager(t)
 	m.manifests["aa"] = &Manifest{Name: "aa", DependsOn: []string{"missing"}}
+	m.manifests["bb"] = &Manifest{Name: "bb", Priority: 10}
 
-	_, err := m.topologicalSort()
-	if err == nil {
-		t.Error("expected missing dependency error")
+	sorted, err := m.topologicalSort()
+	if err != nil {
+		t.Fatalf("topologicalSort should not error: %v", err)
+	}
+
+	// aa should be skipped, bb should still be present
+	if len(sorted) != 1 {
+		t.Fatalf("got %d sorted, want 1: %v", len(sorted), sorted)
+	}
+	if sorted[0] != "bb" {
+		t.Errorf("sorted[0] = %q, want bb", sorted[0])
 	}
 }
 
@@ -237,7 +246,7 @@ func TestManagerDiscoverFirstWins(t *testing.T) {
 	createPluginInDir(t, dir2, "samename", echoScript)
 
 	m := newTestManager(t)
-	if err := m.Discover([]string{dir1, dir2}); err != nil {
+	if err := m.Discover([]string{dir1, dir2}, ""); err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 
@@ -263,7 +272,7 @@ func TestManagerDiscoverUserCanAddNew(t *testing.T) {
 	createPluginInDir(t, dir2, "user-only", echoScript)
 
 	m := newTestManager(t)
-	if err := m.Discover([]string{dir1, dir2}); err != nil {
+	if err := m.Discover([]string{dir1, dir2}, ""); err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 

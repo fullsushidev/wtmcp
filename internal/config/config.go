@@ -21,6 +21,7 @@ const AppName = "wtmcp"
 type Config struct {
 	PluginDirs     []string      `yaml:"plugin_dirs"`
 	CredentialsDir string        `yaml:"credentials_dir"`
+	UserPluginDir  string        `yaml:"-"` // set internally, not from config file
 	HTTP           HTTPConfig    `yaml:"http"`
 	Cache          CacheConfig   `yaml:"cache"`
 	Plugins        PluginsConfig `yaml:"plugins"`
@@ -154,6 +155,9 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 	// Build plugin dirs: system dirs, then user dir (if enabled).
 	if len(cfg.PluginDirs) == 0 {
 		cfg.PluginDirs = defaultPluginDirs(paths.PluginsDir, cfg.Plugins.UserPlugins)
+	}
+	if cfg.Plugins.UserPlugins {
+		cfg.UserPluginDir = paths.PluginsDir
 	}
 }
 

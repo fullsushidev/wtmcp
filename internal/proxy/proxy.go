@@ -12,6 +12,7 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/textproto"
@@ -39,9 +40,10 @@ type PluginAuth struct {
 // Proxy executes HTTP requests on behalf of plugins, injecting
 // authentication headers and enforcing security policies.
 type Proxy struct {
-	plugins     map[string]*PluginAuth
-	client      *http.Client
-	maxBodySize int64
+	plugins        map[string]*PluginAuth
+	client         *http.Client
+	maxBodySize    int64
+	allowPrivateIP bool // for testing only — disables SSRF check
 }
 
 // New creates a Proxy with the given HTTP client and max response body size.
@@ -82,6 +84,12 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 	fullURL, err := p.resolveURL(pluginName, pa, req)
 	if err != nil {
 		return errResponse(req.ID, "invalid_url", err.Error())
+	}
+
+	if !p.allowPrivateIP {
+		if err := rejectPrivateHost(fullURL); err != nil {
+			return errResponse(req.ID, "ssrf_blocked", err.Error())
+		}
 	}
 
 	httpReq, err := p.buildRequest(ctx, fullURL, req)
@@ -357,11 +365,23 @@ func errResponse(id, code, message string) protocol.Message {
 }
 
 // dangerousHeaders are headers that plugins must not control.
-// Authorization is handled separately by auth injection (overwritten).
+// Authorization is stripped here and re-added by injectAuth() when
+// auth is configured. For Kerberos plugins, the SPNEGO round-tripper
+// re-adds it. When no auth is configured, stripping prevents plugins
+// from injecting arbitrary credentials.
+//
+// Note: Kerberos plugins have a per-plugin cookiejar that re-adds
+// cookies from prior responses after stripping — this is intentional
+// for SPNEGO auth flows.
 var dangerousHeaders = []string{
+	"Authorization",
+	"Proxy-Authorization",
 	"Host",
 	"Cookie",
 	"Set-Cookie",
+	"Connection",
+	"Upgrade",
+	"Transfer-Encoding",
 	"X-Forwarded-For",
 	"X-Forwarded-Host",
 	"X-Real-Ip",
@@ -373,4 +393,33 @@ func stripDangerousHeaders(req *http.Request) {
 	for _, h := range dangerousHeaders {
 		req.Header.Del(h)
 	}
+}
+
+// rejectPrivateHost resolves the host in the URL and rejects it if
+// it points to a loopback, private, or link-local address. This
+// prevents SSRF via DNS rebinding where a public domain resolves to
+// an internal IP.
+func rejectPrivateHost(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+
+	host := u.Hostname()
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return fmt.Errorf("cannot resolve %s: %w", host, err)
+	}
+
+	for _, ipStr := range ips {
+		ip := net.ParseIP(ipStr)
+		if ip == nil {
+			continue
+		}
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+			return fmt.Errorf("host %s resolves to private/loopback address %s", host, ipStr)
+		}
+	}
+
+	return nil
 }
