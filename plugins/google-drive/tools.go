@@ -16,7 +16,7 @@ const defaultFields = "id,name,webViewLink,mimeType,owners,modifiedTime,size"
 
 // extractFileID extracts a Google Drive file ID from a URL.
 func extractFileID(url string) string {
-	re := regexp.MustCompile(`/(?:d|document|spreadsheets|presentation)/d/([A-Za-z0-9_-]+)`)
+	re := regexp.MustCompile(`/(?:d|file|document|spreadsheets|presentation)/d/([A-Za-z0-9_-]+)`)
 	if m := re.FindStringSubmatch(url); len(m) > 1 {
 		return m[1]
 	}

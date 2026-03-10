@@ -1,0 +1,164 @@
+package main
+
+import (
+	"encoding/base64"
+	"strings"
+	"testing"
+
+	"google.golang.org/api/gmail/v1"
+)
+
+func TestExtractSummary(t *testing.T) {
+	msg := &gmail.Message{
+		Id:       "msg-123",
+		ThreadId: "thread-456",
+		Snippet:  "This is a preview of the email content",
+		LabelIds: []string{"INBOX", "UNREAD"},
+		Payload: &gmail.MessagePart{
+			Headers: []*gmail.MessagePartHeader{
+				{Name: "From", Value: "alice@example.com"},
+				{Name: "To", Value: "bob@example.com"},
+				{Name: "Subject", Value: "Test subject"},
+				{Name: "Date", Value: "Mon, 10 Mar 2026 10:00:00 +0000"},
+			},
+		},
+		SizeEstimate: 1234,
+	}
+
+	got := extractSummary(msg)
+
+	if got["id"] != "msg-123" {
+		t.Errorf("id = %v, want msg-123", got["id"])
+	}
+	if got["threadId"] != "thread-456" {
+		t.Errorf("threadId = %v, want thread-456", got["threadId"])
+	}
+	if got["from"] != "alice@example.com" {
+		t.Errorf("from = %v, want alice@example.com", got["from"])
+	}
+	if got["to"] != "bob@example.com" {
+		t.Errorf("to = %v, want bob@example.com", got["to"])
+	}
+	if got["subject"] != "Test subject" {
+		t.Errorf("subject = %v, want Test subject", got["subject"])
+	}
+	if got["sizeEstimate"] != int64(1234) {
+		t.Errorf("sizeEstimate = %v, want 1234", got["sizeEstimate"])
+	}
+}
+
+func TestExtractSummaryTruncatesSnippet(t *testing.T) {
+	longSnippet := strings.Repeat("a", 300)
+	msg := &gmail.Message{
+		Id:      "msg-1",
+		Snippet: longSnippet,
+		Payload: &gmail.MessagePart{},
+	}
+
+	got := extractSummary(msg)
+	snippet, ok := got["snippet"].(string)
+	if !ok {
+		t.Fatal("snippet is not a string")
+	}
+	if len(snippet) != 200 {
+		t.Errorf("snippet length = %d, want 200", len(snippet))
+	}
+}
+
+func TestExtractSummaryNilPayload(t *testing.T) {
+	msg := &gmail.Message{
+		Id:      "msg-1",
+		Snippet: "test",
+	}
+
+	got := extractSummary(msg)
+	if got["from"] != "" {
+		t.Errorf("from should be empty with nil payload, got %v", got["from"])
+	}
+}
+
+func TestComposeMIME(t *testing.T) {
+	raw := composeMIME("alice@example.com", "Test Subject", "Hello world", "", "")
+
+	decoded, err := base64.URLEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	msg := string(decoded)
+
+	if !strings.Contains(msg, "alice@example.com") {
+		t.Error("missing To header")
+	}
+	if !strings.Contains(msg, "Subject: Test Subject") {
+		t.Error("missing Subject header")
+	}
+	if !strings.Contains(msg, "Hello world") {
+		t.Error("missing body")
+	}
+	if !strings.Contains(msg, "MIME-Version: 1.0") {
+		t.Error("missing MIME-Version header")
+	}
+}
+
+func TestComposeMIMEWithCCBCC(t *testing.T) {
+	raw := composeMIME("alice@example.com", "Test", "Body", "cc@example.com", "bcc@example.com")
+
+	decoded, err := base64.URLEncoding.DecodeString(raw)
+	if err != nil {
+		t.Fatalf("decode base64: %v", err)
+	}
+	msg := string(decoded)
+
+	if !strings.Contains(msg, "Cc:") {
+		t.Error("missing Cc header")
+	}
+	if !strings.Contains(msg, "Bcc:") {
+		t.Error("missing Bcc header")
+	}
+}
+
+func TestFormatAddress(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"alice@example.com", "<alice@example.com>"},
+		{"Alice <alice@example.com>", "Alice <alice@example.com>"},
+	}
+
+	for _, tt := range tests {
+		got := formatAddress(tt.input)
+		if got != tt.want {
+			t.Errorf("formatAddress(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
+
+func TestGenerateCacheFilename(t *testing.T) {
+	filename := generateCacheFilename("from:alice subject:report")
+
+	if !strings.HasPrefix(filename, "gmail_from_alice_subject_report_") {
+		t.Errorf("unexpected filename prefix: %s", filename)
+	}
+	if !strings.HasSuffix(filename, ".json") {
+		t.Errorf("filename should end with .json: %s", filename)
+	}
+}
+
+func TestGenerateCacheFilenameTruncatesLong(t *testing.T) {
+	long := strings.Repeat("abcdefghij", 10) // 100 chars
+	filename := generateCacheFilename(long)
+
+	// "gmail_" (6) + truncated (50) + "_" (1) + timestamp (15) + ".json" (5) = 77
+	parts := strings.SplitN(filename, "_", 3)
+	if parts[0] != "gmail" {
+		t.Errorf("should start with gmail_: %s", filename)
+	}
+}
+
+func TestCacheDirectory(t *testing.T) {
+	got := cacheDirectory()
+	if got != ".gmail_cache" {
+		t.Errorf("cacheDirectory() = %q, want .gmail_cache", got)
+	}
+}
