@@ -8,6 +8,7 @@ by the core. Cache is provided by the core cache service.
 Zero dependencies beyond Python stdlib.
 """
 
+import hashlib
 import json
 import sys
 
@@ -87,6 +88,128 @@ def log(message):
     print(f"confluence: {message}", file=sys.stderr)
 
 
+# --- Response helpers ---
+
+
+def _strip(obj):
+    """Recursively remove _links, _expandable, and _extensions from responses."""
+    if isinstance(obj, dict):
+        return {k: _strip(v) for k, v in obj.items() if k not in ("_links", "_expandable", "_extensions")}
+    if isinstance(obj, list):
+        return [_strip(item) for item in obj]
+    return obj
+
+
+def _extract_page(page, include_body=True):
+    """Extract essential fields from a raw Confluence page response."""
+    result = {
+        "id": page.get("id"),
+        "title": page.get("title"),
+        "status": page.get("status"),
+    }
+
+    space = page.get("space")
+    if space:
+        result["space_key"] = space.get("key")
+        result["space_name"] = space.get("name")
+
+    version = page.get("version")
+    if version:
+        result["version"] = version.get("number")
+        result["last_modified"] = version.get("when")
+        by = version.get("by")
+        if by:
+            result["modified_by"] = by.get("displayName", by.get("username", ""))
+
+    links = page.get("_links", {})
+    webui = links.get("webui", "")
+    base = links.get("base", "")
+    if webui:
+        result["url"] = base + webui if base else webui
+
+    if include_body:
+        body = page.get("body", {})
+        storage = body.get("storage", {})
+        if storage.get("value"):
+            result["body"] = storage["value"]
+
+    return result
+
+
+def _extract_space(space, full_description=False):
+    """Extract essential fields from a raw Confluence space response."""
+    result = {
+        "key": space.get("key"),
+        "name": space.get("name"),
+        "type": space.get("type"),
+    }
+
+    desc = space.get("description", {})
+    plain = desc.get("plain", {}).get("value", "")
+    if plain:
+        if full_description:
+            result["description"] = plain
+        elif len(plain) > 100:
+            result["description"] = plain[:100] + "..."
+        else:
+            result["description"] = plain
+
+    homepage = space.get("homepage")
+    if homepage:
+        result["homepage_id"] = homepage.get("id")
+        result["homepage_title"] = homepage.get("title")
+
+    return result
+
+
+def _extract_search_result(item):
+    """Extract brief info from a search result."""
+    content = item.get("content", item)
+    result = {
+        "id": content.get("id"),
+        "title": content.get("title"),
+        "type": content.get("type"),
+    }
+    space = content.get("space")
+    if space:
+        result["space_key"] = space.get("key")
+
+    links = content.get("_links", {})
+    webui = links.get("webui", "")
+    base = item.get("_links", {}).get("base", links.get("base", ""))
+    if webui:
+        result["url"] = base + webui if base else webui
+
+    last_modified = content.get("lastModified") or item.get("lastModified")
+    if last_modified:
+        result["last_modified"] = last_modified
+
+    excerpt = item.get("excerpt", "")
+    if excerpt:
+        result["excerpt"] = excerpt[:200]
+
+    return result
+
+
+def _extract_write_result(body):
+    """Extract confirmation from a write operation response."""
+    result = {
+        "id": body.get("id"),
+        "title": body.get("title"),
+    }
+    version = body.get("version")
+    if version:
+        result["version"] = version.get("number")
+
+    links = body.get("_links", {})
+    webui = links.get("webui", "")
+    base = links.get("base", "")
+    if webui:
+        result["url"] = base + webui if base else webui
+
+    return result
+
+
 # --- Tools ---
 
 
@@ -95,14 +218,19 @@ def confluence_get_page(params):
     if not page_id:
         raise ValueError("page_id is required")
 
+    include_body = params.get("include_body", True)
+    expand = "version,space"
+    if include_body:
+        expand = "body.storage,version,space"
+
     status, body, _ = http(
         "GET",
         f"/rest/api/content/{page_id}",
-        query={"expand": "body.storage,version,space"},
+        query={"expand": expand},
     )
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+    return _extract_page(body, include_body=include_body)
 
 
 def confluence_get_page_by_title(params):
@@ -111,30 +239,41 @@ def confluence_get_page_by_title(params):
     if not title or not space_key:
         raise ValueError("title and space_key are required")
 
+    include_body = params.get("include_body", True)
+    expand = "version,space"
+    if include_body:
+        expand = "body.storage,version,space"
+
     status, body, _ = http(
         "GET",
         "/rest/api/content",
         query={
             "title": title,
             "spaceKey": space_key,
-            "expand": "body.storage,version,space",
+            "expand": expand,
             "limit": 1,
         },
     )
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
+        return {"error": f"HTTP {status}", "details": _strip(body)}
 
     results = body.get("results", [])
     if not results:
         return {"error": f"No page found with title '{title}' in space '{space_key}'"}
-    return results[0]
+    return _extract_page(results[0], include_body=include_body)
 
 
 def confluence_search(params):
     cql = params.get("cql")
     if not cql:
         raise ValueError("cql is required")
-    limit = params.get("limit", 25)
+    limit = params.get("limit", 10)
+
+    # Check cache
+    cache_key = f"search:{hashlib.sha256(cql.encode()).hexdigest()[:12]}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
 
     status, body, _ = http(
         "GET",
@@ -142,8 +281,16 @@ def confluence_search(params):
         query={"cql": cql, "limit": limit},
     )
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+
+    results = body.get("results", [])
+    result = {
+        "results": [_extract_search_result(r) for r in results],
+        "total": body.get("totalSize", len(results)),
+        "count": len(results),
+    }
+    cache_set(cache_key, result, ttl=300)
+    return result
 
 
 def confluence_get_pages_by_title(params):
@@ -158,18 +305,26 @@ def confluence_get_pages_by_title(params):
         query={
             "title": title,
             "spaceKey": space_key,
-            "expand": "body.storage,version,space",
+            "expand": "version",
         },
     )
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
+        return {"error": f"HTTP {status}", "details": _strip(body)}
 
     results = body.get("results", [])
-    return {"results": results, "count": len(results)}
+    return {
+        "results": [_extract_page(r, include_body=False) for r in results],
+        "count": len(results),
+    }
 
 
 def confluence_get_spaces(params):
-    limit = params.get("limit", 50)
+    limit = params.get("limit", 20)
+
+    # Check cache
+    cached = cache_get("spaces")
+    if cached:
+        return cached
 
     status, body, _ = http(
         "GET",
@@ -177,8 +332,15 @@ def confluence_get_spaces(params):
         query={"limit": limit, "expand": "description"},
     )
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+
+    results = body.get("results", [])
+    result = {
+        "spaces": [_extract_space(s) for s in results],
+        "count": len(results),
+    }
+    cache_set("spaces", result, ttl=1800)
+    return result
 
 
 def confluence_get_space(params):
@@ -186,14 +348,23 @@ def confluence_get_space(params):
     if not space_key:
         raise ValueError("space_key is required")
 
+    # Check cache
+    cache_key = f"space:{space_key}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     status, body, _ = http(
         "GET",
         f"/rest/api/space/{space_key}",
         query={"expand": "description,homepage"},
     )
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+
+    result = _extract_space(body, full_description=True)
+    cache_set(cache_key, result, ttl=1800)
+    return result
 
 
 def confluence_create_page(params):
@@ -233,8 +404,8 @@ def confluence_create_page(params):
 
     status, body, _ = http("POST", "/rest/api/content", body=payload)
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+    return _extract_write_result(body)
 
 
 def confluence_update_page(params):
@@ -263,7 +434,7 @@ def confluence_update_page(params):
         query={"expand": "version"},
     )
     if status >= 400:
-        return {"error": f"HTTP {status} fetching current version", "details": current}
+        return {"error": f"HTTP {status} fetching current version", "details": _strip(current)}
 
     current_version = current.get("version", {}).get("number", 0)
 
@@ -281,8 +452,8 @@ def confluence_update_page(params):
 
     status, body, _ = http("PUT", f"/rest/api/content/{page_id}", body=payload)
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+    return _extract_write_result(body)
 
 
 def confluence_add_comment(params):
@@ -314,8 +485,8 @@ def confluence_add_comment(params):
 
     status, body, _ = http("POST", "/rest/api/content", body=payload)
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+    return _extract_write_result(body)
 
 
 def confluence_get_page_children(params):
@@ -323,18 +494,27 @@ def confluence_get_page_children(params):
     if not page_id:
         raise ValueError("page_id is required")
 
+    # Check cache
+    cache_key = f"children:{page_id}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     status, body, _ = http("GET", f"/rest/api/content/{page_id}/child/page")
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
+        return {"error": f"HTTP {status}", "details": _strip(body)}
 
     if isinstance(body, dict):
-        results = body.get("results", [])
+        raw = body.get("results", [])
     elif isinstance(body, list):
-        results = body
+        raw = body
     else:
-        results = []
+        raw = []
 
-    return {"results": results, "count": len(results)}
+    results = [{"id": c.get("id"), "title": c.get("title"), "status": c.get("status")} for c in raw]
+    result = {"results": results, "count": len(results)}
+    cache_set(cache_key, result, ttl=600)
+    return result
 
 
 def confluence_get_page_history(params):
@@ -344,8 +524,8 @@ def confluence_get_page_history(params):
 
     status, body, _ = http("GET", f"/rest/api/content/{page_id}/history")
     if status >= 400:
-        return {"error": f"HTTP {status}", "details": body}
-    return body
+        return {"error": f"HTTP {status}", "details": _strip(body)}
+    return _strip(body)
 
 
 # --- Tool registry ---

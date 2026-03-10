@@ -47,6 +47,10 @@ tools:
         type: string
         required: true
         description: "Numeric page identifier"
+      include_body:
+        type: boolean
+        default: true
+        description: "Include page body content (set false for metadata only)"
 
   - name: confluence_get_page_by_title
     description: "Fetch a single page by exact title within a space"
@@ -57,6 +61,10 @@ tools:
       space_key:
         type: string
         required: true
+      include_body:
+        type: boolean
+        default: true
+        description: "Include page body content (set false for metadata only)"
 
   - name: confluence_search
     description: "Run a CQL (Confluence Query Language) query"
@@ -67,7 +75,7 @@ tools:
         description: "CQL query string"
       limit:
         type: integer
-        default: 25
+        default: 10
 
   - name: confluence_get_pages_by_title
     description: "Fetch all pages matching a title within a space"
@@ -84,7 +92,7 @@ tools:
     params:
       limit:
         type: integer
-        default: 50
+        default: 20
 
   - name: confluence_get_space
     description: "Get details for a specific space"
