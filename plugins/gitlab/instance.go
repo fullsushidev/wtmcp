@@ -24,7 +24,10 @@ var instances map[string]*instance
 // or when no instance param is provided.
 var defaultInstance string
 
-// discoverInstances scans environment variables for GitLab instances.
+// discoverInstances scans the process environment for GitLab instances.
+// This is safe because plugin processes receive a filtered environment
+// via buildPluginEnv — only allowlisted system vars and the plugin's
+// credential_group env.d vars are available.
 //
 // Multi-instance: GITLAB_{NAME}_TOKEN + GITLAB_{NAME}_URL
 // Legacy single: GITLAB_TOKEN + GITLAB_URL

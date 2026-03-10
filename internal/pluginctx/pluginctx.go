@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LoadFile reads a context file from a plugin directory.
@@ -13,16 +14,23 @@ import (
 func LoadFile(pluginDir, filename string) (string, error) {
 	path := filepath.Join(pluginDir, filename)
 
-	// Verify the file stays within the plugin directory
+	// Verify the file stays within the plugin directory.
+	// Resolve symlinks to prevent escaping via symlink chains.
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return "", fmt.Errorf("resolve context path: %w", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		absPath = resolved
 	}
 	absDir, err := filepath.Abs(pluginDir)
 	if err != nil {
 		return "", fmt.Errorf("resolve plugin dir: %w", err)
 	}
-	if len(absPath) <= len(absDir) || absPath[:len(absDir)] != absDir {
+	if resolvedDir, err := filepath.EvalSymlinks(pluginDir); err == nil {
+		absDir = resolvedDir
+	}
+	if !strings.HasPrefix(absPath, absDir+string(filepath.Separator)) {
 		return "", fmt.Errorf("context file escapes plugin directory: %s", filename)
 	}
 

@@ -382,9 +382,15 @@ var dangerousHeaders = []string{
 	"Connection",
 	"Upgrade",
 	"Transfer-Encoding",
+	"Te",
+	"Trailer",
+	"Forwarded",
 	"X-Forwarded-For",
 	"X-Forwarded-Host",
+	"X-Forwarded-Proto",
 	"X-Real-Ip",
+	"X-Original-Url",
+	"X-Rewrite-Url",
 }
 
 // stripDangerousHeaders removes security-sensitive headers that
@@ -416,8 +422,17 @@ func rejectPrivateHost(rawURL string) error {
 		if ip == nil {
 			continue
 		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 			return fmt.Errorf("host %s resolves to private/loopback address %s", host, ipStr)
+		}
+		// IPv6-mapped IPv4 (::ffff:x.x.x.x): Go's IsPrivate only
+		// checks IPv4 ranges against 4-byte IPs. A 16-byte
+		// representation like ::ffff:10.0.0.1 would slip through.
+		if ipv4 := ip.To4(); ipv4 != nil && len(ip) == net.IPv6len {
+			if ipv4.IsLoopback() || ipv4.IsPrivate() || ipv4.IsLinkLocalUnicast() || ipv4.IsUnspecified() {
+				return fmt.Errorf("host %s resolves to private/loopback address %s", host, ipStr)
+			}
 		}
 	}
 

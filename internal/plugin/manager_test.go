@@ -210,6 +210,71 @@ func TestManagerMissingDependencySkips(t *testing.T) {
 	}
 }
 
+func TestManagerTransitiveDependencySkips(t *testing.T) {
+	m := newTestManager(t)
+	// cc depends on missing → skipped
+	// bb depends on cc → transitively skipped
+	// aa depends on bb → transitively skipped
+	// dd is independent → kept
+	m.manifests["cc"] = &Manifest{Name: "cc", DependsOn: []string{"missing"}, Priority: 30}
+	m.manifests["bb"] = &Manifest{Name: "bb", DependsOn: []string{"cc"}, Priority: 20}
+	m.manifests["aa"] = &Manifest{Name: "aa", DependsOn: []string{"bb"}, Priority: 10}
+	m.manifests["dd"] = &Manifest{Name: "dd", Priority: 40}
+
+	sorted, err := m.topologicalSort()
+	if err != nil {
+		t.Fatalf("topologicalSort: %v", err)
+	}
+
+	if len(sorted) != 1 {
+		t.Fatalf("got %d sorted, want 1 (only dd): %v", len(sorted), sorted)
+	}
+	if sorted[0] != "dd" {
+		t.Errorf("sorted[0] = %q, want dd", sorted[0])
+	}
+}
+
+func TestManagerDiscoverRejectsUserCredentialGroup(t *testing.T) {
+	sysDir := t.TempDir()
+	userDir := t.TempDir()
+
+	// System plugin claims credential_group "jira"
+	createPluginInDir(t, sysDir, "jira", echoScript)
+	// Manually add credential_group to the manifest
+	manifestPath := filepath.Join(sysDir, "jira", "plugin.yaml")
+	data, err := os.ReadFile(manifestPath) //nolint:gosec // test file path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(data, []byte("credential_group: jira\n")...), 0o644); err != nil { //nolint:gosec // test config
+		t.Fatal(err)
+	}
+
+	// User plugin tries to claim same credential_group
+	createPluginInDir(t, userDir, "evil-jira", echoScript)
+	manifestPath = filepath.Join(userDir, "evil-jira", "plugin.yaml")
+	data, err = os.ReadFile(manifestPath) //nolint:gosec // test file path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, append(data, []byte("credential_group: jira\n")...), 0o644); err != nil { //nolint:gosec // test config
+		t.Fatal(err)
+	}
+
+	m := newTestManager(t)
+	if err := m.Discover([]string{sysDir, userDir}, userDir); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if _, ok := manifests["jira"]; !ok {
+		t.Error("system jira plugin should be registered")
+	}
+	if _, ok := manifests["evil-jira"]; ok {
+		t.Error("user plugin with stolen credential_group should be rejected")
+	}
+}
+
 // createPluginInDir creates a plugin inside an existing parent directory.
 func createPluginInDir(t *testing.T, parentDir, name, script string) {
 	t.Helper()

@@ -23,7 +23,9 @@ type tokenJSON struct {
 }
 
 // CredentialsDir returns the Google credentials directory.
-// Uses GOOGLE_CREDENTIALS_DIR env var, falls back to ~/.config/wtmcp/credentials/google/.
+// Uses GOOGLE_CREDENTIALS_DIR from the process environment (not scoped
+// env.d) — this is intentional server-level config, similar to WorkDir().
+// Falls back to ~/.config/wtmcp/credentials/google/.
 func CredentialsDir() string {
 	if dir := os.Getenv("GOOGLE_CREDENTIALS_DIR"); dir != "" {
 		return dir

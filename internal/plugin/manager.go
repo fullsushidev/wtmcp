@@ -48,6 +48,10 @@ func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *conf
 // identifies the user plugins directory — plugins from it are
 // restricted (e.g., cannot declare provides.auth).
 func (m *Manager) Discover(dirs []string, userDir string) error {
+	// Track credential groups claimed by system plugins so user
+	// plugins cannot steal credentials by declaring the same group.
+	systemGroups := make(map[string]string) // group → plugin name
+
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -56,6 +60,8 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 			}
 			return fmt.Errorf("read plugin dir %s: %w", dir, err)
 		}
+		isUserDir := userDir != "" && dir == userDir
+
 		for _, entry := range entries {
 			if !entry.IsDir() {
 				continue
@@ -78,10 +84,21 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 					manifest.Name, manifest.Dir, existing.Dir)
 				continue
 			}
-			if manifest.ProvidesAuth() && userDir != "" && dir == userDir {
-				log.Printf("WARNING: user plugin %q declares provides.auth — skipped (not allowed)",
-					manifest.Name)
-				continue
+			if isUserDir {
+				if manifest.ProvidesAuth() {
+					log.Printf("WARNING: user plugin %q declares provides.auth — skipped (not allowed)",
+						manifest.Name)
+					continue
+				}
+				if manifest.CredentialGroup != "" {
+					if owner, ok := systemGroups[manifest.CredentialGroup]; ok {
+						log.Printf("WARNING: user plugin %q declares credential_group %q (owned by %s) — skipped",
+							manifest.Name, manifest.CredentialGroup, owner)
+						continue
+					}
+				}
+			} else if manifest.CredentialGroup != "" {
+				systemGroups[manifest.CredentialGroup] = manifest.Name
 			}
 			m.manifests[manifest.Name] = manifest
 		}
@@ -319,16 +336,31 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 }
 
 func (m *Manager) topologicalSort() ([]string, error) {
-	// Pre-filter: skip plugins with unresolvable dependencies
-	// instead of aborting the entire sort.
+	// Pre-filter: skip plugins with unresolvable or skipped
+	// dependencies. Propagate transitively until stable.
 	skipped := make(map[string]bool)
-	for name, manifest := range m.manifests {
-		for _, dep := range manifest.DependsOn {
-			if _, exists := m.manifests[dep]; !exists {
-				log.Printf("WARNING: plugin %s depends on %s which is not available — skipping",
-					name, dep)
-				skipped[name] = true
-				break
+	changed := true
+	for changed {
+		changed = false
+		for name, manifest := range m.manifests {
+			if skipped[name] {
+				continue
+			}
+			for _, dep := range manifest.DependsOn {
+				if _, exists := m.manifests[dep]; !exists {
+					log.Printf("WARNING: plugin %s depends on %s which is not available — skipping",
+						name, dep)
+					skipped[name] = true
+					changed = true
+					break
+				}
+				if skipped[dep] {
+					log.Printf("WARNING: plugin %s depends on skipped plugin %s — skipping",
+						name, dep)
+					skipped[name] = true
+					changed = true
+					break
+				}
 			}
 		}
 	}

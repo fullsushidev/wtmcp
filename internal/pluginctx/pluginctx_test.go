@@ -35,6 +35,26 @@ func TestLoadFileEscapesDir(t *testing.T) {
 	}
 }
 
+func TestLoadFileSymlinkEscape(t *testing.T) {
+	pluginDir := t.TempDir()
+	outsideDir := t.TempDir()
+
+	// Create a file outside the plugin dir
+	if err := os.WriteFile(filepath.Join(outsideDir, "secret.md"), []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside the plugin dir pointing outside
+	if err := os.Symlink(filepath.Join(outsideDir, "secret.md"), filepath.Join(pluginDir, "context.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadFile(pluginDir, "context.md")
+	if err == nil {
+		t.Error("expected error for symlink escaping plugin dir")
+	}
+}
+
 func TestResourceURI(t *testing.T) {
 	uri := ResourceURI("calendar", "context.md")
 	expected := "wtmcp://plugin/calendar/context/context.md"

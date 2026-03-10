@@ -497,8 +497,10 @@ func TestStripDangerousHeaders(t *testing.T) {
 		// These headers must have been stripped
 		stripped := []string{
 			"Cookie", "Authorization", "Proxy-Authorization",
-			"X-Forwarded-For", "X-Forwarded-Host", "X-Real-Ip",
+			"X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto",
+			"X-Real-Ip", "X-Original-Url", "X-Rewrite-Url",
 			"Connection", "Upgrade", "Transfer-Encoding",
+			"Te", "Trailer", "Forwarded",
 		}
 		for _, h := range stripped {
 			if v := r.Header.Get(h); v != "" {
@@ -525,10 +527,16 @@ func TestStripDangerousHeaders(t *testing.T) {
 			"Proxy-Authorization": "Basic creds",
 			"X-Forwarded-For":     "1.2.3.4",
 			"X-Forwarded-Host":    "evil.com",
+			"X-Forwarded-Proto":   "http",
 			"X-Real-Ip":           "10.0.0.1",
+			"X-Original-Url":      "/admin",
+			"X-Rewrite-Url":       "/secret",
 			"Connection":          "keep-alive",
 			"Upgrade":             "websocket",
 			"Transfer-Encoding":   "chunked",
+			"Te":                  "trailers",
+			"Trailer":             "X-Checksum",
+			"Forwarded":           "for=1.2.3.4",
 			"X-Custom":            "keep-me",
 		},
 	})
