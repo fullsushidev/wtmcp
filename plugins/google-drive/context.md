@@ -1,13 +1,20 @@
 # Google Drive Plugin
 
-Provides 9 tools for Google Drive file access, search, and export.
+## Tool Usage Guidelines
 
-## Read-Only Access
+### Read-Only Access
 
 This plugin has read-only access to Google Drive. It cannot create,
 modify, or delete files.
 
-## Search Patterns
+### Choosing the Right Search Tool
+
+- **`drive_search_text`** — best for most searches. Builds the query
+  for you from text, MIME types, and owner filters.
+- **`drive_search_files`** — advanced. Pass a raw Drive API query
+  string when you need operators not covered by `drive_search_text`.
+
+### Search Patterns
 
 **Find files by name:**
 ```
@@ -25,47 +32,84 @@ drive_search_text(text="meeting notes",
                   mime_types=["application/vnd.google-apps.document"])
 ```
 
+**Search by name only (no full-text):**
+```
+drive_search_text(text="budget", in_name_only=true)
+```
+
 **Raw Drive query (advanced):**
 ```
-drive_search_files(query="name contains 'design' and trashed = false and modifiedTime > '2026-01-01'")
+drive_search_files(
+    query="name contains 'design' and trashed = false and modifiedTime > '2026-01-01'")
 ```
 
-## File ID Extraction
+**Find files in trash:**
+```
+drive_search_text(text="old report", include_trashed=true)
+```
 
-Several tools accept Google Drive/Docs URLs directly:
-- `drive_get_file_by_url` — get metadata from a URL
-- `drive_extract_and_get_from_text` — scan text for Drive links
-- `drive_export_google_doc_markdown` — accepts URL or file ID
+### Getting File Metadata
+
+Three ways to get file info, use the most appropriate:
+
+- **By ID:** `drive_get_file_by_id(file_id="1abc...")` when you
+  have the file ID
+- **By URL:** `drive_get_file_by_url(url="https://docs.google.com/...")`
+  when pasting from a browser
+- **From text:** `drive_extract_and_get_from_text(text="see this doc: https://...")`
+  when scanning messages or notes for links
 
 Supported URL formats:
 - `https://docs.google.com/document/d/FILE_ID/edit`
 - `https://docs.google.com/spreadsheets/d/FILE_ID/edit`
 - `https://drive.google.com/file/d/FILE_ID/view`
 
-## Export Tools
+### Exporting Documents
 
-| Tool | Source | Output |
-|------|--------|--------|
-| `drive_export_google_doc_text` | Google Doc | Saved to file (default) or plain text |
-| `drive_export_google_doc_markdown` | Google Doc | Saved to file (default) or markdown |
-| `drive_export_google_sheet_csv` | Google Sheet | Saved to file (default) or CSV |
-| `drive_export_slides_pdf` | Google Slides | PDF (base64 encoded) |
+All text export tools save to local files by default to avoid
+consuming context tokens. Set `save_to_file: false` only for
+small documents where you need the content inline.
 
-All text export tools default to `save_to_file: true` to avoid
-consuming context tokens with large documents. Set `save_to_file: false`
-to get content inline.
+**Export a Google Doc as text:**
+```
+drive_export_google_doc_text(file_id="1abc...")
+```
+Saves to `./drive/<file_id>.txt`, returns path and stats.
 
-## Saving Exports Locally
+**Export as Markdown (preserves formatting):**
+```
+drive_export_google_doc_markdown(file_id_or_url="1abc...")
+```
+Saves to `./drive/<title>.md`. Accepts file ID or URL.
 
-`drive_export_google_doc_markdown` saves to `./drive/<title>.md` by
-default. This avoids consuming context tokens with large documents.
-Set `save_to_file: false` to get content directly (not recommended
-for large documents).
+**Export a Sheet as CSV:**
+```
+drive_export_google_sheet_csv(file_id="1abc...")
+```
+Exports the first worksheet only.
 
-## Common MIME Types
+**Export Slides as PDF:**
+```
+drive_export_slides_pdf(file_id="1abc...")
+```
+Returns base64-encoded PDF (cannot be saved to file).
+
+**Get content inline (not recommended for large files):**
+```
+drive_export_google_doc_text(file_id="1abc...", save_to_file=false)
+```
+
+### Common MIME Types
+
+Use these with `drive_search_text(mime_types=[...])`:
 
 - `application/vnd.google-apps.document` — Google Docs
 - `application/vnd.google-apps.spreadsheet` — Google Sheets
 - `application/vnd.google-apps.presentation` — Google Slides
 - `application/vnd.google-apps.folder` — Folder
 - `application/pdf` — PDF files
+
+### File IDs
+
+File IDs come from search results or URL extraction. Don't
+fabricate IDs — always get them from a previous call or a URL.

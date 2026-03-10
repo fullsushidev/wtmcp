@@ -1,8 +1,8 @@
 # Google Calendar Plugin
 
-Provides 8 tools for Google Calendar event management.
+## Tool Usage Guidelines
 
-## Write Safety
+### Write Safety
 
 All write tools default to `dry_run: true`. Always preview first:
 
@@ -13,57 +13,106 @@ All write tools default to `dry_run: true`. Always preview first:
 This applies to: calendar_create_event, calendar_update_event,
 calendar_delete_event.
 
-## Time Format
+### Time Format
 
-All times use RFC3339 with timezone:
-- `2026-03-10T09:00:00-05:00` (US Eastern)
+All times use RFC3339 with timezone offset or Z for UTC:
+- `2026-03-10T09:00:00-05:00` (with offset)
 - `2026-03-10T14:00:00Z` (UTC)
-- `2026-03-10T14:00:00+01:00` (CET)
 
 For all-day events, use date only: `2026-03-10`
 (set `all_day: true` in create/update).
 
-## Common Patterns
+### Discovering Calendars
 
-**Upcoming events this week:**
+Always use `calendar_get_calendars` first to discover available
+calendars and their IDs. The `"primary"` calendar is the user's
+main calendar and is the default for all tools.
+
+Holiday and shared calendars have long IDs like
+`en.portuguese#holiday@group.v.calendar.google.com` — use
+`calendar_get_calendars` to find them rather than guessing.
+
+### Common Patterns
+
+**Today's events:**
+```
+calendar_get_events()
+```
+Events from now onwards are returned by default.
+
+**Events in a date range:**
 ```
 calendar_get_events(time_min="2026-03-10T00:00:00Z",
-                    time_max="2026-03-16T23:59:59Z")
+                    time_max="2026-03-14T23:59:59Z",
+                    max_results=50)
 ```
 
 **Find a meeting by name:**
 ```
 calendar_search_events(query="standup")
 ```
+Searches summaries and descriptions.
 
 **Check availability before scheduling:**
 ```
 calendar_get_free_busy(time_min="2026-03-11T08:00:00Z",
                        time_max="2026-03-11T18:00:00Z")
 ```
+Pass multiple `calendar_ids` to check team availability.
 
-**List all calendars to find IDs:**
-```
-calendar_get_calendars()
-```
-
-Then use a specific calendar:
+**Events from a specific calendar:**
 ```
 calendar_get_events(calendar_id="team@group.calendar.google.com")
 ```
 
-## Calendar IDs
+### Creating Events
 
-- `"primary"` — the user's main calendar (default for all tools)
-- Use `calendar_get_calendars` to discover shared/team calendars
-- Holiday calendars like `en.portuguese#holiday@group.v.calendar.google.com`
-  are read-only
+Minimum required: `summary`, `start_datetime`, `end_datetime`:
+```
+calendar_create_event(
+    summary="Design review",
+    start_datetime="2026-03-12T14:00:00Z",
+    end_datetime="2026-03-12T15:00:00Z")
+```
 
-## Tips
+With attendees and location:
+```
+calendar_create_event(
+    summary="Design review",
+    start_datetime="2026-03-12T14:00:00Z",
+    end_datetime="2026-03-12T15:00:00Z",
+    location="Room 42",
+    attendees=["alice@example.com", "bob@example.com"])
+```
 
-- `calendar_get_events` defaults to events from now onwards
-- Search with `calendar_search_events` matches text in summaries
-  and descriptions
-- When creating events with attendees, pass a list of email addresses
-- The `calendar_get_free_busy` tool checks multiple calendars at once
-  when given a list of `calendar_ids`
+All-day event:
+```
+calendar_create_event(
+    summary="Team offsite",
+    start_datetime="2026-03-15",
+    end_datetime="2026-03-16",
+    all_day=true)
+```
+
+### Updating Events
+
+You need the `event_id` from a previous get/list/search call.
+Only specify fields you want to change:
+```
+calendar_update_event(
+    event_id="abc123",
+    summary="Updated title",
+    location="New room")
+```
+
+### Event IDs
+
+Event IDs come from `calendar_get_events`, `calendar_search_events`,
+or `calendar_get_event`. Don't fabricate IDs — always get them from
+a previous call.
+
+### Response Fields
+
+Responses are trimmed to essential fields: `id`, `summary`, `start`,
+`end`, `location`, `description`, `attendees` (email only),
+`htmlLink`, `status`. Full Google Calendar metadata is not returned.
