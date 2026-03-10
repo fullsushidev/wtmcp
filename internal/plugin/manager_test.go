@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/LeGambiArt/wtmcp/internal/auth"
@@ -197,5 +198,83 @@ func TestManagerMissingDependency(t *testing.T) {
 	_, err := m.topologicalSort()
 	if err == nil {
 		t.Error("expected missing dependency error")
+	}
+}
+
+// createPluginInDir creates a plugin inside an existing parent directory.
+func createPluginInDir(t *testing.T, parentDir, name, script string) {
+	t.Helper()
+	pluginDir := filepath.Join(parentDir, name)
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil { //nolint:gosec // test dir
+		t.Fatal(err)
+	}
+	handlerPath := filepath.Join(pluginDir, "handler.sh")
+	if err := os.WriteFile(handlerPath, []byte(script), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+	manifest := `
+name: ` + name + `
+version: "1.0.0"
+description: "Test plugin"
+execution: persistent
+handler: ./handler.sh
+tools:
+  - name: ` + name + `_test
+    description: "A test tool"
+    params: {}
+`
+	manifestPath := filepath.Join(pluginDir, "plugin.yaml")
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config
+		t.Fatal(err)
+	}
+}
+
+func TestManagerDiscoverFirstWins(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	createPluginInDir(t, dir1, "samename", echoScript)
+	createPluginInDir(t, dir2, "samename", echoScript)
+
+	m := newTestManager(t)
+	if err := m.Discover([]string{dir1, dir2}); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if len(manifests) != 1 {
+		t.Fatalf("got %d manifests, want 1", len(manifests))
+	}
+
+	got := manifests["samename"]
+	if got == nil {
+		t.Fatal("expected 'samename' manifest")
+	}
+	if !strings.HasPrefix(got.Dir, dir1) {
+		t.Errorf("manifest Dir = %q, want prefix %q (first dir should win)", got.Dir, dir1)
+	}
+}
+
+func TestManagerDiscoverUserCanAddNew(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	createPluginInDir(t, dir1, "system-only", echoScript)
+	createPluginInDir(t, dir2, "user-only", echoScript)
+
+	m := newTestManager(t)
+	if err := m.Discover([]string{dir1, dir2}); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if len(manifests) != 2 {
+		t.Fatalf("got %d manifests, want 2", len(manifests))
+	}
+	if _, ok := manifests["system-only"]; !ok {
+		t.Error("expected 'system-only' manifest")
+	}
+	if _, ok := manifests["user-only"]; !ok {
+		t.Error("expected 'user-only' manifest")
 	}
 }

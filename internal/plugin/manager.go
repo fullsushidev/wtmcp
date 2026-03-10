@@ -41,7 +41,8 @@ func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *conf
 }
 
 // Discover scans directories for plugin.yaml files and loads manifests.
-// Later directories override earlier ones for the same plugin name.
+// First directory wins for a given plugin name; duplicates in later
+// directories are skipped with a warning.
 func (m *Manager) Discover(dirs []string) error {
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
@@ -66,6 +67,11 @@ func (m *Manager) Discover(dirs []string) error {
 			}
 			if !manifest.IsEnabled() {
 				log.Printf("plugin %s is disabled", manifest.Name)
+				continue
+			}
+			if existing, ok := m.manifests[manifest.Name]; ok {
+				log.Printf("WARNING: plugin %q in %s skipped — already registered from %s",
+					manifest.Name, manifest.Dir, existing.Dir)
 				continue
 			}
 			m.manifests[manifest.Name] = manifest
