@@ -388,7 +388,17 @@ func toolListLabels(_, _ json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list labels: %w", err)
 	}
-	return res, nil
+
+	// Return only essential fields to save tokens
+	var labels []map[string]string
+	for _, l := range res.Labels {
+		labels = append(labels, map[string]string{
+			"id":   l.Id,
+			"name": l.Name,
+			"type": l.Type,
+		})
+	}
+	return map[string]any{"labels": labels}, nil
 }
 
 // --- helpers ---
@@ -448,9 +458,6 @@ func formatAddress(addr string) string {
 }
 
 func cacheDirectory() string {
-	if dir := os.Getenv("WHAT_THE_MCP_SITE_DIR"); dir != "" {
-		return filepath.Join(dir, ".cache", "gmail")
-	}
 	return ".gmail_cache"
 }
 
