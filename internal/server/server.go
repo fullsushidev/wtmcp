@@ -84,7 +84,17 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 func buildMCPTool(def plugin.ToolDef) mcp.Tool {
 	schema := def.ParamsSchema()
 	schemaJSON, _ := json.Marshal(schema)
-	return mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
+	tool := mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
+
+	if def.IsReadOnly() {
+		t := true
+		tool.Annotations.ReadOnlyHint = &t
+	} else {
+		t := true
+		tool.Annotations.DestructiveHint = &t
+	}
+
+	return tool
 }
 
 func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config) {

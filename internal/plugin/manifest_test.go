@@ -178,6 +178,11 @@ func TestManifestValidation(t *testing.T) {
 			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools:\n  - name: ''\n    description: test",
 			wantErr: "tool name is required",
 		},
+		{
+			name:    "invalid tool access",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools:\n  - name: test_tool\n    description: test\n    access: admin",
+			wantErr: "access must be 'read' or 'write'",
+		},
 	}
 
 	for _, tt := range tests {
@@ -410,6 +415,23 @@ setup:
 	}
 	if m.Setup.PostSetupMessage != "Restart for changes to take effect." {
 		t.Errorf("PostSetupMessage = %q", m.Setup.PostSetupMessage)
+	}
+}
+
+func TestToolDefAccess(t *testing.T) {
+	read := ToolDef{Name: "search", Access: "read"}
+	if !read.IsReadOnly() {
+		t.Error("access=read should be read-only")
+	}
+
+	write := ToolDef{Name: "create", Access: "write"}
+	if write.IsReadOnly() {
+		t.Error("access=write should not be read-only")
+	}
+
+	unset := ToolDef{Name: "default"}
+	if unset.IsReadOnly() {
+		t.Error("unset access should default to write (not read-only)")
 	}
 }
 

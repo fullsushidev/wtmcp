@@ -131,10 +131,18 @@ type SetupVariant struct {
 }
 
 // ToolDef declares an MCP tool with its parameter schema.
+// ToolDef describes a single tool exposed by a plugin.
 type ToolDef struct {
 	Name        string              `yaml:"name"`
 	Description string              `yaml:"description"`
+	Access      string              `yaml:"access"` // "read" or "write" (default: "write")
 	Params      map[string]ParamDef `yaml:"params"`
+}
+
+// IsReadOnly returns true if the tool is declared as read-only
+// (no side effects).
+func (t ToolDef) IsReadOnly() bool {
+	return t.Access == "read"
 }
 
 // ParamDef describes a tool parameter.
@@ -279,10 +287,13 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
-	// Validate tool names
+	// Validate tools
 	for _, tool := range m.Tools {
 		if tool.Name == "" {
 			return fmt.Errorf("tool name is required")
+		}
+		if tool.Access != "" && tool.Access != "read" && tool.Access != "write" {
+			return fmt.Errorf("tool %s: access must be 'read' or 'write', got %q", tool.Name, tool.Access)
 		}
 	}
 
