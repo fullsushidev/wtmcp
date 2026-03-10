@@ -40,7 +40,7 @@ func New(version string, manager *plugin.Manager, cfg *config.Config) *mcpserver
 	registerContextResources(srv, manager)
 
 	// Built-in management tools
-	registerManagementTools(srv, manager)
+	registerManagementTools(srv, manager, cfg)
 
 	return srv
 }
@@ -87,7 +87,7 @@ func buildMCPTool(def plugin.ToolDef) mcp.Tool {
 	return mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
 }
 
-func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
+func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config) {
 	// plugin_list: list all loaded plugins
 	srv.AddTool(
 		mcp.NewTool("plugin_list",
@@ -112,7 +112,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
 	// plugin_reload: reload a plugin by name
 	srv.AddTool(
 		mcp.NewTool("plugin_reload",
-			mcp.WithDescription("Reload a plugin by name"),
+			mcp.WithDescription("Reload a plugin by name, re-registering tools and context resources"),
 			mcp.WithString("name", mcp.Required(), mcp.Description("Plugin name to reload")),
 		),
 		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -120,7 +120,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
 			if !ok || name == "" {
 				return mcp.NewToolResultError("name is required"), nil
 			}
-			if err := mgr.Reload(ctx, name); err != nil {
+			if err := ReloadPlugin(ctx, srv, mgr, cfg, name); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 			return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
@@ -128,33 +128,80 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
 	)
 }
 
+// ReloadPlugin reloads a plugin and re-registers its tools and context
+// resources with the MCP server. The mcp-go library automatically sends
+// notifications/tools/list_changed and notifications/resources/list_changed
+// when tools and resources are added or deleted.
+func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string) error {
+	// Collect old tool names and context URIs before reload
+	var oldToolNames []string
+	var oldContextURIs []string
+	if manifest, ok := mgr.Manifests()[name]; ok {
+		for _, t := range manifest.Tools {
+			oldToolNames = append(oldToolNames, t.Name)
+		}
+		for _, f := range manifest.ContextFiles {
+			oldContextURIs = append(oldContextURIs, pluginctx.ResourceURI(name, f))
+		}
+	}
+
+	// Reload the plugin (stops handler, re-reads manifest, restarts)
+	if err := mgr.Reload(ctx, name); err != nil {
+		return err
+	}
+
+	// Remove old tools and context resources
+	if len(oldToolNames) > 0 {
+		srv.DeleteTools(oldToolNames...)
+	}
+	if len(oldContextURIs) > 0 {
+		srv.DeleteResources(oldContextURIs...)
+	}
+
+	// Re-register from refreshed manifest
+	if manifest, ok := mgr.Manifests()[name]; ok {
+		outputFormat := cfg.Output.Format
+		if manifest.Output.Format != "" {
+			outputFormat = manifest.Output.Format
+		}
+		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback)
+		registerPluginContextResources(srv, manifest)
+	}
+
+	return nil
+}
+
 func registerContextResources(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
 	for _, manifest := range mgr.Manifests() {
-		for _, ctxFile := range manifest.ContextFiles {
-			uri := pluginctx.ResourceURI(manifest.Name, ctxFile)
-			dir := manifest.Dir
-			file := ctxFile
+		registerPluginContextResources(srv, manifest)
+	}
+}
 
-			srv.AddResource(
-				mcp.NewResource(uri, manifest.Name+" context: "+file,
-					mcp.WithResourceDescription(fmt.Sprintf("Context instructions for %s plugin", manifest.Name)),
-					mcp.WithMIMEType("text/markdown"),
-				),
-				func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
-					content, err := pluginctx.LoadFile(dir, file)
-					if err != nil {
-						return nil, err
-					}
-					return []mcp.ResourceContents{
-						mcp.TextResourceContents{
-							URI:      uri,
-							MIMEType: "text/markdown",
-							Text:     content,
-						},
-					}, nil
-				},
-			)
-		}
+func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.Manifest) {
+	for _, ctxFile := range manifest.ContextFiles {
+		uri := pluginctx.ResourceURI(manifest.Name, ctxFile)
+		dir := manifest.Dir
+		file := ctxFile
+
+		srv.AddResource(
+			mcp.NewResource(uri, manifest.Name+" context: "+file,
+				mcp.WithResourceDescription(fmt.Sprintf("Context instructions for %s plugin", manifest.Name)),
+				mcp.WithMIMEType("text/markdown"),
+			),
+			func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+				content, err := pluginctx.LoadFile(dir, file)
+				if err != nil {
+					return nil, err
+				}
+				return []mcp.ResourceContents{
+					mcp.TextResourceContents{
+						URI:      uri,
+						MIMEType: "text/markdown",
+						Text:     content,
+					},
+				}, nil
+			},
+		)
 	}
 }
 
