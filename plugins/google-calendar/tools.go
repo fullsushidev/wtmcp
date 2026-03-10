@@ -6,6 +6,14 @@ import (
 	"time"
 
 	"google.golang.org/api/calendar/v3"
+	googleapi "google.golang.org/api/googleapi"
+)
+
+const (
+	eventFields     googleapi.Field = "id,summary,start,end,location,description,attendees/email,htmlLink,status"
+	eventListFields googleapi.Field = "items(id,summary,start,end,location,description,attendees/email,htmlLink,status),nextPageToken"
+	calendarFields  googleapi.Field = "items(id,summary,description,primary,timeZone,accessRole)"
+	freeBusyFields  googleapi.Field = "calendars,timeMin,timeMax"
 )
 
 type getEventsParams struct {
@@ -31,6 +39,7 @@ func toolGetEvents(params, _ json.RawMessage) (any, error) {
 	}
 
 	call := calendarSvc.Events.List(p.CalendarID).
+		Fields(eventListFields).
 		TimeMin(p.TimeMin).
 		MaxResults(int64(p.MaxResults)).
 		SingleEvents(true).
@@ -63,7 +72,7 @@ func toolGetEvent(params, _ json.RawMessage) (any, error) {
 		p.CalendarID = "primary"
 	}
 
-	res, err := calendarSvc.Events.Get(p.CalendarID, p.EventID).Do()
+	res, err := calendarSvc.Events.Get(p.CalendarID, p.EventID).Fields(eventFields).Do()
 	if err != nil {
 		return nil, fmt.Errorf("get event: %w", err)
 	}
@@ -126,7 +135,7 @@ func toolCreateEvent(params, _ json.RawMessage) (any, error) {
 		}, nil
 	}
 
-	res, err := calendarSvc.Events.Insert(p.Calendar, event).Do()
+	res, err := calendarSvc.Events.Insert(p.Calendar, event).Fields(eventFields).Do()
 	if err != nil {
 		return nil, fmt.Errorf("create event: %w", err)
 	}
@@ -204,7 +213,7 @@ func toolUpdateEvent(params, _ json.RawMessage) (any, error) {
 		}, nil
 	}
 
-	res, err := calendarSvc.Events.Update(p.Calendar, p.EventID, event).Do()
+	res, err := calendarSvc.Events.Update(p.Calendar, p.EventID, event).Fields(eventFields).Do()
 	if err != nil {
 		return nil, fmt.Errorf("update event: %w", err)
 	}
@@ -248,7 +257,7 @@ func toolDeleteEvent(params, _ json.RawMessage) (any, error) {
 }
 
 func toolGetCalendars(_, _ json.RawMessage) (any, error) {
-	res, err := calendarSvc.CalendarList.List().Do()
+	res, err := calendarSvc.CalendarList.List().Fields(calendarFields).Do()
 	if err != nil {
 		return nil, fmt.Errorf("list calendars: %w", err)
 	}
@@ -277,6 +286,7 @@ func toolSearchEvents(params, _ json.RawMessage) (any, error) {
 	}
 
 	res, err := calendarSvc.Events.List(p.CalendarID).
+		Fields(eventListFields).
 		Q(p.Query).
 		MaxResults(int64(p.MaxResults)).
 		SingleEvents(true).
@@ -314,7 +324,7 @@ func toolGetFreeBusy(params, _ json.RawMessage) (any, error) {
 		TimeMin: p.TimeMin,
 		TimeMax: p.TimeMax,
 		Items:   items,
-	}).Do()
+	}).Fields(freeBusyFields).Do()
 	if err != nil {
 		return nil, fmt.Errorf("freebusy query: %w", err)
 	}
