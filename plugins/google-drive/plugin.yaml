@@ -1,0 +1,127 @@
+name: google-drive
+version: "0.1.0"
+description: "Google Drive — file metadata, search, and export"
+
+execution: persistent
+handler: ./handler
+
+context_files:
+  - context.md
+
+env:
+  - GOOGLE_CREDENTIALS_DIR
+
+tools:
+  - name: drive_get_file_by_id
+    description: "Get file metadata by Drive file ID"
+    params:
+      file_id:
+        type: string
+        required: true
+      fields:
+        type: string
+        description: "Comma-separated field mask (default: id,name,webViewLink,mimeType,owners,modifiedTime,size)"
+
+  - name: drive_get_file_by_url
+    description: "Get file metadata from a Google Drive/Docs URL"
+    params:
+      url:
+        type: string
+        required: true
+        description: "Google Drive/Docs URL"
+      fields:
+        type: string
+
+  - name: drive_extract_and_get_from_text
+    description: "Extract Drive/Docs links from text and fetch metadata"
+    params:
+      text:
+        type: string
+        required: true
+        description: "Text to scan for Google Drive URLs"
+      max_files:
+        type: integer
+        default: 5
+      fields:
+        type: string
+
+  - name: drive_export_google_doc_text
+    description: "Export a Google Doc as plain text"
+    params:
+      file_id:
+        type: string
+        required: true
+      mime_type:
+        type: string
+        default: "text/plain"
+
+  - name: drive_export_google_sheet_csv
+    description: "Export first worksheet of a Google Sheet as CSV"
+    params:
+      file_id:
+        type: string
+        required: true
+
+  - name: drive_export_slides_pdf
+    description: "Export Google Slides as PDF (base64 encoded)"
+    params:
+      file_id:
+        type: string
+        required: true
+
+  - name: drive_export_google_doc_markdown
+    description: "Export a Google Doc as text and save locally"
+    params:
+      file_id_or_url:
+        type: string
+        required: true
+        description: "File ID or Google Docs URL"
+      save_to_file:
+        type: boolean
+        default: true
+        description: "Save to local file (default: true)"
+      output_path:
+        type: string
+        description: "Custom output path (default: ./drive/<title>.md)"
+
+  - name: drive_search_files
+    description: "Search Drive using a raw files.list query"
+    params:
+      query:
+        type: string
+        required: true
+        description: "Drive q expression (e.g. \"name contains 'design'\")"
+      page_size:
+        type: integer
+        default: 25
+      order_by:
+        type: string
+        default: "modifiedTime desc"
+      fields:
+        type: string
+
+  - name: drive_search_text
+    description: "Search Drive by text with optional filters"
+    params:
+      text:
+        type: string
+        required: true
+        description: "Text to search in file names and content"
+      page_size:
+        type: integer
+        default: 25
+      in_name_only:
+        type: boolean
+        default: false
+      mime_types:
+        type: array
+        description: "Filter by MIME types"
+      owners:
+        type: array
+        description: "Filter by owners (e.g. ['me'])"
+      include_trashed:
+        type: boolean
+        default: false
+      order_by:
+        type: string
+        default: "modifiedTime desc"

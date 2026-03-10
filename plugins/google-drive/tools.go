@@ -1,0 +1,436 @@
+package main
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"fmt"
+	"regexp"
+	"strings"
+
+	googleapi "google.golang.org/api/googleapi"
+)
+
+const defaultFields = "id,name,webViewLink,mimeType,owners,modifiedTime,size"
+
+// extractFileID extracts a Google Drive file ID from a URL.
+func extractFileID(url string) string {
+	re := regexp.MustCompile(`/(?:d|document|spreadsheets|presentation)/d/([A-Za-z0-9_-]+)`)
+	if m := re.FindStringSubmatch(url); len(m) > 1 {
+		return m[1]
+	}
+	// Try ?id= query parameter
+	re2 := regexp.MustCompile(`[?&]id=([A-Za-z0-9_-]+)`)
+	if m := re2.FindStringSubmatch(url); len(m) > 1 {
+		return m[1]
+	}
+	return ""
+}
+
+type getFileByIDParams struct {
+	FileID string `json:"file_id"`
+	Fields string `json:"fields"`
+}
+
+func toolGetFileByID(params, _ json.RawMessage) (any, error) {
+	var p getFileByIDParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.FileID == "" {
+		return nil, fmt.Errorf("file_id is required")
+	}
+	if p.Fields == "" {
+		p.Fields = defaultFields
+	}
+
+	res, err := driveSvc.Files.Get(p.FileID).
+		Fields(googleapi.Field(p.Fields)).
+		SupportsAllDrives(true).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("get file: %w", err)
+	}
+	return res, nil
+}
+
+type getFileByURLParams struct {
+	URL    string `json:"url"`
+	Fields string `json:"fields"`
+}
+
+func toolGetFileByURL(params, _ json.RawMessage) (any, error) {
+	var p getFileByURLParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.URL == "" {
+		return nil, fmt.Errorf("url is required")
+	}
+	if p.Fields == "" {
+		p.Fields = defaultFields
+	}
+
+	fileID := extractFileID(p.URL)
+	if fileID == "" {
+		return map[string]string{
+			"error": "could not extract file ID from URL",
+			"url":   p.URL,
+		}, nil
+	}
+
+	res, err := driveSvc.Files.Get(fileID).
+		Fields(googleapi.Field(p.Fields)).
+		SupportsAllDrives(true).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("get file: %w", err)
+	}
+	return res, nil
+}
+
+type extractAndGetParams struct {
+	Text     string `json:"text"`
+	MaxFiles int    `json:"max_files"`
+	Fields   string `json:"fields"`
+}
+
+func toolExtractAndGet(params, _ json.RawMessage) (any, error) {
+	var p extractAndGetParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.Text == "" {
+		return nil, fmt.Errorf("text is required")
+	}
+	if p.MaxFiles == 0 {
+		p.MaxFiles = 5
+	}
+	if p.Fields == "" {
+		p.Fields = defaultFields
+	}
+
+	re := regexp.MustCompile(`https?://(?:drive|docs)\.google\.com/[\w\-/\?=&#%.]+`)
+	urls := re.FindAllString(p.Text, -1)
+
+	var results []any
+	for i, u := range urls {
+		if i >= p.MaxFiles {
+			break
+		}
+		fileID := extractFileID(u)
+		if fileID == "" {
+			continue
+		}
+		res, err := driveSvc.Files.Get(fileID).
+			Fields(googleapi.Field(p.Fields)).
+			SupportsAllDrives(true).
+			Do()
+		if err != nil {
+			results = append(results, map[string]string{
+				"error": err.Error(),
+				"url":   u,
+			})
+			continue
+		}
+		results = append(results, res)
+	}
+
+	return map[string]any{"files": results}, nil
+}
+
+type exportParams struct {
+	FileID   string `json:"file_id"`
+	MIMEType string `json:"mime_type"`
+}
+
+func toolExportDocText(params, _ json.RawMessage) (any, error) {
+	var p exportParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.FileID == "" {
+		return nil, fmt.Errorf("file_id is required")
+	}
+	if p.MIMEType == "" {
+		p.MIMEType = "text/plain"
+	}
+
+	return exportFile(p.FileID, p.MIMEType)
+}
+
+func toolExportSheetCSV(params, _ json.RawMessage) (any, error) {
+	var p struct {
+		FileID string `json:"file_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.FileID == "" {
+		return nil, fmt.Errorf("file_id is required")
+	}
+
+	return exportFile(p.FileID, "text/csv")
+}
+
+func toolExportSlidesPDF(params, _ json.RawMessage) (any, error) {
+	var p struct {
+		FileID string `json:"file_id"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.FileID == "" {
+		return nil, fmt.Errorf("file_id is required")
+	}
+
+	return exportFile(p.FileID, "application/pdf")
+}
+
+func exportFile(fileID, mimeType string) (any, error) {
+	resp, err := driveSvc.Files.Export(fileID, mimeType).Download()
+	if err != nil {
+		return nil, fmt.Errorf("export file: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	buf := make([]byte, 0, 64*1024)
+	tmp := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+
+	// Text content returned as UTF-8, binary as base64
+	if strings.HasPrefix(mimeType, "text/") {
+		return map[string]string{
+			"encoding": "utf-8",
+			"content":  string(buf),
+		}, nil
+	}
+	return map[string]string{
+		"encoding": "base64",
+		"content":  base64.StdEncoding.EncodeToString(buf),
+	}, nil
+}
+
+type exportMarkdownParams struct {
+	FileIDOrURL string `json:"file_id_or_url"`
+	SaveToFile  bool   `json:"save_to_file"`
+	OutputPath  string `json:"output_path"`
+}
+
+func toolExportDocMarkdown(params, _ json.RawMessage) (any, error) {
+	p := exportMarkdownParams{SaveToFile: true}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.FileIDOrURL == "" {
+		return nil, fmt.Errorf("file_id_or_url is required")
+	}
+
+	fileID := p.FileIDOrURL
+	if strings.Contains(fileID, "google.com") {
+		extracted := extractFileID(fileID)
+		if extracted == "" {
+			return map[string]string{
+				"error": "could not extract file ID from URL",
+				"url":   p.FileIDOrURL,
+			}, nil
+		}
+		fileID = extracted
+	}
+
+	// Get metadata
+	meta, err := driveSvc.Files.Get(fileID).
+		Fields("id,name,mimeType").
+		SupportsAllDrives(true).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("get file metadata: %w", err)
+	}
+
+	if meta.MimeType != "application/vnd.google-apps.document" {
+		return map[string]any{
+			"error":      fmt.Sprintf("file is not a Google Doc (MIME type: %s)", meta.MimeType),
+			"file_id":    fileID,
+			"file_name":  meta.Name,
+			"suggestion": "Use drive_export_google_sheet_csv for Sheets or drive_export_slides_pdf for Slides",
+		}, nil
+	}
+
+	// Export as plain text (lightweight markdown-like output)
+	resp, err := driveSvc.Files.Export(fileID, "text/plain").Download()
+	if err != nil {
+		return nil, fmt.Errorf("export doc: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	buf := make([]byte, 0, 64*1024)
+	tmp := make([]byte, 32*1024)
+	for {
+		n, readErr := resp.Body.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+		}
+		if readErr != nil {
+			break
+		}
+	}
+	content := string(buf)
+
+	if !p.SaveToFile {
+		return map[string]any{
+			"file_id":        fileID,
+			"document_title": meta.Name,
+			"content":        content,
+			"warning":        "Full content returned — consumes tokens. Use save_to_file=true to save locally.",
+		}, nil
+	}
+
+	outputPath, err := saveExportFile(meta.Name, p.OutputPath, content)
+	if err != nil {
+		return nil, fmt.Errorf("save file: %w", err)
+	}
+
+	lines := strings.Count(content, "\n") + 1
+	words := len(strings.Fields(content))
+
+	return map[string]any{
+		"status":         "saved",
+		"file_id":        fileID,
+		"document_title": meta.Name,
+		"output_path":    outputPath,
+		"stats": map[string]int{
+			"lines":      lines,
+			"words":      words,
+			"characters": len(content),
+		},
+		"note": fmt.Sprintf("Saved to %s. File is NOT loaded into context.", outputPath),
+	}, nil
+}
+
+type searchFilesParams struct {
+	Query    string `json:"query"`
+	PageSize int    `json:"page_size"`
+	OrderBy  string `json:"order_by"`
+	Fields   string `json:"fields"`
+}
+
+func toolSearchFiles(params, _ json.RawMessage) (any, error) {
+	var p searchFilesParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.Query == "" {
+		return nil, fmt.Errorf("query is required")
+	}
+	if p.PageSize == 0 {
+		p.PageSize = 25
+	}
+	if p.OrderBy == "" {
+		p.OrderBy = "modifiedTime desc"
+	}
+	if p.Fields == "" {
+		p.Fields = "files(id,name,webViewLink,mimeType,owners,modifiedTime,size),nextPageToken"
+	}
+
+	res, err := driveSvc.Files.List().
+		Q(p.Query).
+		PageSize(int64(p.PageSize)).
+		OrderBy(p.OrderBy).
+		Fields(googleapi.Field(p.Fields)).
+		IncludeItemsFromAllDrives(true).
+		SupportsAllDrives(true).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("search files: %w", err)
+	}
+	return res, nil
+}
+
+type searchTextParams struct {
+	Text           string   `json:"text"`
+	PageSize       int      `json:"page_size"`
+	InNameOnly     bool     `json:"in_name_only"`
+	MIMETypes      []string `json:"mime_types"`
+	Owners         []string `json:"owners"`
+	IncludeTrashed bool     `json:"include_trashed"`
+	OrderBy        string   `json:"order_by"`
+	Fields         string   `json:"fields"`
+}
+
+func toolSearchText(params, _ json.RawMessage) (any, error) {
+	var p searchTextParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.Text == "" {
+		return nil, fmt.Errorf("text is required")
+	}
+	if p.PageSize == 0 {
+		p.PageSize = 25
+	}
+	if p.OrderBy == "" {
+		p.OrderBy = "modifiedTime desc"
+	}
+	if p.Fields == "" {
+		p.Fields = "files(id,name,webViewLink,mimeType,owners,modifiedTime,size),nextPageToken"
+	}
+
+	escaped := strings.ReplaceAll(p.Text, "'", "\\'")
+	var clauses []string
+
+	if p.InNameOnly {
+		clauses = append(clauses, fmt.Sprintf("name contains '%s'", escaped))
+	} else {
+		clauses = append(clauses, fmt.Sprintf("(name contains '%s' or fullText contains '%s')", escaped, escaped))
+	}
+
+	if len(p.MIMETypes) > 0 {
+		var mt []string
+		for _, m := range p.MIMETypes {
+			mt = append(mt, fmt.Sprintf("mimeType = '%s'", strings.ReplaceAll(m, "'", "\\'")))
+		}
+		if len(mt) == 1 {
+			clauses = append(clauses, mt[0])
+		} else {
+			clauses = append(clauses, "("+strings.Join(mt, " or ")+")")
+		}
+	}
+
+	if len(p.Owners) > 0 {
+		var own []string
+		for _, o := range p.Owners {
+			own = append(own, fmt.Sprintf("'%s' in owners", strings.ReplaceAll(o, "'", "\\'")))
+		}
+		if len(own) == 1 {
+			clauses = append(clauses, own[0])
+		} else {
+			clauses = append(clauses, "("+strings.Join(own, " or ")+")")
+		}
+	}
+
+	if !p.IncludeTrashed {
+		clauses = append(clauses, "trashed = false")
+	}
+
+	q := strings.Join(clauses, " and ")
+
+	res, err := driveSvc.Files.List().
+		Q(q).
+		PageSize(int64(p.PageSize)).
+		OrderBy(p.OrderBy).
+		Fields(googleapi.Field(p.Fields)).
+		IncludeItemsFromAllDrives(true).
+		SupportsAllDrives(true).
+		Do()
+	if err != nil {
+		return nil, fmt.Errorf("search text: %w", err)
+	}
+	return res, nil
+}
