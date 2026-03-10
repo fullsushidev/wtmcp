@@ -15,9 +15,7 @@ import (
 )
 
 func newTestProxy(client *http.Client) *Proxy {
-	p := New(client, 10*1024*1024)
-	p.allowPrivateIP = true
-	return p
+	return New(client, 10*1024*1024)
 }
 
 func TestExecuteGET(t *testing.T) {
@@ -153,9 +151,8 @@ func TestExecuteResponseBodyLimit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	// Set a tiny max body size
+	// Set a tiny max body size (srv.Client has its own transport, no SSRF check)
 	p := New(srv.Client(), 100)
-	p.allowPrivateIP = true
 	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -576,41 +573,49 @@ func TestMultipartOverridesContentType(t *testing.T) {
 	}
 }
 
-func TestRejectPrivateHost(t *testing.T) {
-	// SSRF check should block requests to localhost
-	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write([]byte(`{}`))
-	}))
-	defer srv.Close()
-
-	p := New(srv.Client(), 10*1024*1024) // SSRF check enabled (no allowPrivateIP)
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+func TestSafeDialerRejectsLoopback(t *testing.T) {
+	// Default proxy (nil client) uses safe dialer — should reject localhost
+	p := New(nil, 10*1024*1024)
+	p.RegisterPlugin("test", &PluginAuth{BaseURL: "https://127.0.0.1"})
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-ssrf", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
 	})
 
-	if resp.Error == nil || resp.Error.Code != "ssrf_blocked" {
-		t.Errorf("expected ssrf_blocked error, got status=%d error=%v", resp.Status, resp.Error)
+	if resp.Error == nil || resp.Error.Code != "transport_error" {
+		t.Errorf("expected transport_error for loopback, got status=%d error=%v", resp.Status, resp.Error)
+	}
+	if resp.Error != nil && !strings.Contains(resp.Error.Message, "SSRF blocked") {
+		t.Errorf("expected SSRF blocked message, got %q", resp.Error.Message)
 	}
 }
 
-func TestRejectPrivateHostUnit(t *testing.T) {
-	// Only test with addresses that resolve locally (no external DNS)
-	tests := []struct {
-		url     string
-		wantErr bool
-	}{
-		{"https://127.0.0.1/api", true},
-		{"https://localhost/api", true},
+func TestCheckIP(t *testing.T) {
+	blocked := []string{
+		"127.0.0.1",
+		"10.0.0.1",
+		"192.168.1.1",
+		"172.16.0.1",
+		"0.0.0.0",
+		"::1",
 	}
-	for _, tt := range tests {
-		err := rejectPrivateHost(tt.url)
-		if tt.wantErr && err == nil {
-			t.Errorf("rejectPrivateHost(%q) = nil, want error", tt.url)
+	for _, ip := range blocked {
+		if err := checkIP(ip); err == nil {
+			t.Errorf("checkIP(%q) = nil, want error", ip)
 		}
-		if !tt.wantErr && err != nil {
-			t.Errorf("rejectPrivateHost(%q) = %v, want nil", tt.url, err)
-		}
+	}
+}
+
+func TestSafeDialerAllowPrivate(t *testing.T) {
+	d := &safeDialer{allowPrivate: true}
+	// Should not error when connecting to localhost with allowPrivate
+	conn, err := d.DialContext(context.Background(), "tcp", "127.0.0.1:0")
+	// Will fail to connect (nothing listening on port 0) but should not
+	// fail with SSRF error
+	if err != nil && strings.Contains(err.Error(), "SSRF blocked") {
+		t.Errorf("allowPrivate should not block: %v", err)
+	}
+	if conn != nil {
+		_ = conn.Close()
 	}
 }

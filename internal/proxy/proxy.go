@@ -12,7 +12,6 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"net/http/cookiejar"
 	"net/textproto"
@@ -40,16 +39,16 @@ type PluginAuth struct {
 // Proxy executes HTTP requests on behalf of plugins, injecting
 // authentication headers and enforcing security policies.
 type Proxy struct {
-	plugins        map[string]*PluginAuth
-	client         *http.Client
-	maxBodySize    int64
-	allowPrivateIP bool // for testing only — disables SSRF check
+	plugins     map[string]*PluginAuth
+	client      *http.Client
+	maxBodySize int64
 }
 
 // New creates a Proxy with the given HTTP client and max response body size.
+// When client is nil, a default client with SSRF-safe dialer is used.
 func New(client *http.Client, maxBodySize int64) *Proxy {
 	if client == nil {
-		client = &http.Client{}
+		client = &http.Client{Transport: safeTransport(false)}
 	}
 	return &Proxy{
 		plugins:     make(map[string]*PluginAuth),
@@ -70,7 +69,7 @@ func NewKerberosClient(spn string) *http.Client {
 	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
 	return &http.Client{
 		Jar:       jar,
-		Transport: kerberos.NewSPNEGORoundTripper(spn, nil),
+		Transport: kerberos.NewSPNEGORoundTripper(spn, safeTransport(false)),
 	}
 }
 
@@ -84,12 +83,6 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 	fullURL, err := p.resolveURL(pluginName, pa, req)
 	if err != nil {
 		return errResponse(req.ID, "invalid_url", err.Error())
-	}
-
-	if !p.allowPrivateIP {
-		if err := rejectPrivateHost(fullURL); err != nil {
-			return errResponse(req.ID, "ssrf_blocked", err.Error())
-		}
 	}
 
 	httpReq, err := p.buildRequest(ctx, fullURL, req)
@@ -399,42 +392,4 @@ func stripDangerousHeaders(req *http.Request) {
 	for _, h := range dangerousHeaders {
 		req.Header.Del(h)
 	}
-}
-
-// rejectPrivateHost resolves the host in the URL and rejects it if
-// it points to a loopback, private, or link-local address. This
-// prevents SSRF via DNS rebinding where a public domain resolves to
-// an internal IP.
-func rejectPrivateHost(rawURL string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
-	}
-
-	host := u.Hostname()
-	ips, err := net.LookupHost(host)
-	if err != nil {
-		return fmt.Errorf("cannot resolve %s: %w", host, err)
-	}
-
-	for _, ipStr := range ips {
-		ip := net.ParseIP(ipStr)
-		if ip == nil {
-			continue
-		}
-		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-			ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
-			return fmt.Errorf("host %s resolves to private/loopback address %s", host, ipStr)
-		}
-		// IPv6-mapped IPv4 (::ffff:x.x.x.x): Go's IsPrivate only
-		// checks IPv4 ranges against 4-byte IPs. A 16-byte
-		// representation like ::ffff:10.0.0.1 would slip through.
-		if ipv4 := ip.To4(); ipv4 != nil && len(ip) == net.IPv6len {
-			if ipv4.IsLoopback() || ipv4.IsPrivate() || ipv4.IsLinkLocalUnicast() || ipv4.IsUnspecified() {
-				return fmt.Errorf("host %s resolves to private/loopback address %s", host, ipStr)
-			}
-		}
-	}
-
-	return nil
 }
