@@ -56,7 +56,7 @@ func (d *safeDialer) DialContext(ctx context.Context, network, addr string) (net
 func checkIP(ipStr string) error {
 	ip := net.ParseIP(ipStr)
 	if ip == nil {
-		return nil
+		return fmt.Errorf("unparseable IP address %q", ipStr)
 	}
 
 	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||

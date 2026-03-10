@@ -48,7 +48,10 @@ type Proxy struct {
 // When client is nil, a default client with SSRF-safe dialer is used.
 func New(client *http.Client, maxBodySize int64) *Proxy {
 	if client == nil {
-		client = &http.Client{Transport: safeTransport(false)}
+		client = &http.Client{
+			Transport:     safeTransport(false),
+			CheckRedirect: stripAuthOnCrossDomainRedirect,
+		}
 	}
 	return &Proxy{
 		plugins:     make(map[string]*PluginAuth),
@@ -68,8 +71,9 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 func NewKerberosClient(spn string) *http.Client {
 	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
 	return &http.Client{
-		Jar:       jar,
-		Transport: kerberos.NewSPNEGORoundTripper(spn, safeTransport(false)),
+		Jar:           jar,
+		Transport:     kerberos.NewSPNEGORoundTripper(spn, safeTransport(false)),
+		CheckRedirect: stripAuthOnCrossDomainRedirect,
 	}
 }
 
@@ -311,8 +315,8 @@ func (p *Proxy) isDomainAllowed(pluginName string, pa *PluginAuth, rawURL string
 		return false
 	}
 
-	// Reject non-HTTPS when auth is configured
-	if pa.Provider != nil && reqURL.Scheme != "https" {
+	// Reject non-HTTPS when auth is configured (provider or Kerberos client)
+	if (pa.Provider != nil || pa.Client != nil) && reqURL.Scheme != "https" {
 		log.Printf("[%s] rejecting non-HTTPS URL with auth: %s", pluginName, rawURL)
 		return false
 	}
@@ -355,6 +359,25 @@ func errResponse(id, code, message string) protocol.Message {
 		Status: 0,
 		Error:  &protocol.Error{Code: code, Message: message},
 	}
+}
+
+// stripAuthOnCrossDomainRedirect is a CheckRedirect function that
+// strips sensitive auth headers when a redirect crosses domain
+// boundaries. This prevents credential leakage if a plugin's target
+// server redirects to an attacker-controlled domain.
+func stripAuthOnCrossDomainRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return fmt.Errorf("stopped after 10 redirects")
+	}
+	if len(via) > 0 {
+		origHost := via[0].URL.Hostname()
+		newHost := req.URL.Hostname()
+		if !strings.EqualFold(origHost, newHost) {
+			req.Header.Del("Authorization")
+			req.Header.Del("Cookie")
+		}
+	}
+	return nil
 }
 
 // dangerousHeaders are headers that plugins must not control.
