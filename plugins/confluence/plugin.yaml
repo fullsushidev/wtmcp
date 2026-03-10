@@ -1,0 +1,159 @@
+name: confluence
+version: "0.1.0"
+description: "Confluence integration for wiki and documentation management"
+
+execution: persistent
+handler: ./handler.py
+
+context_files:
+  - context.md
+
+services:
+  auth:
+    select: "${CONFLUENCE_AUTH_TYPE:-auto}"
+    variants:
+      cloud:
+        type: basic
+        username: "${CONFLUENCE_EMAIL}"
+        password: "${CONFLUENCE_TOKEN}"
+      server-token:
+        type: bearer
+        token: "${CONFLUENCE_TOKEN}"
+      server-kerberos:
+        type: kerberos/spnego
+  http:
+    base_url: "${CONFLUENCE_URL}"
+  cache:
+    enabled: true
+    namespace: confluence
+    default_ttl: 300
+
+env:
+  - CONFLUENCE_URL
+  - CONFLUENCE_EMAIL
+  - CONFLUENCE_USERNAME
+  - CONFLUENCE_TOKEN
+  - CONFLUENCE_AUTH_TYPE
+  - CONFLUENCE_SSL_VERIFY
+
+config:
+  confluence_url: "${CONFLUENCE_URL}"
+
+tools:
+  - name: confluence_get_page
+    description: "Fetch a Confluence page by ID"
+    params:
+      page_id:
+        type: string
+        required: true
+        description: "Numeric page identifier"
+
+  - name: confluence_get_page_by_title
+    description: "Fetch a single page by exact title within a space"
+    params:
+      title:
+        type: string
+        required: true
+      space_key:
+        type: string
+        required: true
+
+  - name: confluence_search
+    description: "Run a CQL (Confluence Query Language) query"
+    params:
+      cql:
+        type: string
+        required: true
+        description: "CQL query string"
+      limit:
+        type: integer
+        default: 25
+
+  - name: confluence_get_pages_by_title
+    description: "Fetch all pages matching a title within a space"
+    params:
+      title:
+        type: string
+        required: true
+      space_key:
+        type: string
+        required: true
+
+  - name: confluence_get_spaces
+    description: "List Confluence spaces"
+    params:
+      limit:
+        type: integer
+        default: 50
+
+  - name: confluence_get_space
+    description: "Get details for a specific space"
+    params:
+      space_key:
+        type: string
+        required: true
+
+  - name: confluence_create_page
+    description: "Create a Confluence page (dry_run by default)"
+    params:
+      space_key:
+        type: string
+        required: true
+      title:
+        type: string
+        required: true
+      body:
+        type: string
+        required: true
+        description: "HTML content in Confluence storage format"
+      parent_id:
+        type: string
+        description: "Optional parent page ID"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: confluence_update_page
+    description: "Update an existing page (dry_run by default)"
+    params:
+      page_id:
+        type: string
+        required: true
+      title:
+        type: string
+        required: true
+      body:
+        type: string
+        required: true
+        description: "New HTML content in storage format"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: confluence_add_comment
+    description: "Add a comment to a page (dry_run by default)"
+    params:
+      page_id:
+        type: string
+        required: true
+      comment:
+        type: string
+        required: true
+        description: "Comment body in HTML/storage format"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: confluence_get_page_children
+    description: "List child pages of a parent page"
+    params:
+      page_id:
+        type: string
+        required: true
+
+  - name: confluence_get_page_history
+    description: "Fetch history metadata for a page"
+    params:
+      page_id:
+        type: string
+        required: true
