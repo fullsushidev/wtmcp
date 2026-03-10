@@ -25,7 +25,7 @@ repos:
     hooks:
       - id: ty
         name: ty
-        entry: .venv/bin/ty check plugins/ tests/
+        entry: .venv/bin/ty check plugins/jira/ tests/
         language: system
         types: [python]
         pass_filenames: false

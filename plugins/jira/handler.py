@@ -148,20 +148,34 @@ def cache_set(key, value, ttl=None):
 
 
 def _detect_cloud():
-    """Detect if Jira instance is Cloud based on serverInfo."""
+    """Detect if Jira instance is Cloud based on serverInfo.
+
+    Returns (is_cloud, auth_ok). If auth fails (403/401), the selected
+    auth variant is likely wrong for this instance type.
+    """
     status, body, _ = http("GET", "/rest/api/2/serverInfo")
+    if status in (401, 403):
+        return False, False
     if 200 <= status < 300 and isinstance(body, dict):
         deployment = body.get("deploymentType", "")
         if deployment.lower() == "cloud":
-            return True
-    return False
+            return True, True
+    return False, True
 
 
 def _init(msg):
     """Handle init message: store config, detect Cloud vs Server."""
     global config, is_cloud
     config = msg.get("config", {})
-    is_cloud = _detect_cloud()
+    is_cloud, auth_ok = _detect_cloud()
+    if not auth_ok:
+        log(
+            "WARNING: authentication failed (HTTP 401/403). "
+            "If both JIRA_EMAIL and JIRA_TOKEN are set but this is "
+            "a Jira Server/DC instance, set JIRA_AUTH_TYPE=server-token "
+            "to use bearer auth instead of basic auth. "
+            "If this is Jira Cloud, verify your API token."
+        )
     log(f"init: cloud={is_cloud}, url={config.get('jira_url', '?')}")
 
 
