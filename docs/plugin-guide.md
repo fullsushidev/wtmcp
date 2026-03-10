@@ -394,6 +394,73 @@ setup:
       required: [MY_API_URL, MY_TOKEN]
 ```
 
+## Reloading Plugins
+
+Plugins can be reloaded at runtime without restarting the MCP server.
+This is useful when developing a plugin or deploying an update.
+
+### From an AI assistant (MCP tool)
+
+The built-in `plugin_reload` tool restarts a plugin and re-registers
+its tools and context resources:
+
+```
+plugin_reload(name="jira")
+```
+
+Connected MCP clients receive `notifications/tools/list_changed`
+and `notifications/resources/list_changed` automatically.
+
+### From a terminal (control directory)
+
+External tools can trigger reloads by writing command files to the
+control directory at `{workdir}/control/commands/`:
+
+```bash
+# Reload a specific plugin
+touch ~/.bragctl/control/commands/reload-jira
+
+# Reload all plugins
+touch ~/.bragctl/control/commands/reload-all
+
+# List loaded plugins
+touch ~/.bragctl/control/commands/list
+```
+
+Results appear in `{workdir}/control/results/` as JSON:
+
+```bash
+cat ~/.bragctl/control/results/reload-jira.json
+```
+
+The command file is consumed (deleted) after processing.
+
+### What gets reloaded
+
+- The handler process is stopped and restarted
+- `plugin.yaml` is re-read (new/changed tools take effect)
+- Tools are re-registered with the MCP server
+- Context resources are re-registered
+- MCP clients are notified of the changes
+
+Note: context file **content** (e.g., `context.md`) is loaded from
+disk on every access, so content changes take effect immediately
+without any reload. Reload is only needed when:
+
+- The handler code changes (Python script, Go binary)
+- `plugin.yaml` changes (new tools, changed params, config)
+- Context files are added or removed
+
+### Process tracking
+
+The server writes a PID file to `{workdir}/control/mcp.pid` on
+startup and removes it on shutdown. Use this to check if the
+server is running:
+
+```bash
+kill -0 $(cat ~/.bragctl/control/mcp.pid) 2>/dev/null && echo "running" || echo "stopped"
+```
+
 ## Plugin Environment
 
 Plugins do **not** inherit the core's environment. They receive only

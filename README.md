@@ -198,6 +198,27 @@ while True:
 - **Auth variants**: a single plugin can support multiple auth methods
   (e.g., Cloud Basic + Server Bearer + Kerberos) with auto-detection.
 
+## Plugin Management
+
+Plugins can be reloaded at runtime without restarting the server.
+
+**From an AI assistant:**
+```
+plugin_reload(name="jira")
+plugin_list()
+```
+
+**From a terminal** (control directory):
+```bash
+touch ~/.bragctl/control/commands/reload-jira
+touch ~/.bragctl/control/commands/reload-all
+```
+
+Results appear in `~/.bragctl/control/results/`. The server writes
+its PID to `~/.bragctl/control/mcp.pid` for process tracking.
+
+MCP clients are automatically notified when tools or resources change.
+
 ## Jira Plugin
 
 The included Jira plugin covers read, write, sprint, and export
