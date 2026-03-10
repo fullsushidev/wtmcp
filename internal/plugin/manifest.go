@@ -244,14 +244,25 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("handler is required")
 	}
 
-	// Verify handler path stays within plugin directory
-	absHandler, err := filepath.Abs(filepath.Join(m.Dir, m.Handler))
+	// Verify handler path stays within plugin directory.
+	// Resolve symlinks to prevent escaping via symlink chains.
+	handlerPath := filepath.Join(m.Dir, m.Handler)
+	absHandler, err := filepath.Abs(handlerPath)
 	if err != nil {
 		return fmt.Errorf("cannot resolve handler path: %w", err)
+	}
+	// EvalSymlinks also calls Abs, but requires the path to exist.
+	// Only resolve if the handler file exists (it may not during
+	// manifest-only validation).
+	if resolved, err := filepath.EvalSymlinks(handlerPath); err == nil {
+		absHandler = resolved
 	}
 	absDir, err := filepath.Abs(m.Dir)
 	if err != nil {
 		return fmt.Errorf("cannot resolve plugin dir: %w", err)
+	}
+	if resolvedDir, err := filepath.EvalSymlinks(m.Dir); err == nil {
+		absDir = resolvedDir
 	}
 	if !strings.HasPrefix(absHandler, absDir+string(filepath.Separator)) {
 		return fmt.Errorf("handler path escapes plugin directory: %s", m.Handler)

@@ -413,6 +413,41 @@ setup:
 	}
 }
 
+func TestManifestHandlerSymlinkEscape(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create a handler outside the plugin dir
+	outsideDir := t.TempDir()
+	outsideHandler := filepath.Join(outsideDir, "evil")
+	if err := os.WriteFile(outsideHandler, []byte("#!/bin/bash\n"), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+
+	// Create a symlink inside the plugin dir pointing outside
+	if err := os.Symlink(outsideHandler, filepath.Join(dir, "handler")); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := `
+name: symlink-escape
+version: "1.0.0"
+handler: ./handler
+tools: []
+`
+	path := filepath.Join(dir, "plugin.yaml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config file
+		t.Fatal(err)
+	}
+
+	_, err := LoadManifest(path)
+	if err == nil {
+		t.Fatal("expected error for symlink escaping plugin dir")
+	}
+	if !contains(err.Error(), "escapes plugin directory") {
+		t.Errorf("error = %q, want substring 'escapes plugin directory'", err.Error())
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchSubstring(s, substr)
 }
