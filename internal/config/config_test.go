@@ -165,27 +165,46 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestDefaultPluginDirs(t *testing.T) {
 	userDir := "/tmp/test-user-plugins"
-	dirs := defaultPluginDirs(userDir)
 
-	// User dir must always be last
-	if dirs[len(dirs)-1] != userDir {
-		t.Errorf("last dir = %q, want user dir %q", dirs[len(dirs)-1], userDir)
-	}
+	t.Run("user plugins enabled", func(t *testing.T) {
+		dirs := defaultPluginDirs(userDir, true)
 
-	// Must have at least 2 entries (some system path + user)
-	if len(dirs) < 2 {
-		t.Errorf("got %d dirs, want at least 2", len(dirs))
-	}
-
-	// No duplicates
-	seen := make(map[string]bool)
-	for _, d := range dirs {
-		cleaned := filepath.Clean(d)
-		if seen[cleaned] {
-			t.Errorf("duplicate dir: %s", cleaned)
+		// User dir must be last
+		if dirs[len(dirs)-1] != userDir {
+			t.Errorf("last dir = %q, want user dir %q", dirs[len(dirs)-1], userDir)
 		}
-		seen[cleaned] = true
-	}
+
+		// Must have at least 2 entries (some system path + user)
+		if len(dirs) < 2 {
+			t.Errorf("got %d dirs, want at least 2", len(dirs))
+		}
+
+		// No duplicates
+		seen := make(map[string]bool)
+		for _, d := range dirs {
+			cleaned := filepath.Clean(d)
+			if seen[cleaned] {
+				t.Errorf("duplicate dir: %s", cleaned)
+			}
+			seen[cleaned] = true
+		}
+	})
+
+	t.Run("user plugins disabled", func(t *testing.T) {
+		dirs := defaultPluginDirs(userDir, false)
+
+		// User dir must NOT be included
+		for _, d := range dirs {
+			if filepath.Clean(d) == filepath.Clean(userDir) {
+				t.Errorf("user dir %q should not be included when disabled", userDir)
+			}
+		}
+
+		// Must still have system paths
+		if len(dirs) < 1 {
+			t.Error("should have at least one system path")
+		}
+	})
 }
 
 func TestContainsPath(t *testing.T) {

@@ -145,6 +145,7 @@ func runCheck() error {
 
 	fmt.Printf("wtmcp %s\n", Version)
 	fmt.Printf("workdir: %s\n", workdir)
+	fmt.Printf("user plugins: %v\n", cfg.Plugins.UserPlugins)
 	fmt.Printf("\nplugin search path:\n")
 	for i, dir := range cfg.PluginDirs {
 		exists := "missing"

@@ -65,6 +65,7 @@ type PluginsConfig struct {
 	InitTimeout       time.Duration `yaml:"init_timeout"`
 	ShutdownTimeout   time.Duration `yaml:"shutdown_timeout"`
 	ShutdownKillAfter time.Duration `yaml:"shutdown_kill_after"`
+	UserPlugins       bool          `yaml:"user_plugins"`
 }
 
 // OutputConfig controls tool result encoding.
@@ -150,16 +151,15 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 		cfg.Cache.Dir = ResolveEnvVars(cfg.Cache.Dir)
 	}
 
-	// Build plugin dirs: system dir first, then user dir.
-	// User plugins override system plugins with the same name.
+	// Build plugin dirs: system dirs, then user dir (if enabled).
 	if len(cfg.PluginDirs) == 0 {
-		cfg.PluginDirs = defaultPluginDirs(paths.PluginsDir)
+		cfg.PluginDirs = defaultPluginDirs(paths.PluginsDir, cfg.Plugins.UserPlugins)
 	}
 }
 
 // defaultPluginDirs returns the plugin search path. System dirs are
-// checked first; user dir is last (highest priority — overrides system
-// plugins with the same name). Non-existent directories are included
+// checked first; user dir is last and only included when
+// enableUserPlugins is true. Non-existent directories are included
 // but silently skipped by Manager.Discover().
 //
 // Search order:
@@ -169,8 +169,8 @@ func applyWorkdirDefaults(cfg *Config, workdir string) {
 //  4. /usr/share/<AppName>/plugins (system share)
 //  5. /usr/libexec/<AppName>/plugins (system libexec — RPM)
 //  6. /usr/local/share/<AppName>/plugins (local installs, Homebrew)
-//  7. {workdir}/plugins (user plugins, highest priority)
-func defaultPluginDirs(userDir string) []string {
+//  7. {workdir}/plugins (user plugins, only if enabled)
+func defaultPluginDirs(userDir string, enableUserPlugins bool) []string {
 	var dirs []string
 
 	if exe, err := os.Executable(); err == nil {
@@ -208,8 +208,10 @@ func defaultPluginDirs(userDir string) []string {
 		}
 	}
 
-	// User plugins last (highest priority override)
-	dirs = append(dirs, userDir)
+	// User plugins last (only if explicitly enabled)
+	if enableUserPlugins {
+		dirs = append(dirs, userDir)
+	}
 	return dirs
 }
 
