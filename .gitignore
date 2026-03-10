@@ -1,5 +1,7 @@
 # Binary
 what-the-mcp
+what-the-mcp-ng
+plugins/google-*/handler
 
 # Test/coverage
 coverage.out

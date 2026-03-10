@@ -7,10 +7,17 @@ LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE)
 # Default target
 all: build
 
-# Build the binary
+# Build the binary and plugin handlers
 build:
 	@echo "Building what-the-mcp-ng..."
 	go build -ldflags "$(LDFLAGS)" -o what-the-mcp-ng ./cmd/...
+	@echo "Building plugin handlers..."
+	@for plugin in plugins/google-*/; do \
+		if ls $$plugin*.go >/dev/null 2>&1; then \
+			echo "  $$plugin"; \
+			go build -o $${plugin}handler ./$${plugin}; \
+		fi; \
+	done
 
 # Run tests
 test:
@@ -52,6 +59,7 @@ clean:
 	@echo "Cleaning..."
 	rm -f what-the-mcp-ng
 	rm -f coverage.out
+	rm -f plugins/google-*/handler
 
 # Show help
 help:

@@ -1,0 +1,147 @@
+name: google-calendar
+version: "0.1.0"
+description: "Google Calendar — events, scheduling, free/busy"
+
+execution: persistent
+handler: ./handler
+
+context_files:
+  - context.md
+
+env:
+  - GOOGLE_CREDENTIALS_DIR
+
+tools:
+  - name: calendar_get_events
+    description: "List upcoming events from a calendar"
+    params:
+      calendar_id:
+        type: string
+        default: "primary"
+        description: "Calendar ID (default: primary)"
+      time_min:
+        type: string
+        description: "Start time in RFC3339 format (default: now)"
+      time_max:
+        type: string
+        description: "End time in RFC3339 format"
+      max_results:
+        type: integer
+        default: 10
+        description: "Maximum number of events to return"
+
+  - name: calendar_get_event
+    description: "Fetch a single event by ID"
+    params:
+      event_id:
+        type: string
+        required: true
+        description: "Event identifier"
+      calendar_id:
+        type: string
+        default: "primary"
+
+  - name: calendar_create_event
+    description: "Create a calendar event (dry_run by default)"
+    params:
+      summary:
+        type: string
+        required: true
+        description: "Event title"
+      start_datetime:
+        type: string
+        required: true
+        description: "Start time in RFC3339 format"
+      end_datetime:
+        type: string
+        required: true
+        description: "End time in RFC3339 format"
+      calendar_id:
+        type: string
+        default: "primary"
+      description:
+        type: string
+      location:
+        type: string
+      attendees:
+        type: array
+        description: "List of attendee email addresses"
+      all_day:
+        type: boolean
+        default: false
+        description: "Create an all-day event"
+      dry_run:
+        type: boolean
+        default: true
+        description: "Preview without creating"
+
+  - name: calendar_update_event
+    description: "Update fields on a calendar event (dry_run by default)"
+    params:
+      event_id:
+        type: string
+        required: true
+      calendar_id:
+        type: string
+        default: "primary"
+      summary:
+        type: string
+      start_datetime:
+        type: string
+      end_datetime:
+        type: string
+      description:
+        type: string
+      location:
+        type: string
+      all_day:
+        type: boolean
+        default: false
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: calendar_delete_event
+    description: "Delete a calendar event (dry_run by default)"
+    params:
+      event_id:
+        type: string
+        required: true
+      calendar_id:
+        type: string
+        default: "primary"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: calendar_get_calendars
+    description: "List calendars accessible to the authenticated user"
+
+  - name: calendar_search_events
+    description: "Search for events by text"
+    params:
+      query:
+        type: string
+        required: true
+        description: "Text to search in summaries and descriptions"
+      calendar_id:
+        type: string
+        default: "primary"
+      max_results:
+        type: integer
+        default: 10
+
+  - name: calendar_get_free_busy
+    description: "Get free/busy information for calendars"
+    params:
+      time_min:
+        type: string
+        required: true
+        description: "Start time in RFC3339 format"
+      time_max:
+        type: string
+        required: true
+        description: "End time in RFC3339 format"
+      calendar_ids:
+        type: array
+        description: "List of calendar IDs (default: primary)"
