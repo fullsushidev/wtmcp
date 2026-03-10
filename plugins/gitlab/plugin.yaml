@@ -1,0 +1,243 @@
+name: gitlab
+version: "0.1.0"
+description: "GitLab integration for repositories, MRs, pipelines, and issues"
+
+execution: persistent
+handler: ./handler
+
+context_files:
+  - context.md
+
+env:
+  - GITLAB_TOKEN
+  - GITLAB_URL
+  - GITLAB_SSL_VERIFY
+
+tools:
+  - name: gitlab_get_commits
+    description: "Get commit logs from a project"
+    params:
+      instance:
+        type: string
+        description: "GitLab instance name (optional if only one configured)"
+      project_id:
+        type: string
+        required: true
+        description: "Project ID or path (e.g. 'group/project')"
+      ref_name:
+        type: string
+        default: "main"
+      since:
+        type: string
+        description: "ISO 8601 date to get commits after"
+      until:
+        type: string
+        description: "ISO 8601 date to get commits before"
+      path:
+        type: string
+        description: "File path to filter commits"
+      author:
+        type: string
+        description: "Author email or name to filter"
+      max_results:
+        type: integer
+        default: 20
+
+  - name: gitlab_get_commit_diff
+    description: "Get diff for a specific commit"
+    params:
+      instance:
+        type: string
+      project_id:
+        type: string
+        required: true
+      commit_sha:
+        type: string
+        required: true
+      format:
+        type: string
+        default: "json"
+        description: "'json' for structured data or 'patch' for unified diff"
+      files_only:
+        type: boolean
+        default: false
+        description: "Return only changed file paths, no diff content"
+      max_files:
+        type: integer
+        default: 20
+        description: "Maximum number of files to include"
+
+  - name: gitlab_get_merge_request
+    description: "Get MR details with comments (diffs only with include_changes)"
+    params:
+      instance:
+        type: string
+      project_id:
+        type: string
+        required: true
+      mr_iid:
+        type: integer
+        required: true
+        description: "Merge request internal ID"
+      include_changes:
+        type: boolean
+        default: false
+        description: "Include file diffs (can be large)"
+      include_system_notes:
+        type: boolean
+        default: false
+        description: "Include system-generated notes"
+
+  - name: gitlab_get_pipeline_jobs
+    description: "Get jobs from a CI/CD pipeline (logs for failed jobs only)"
+    params:
+      instance:
+        type: string
+      project_id:
+        type: string
+        required: true
+      pipeline_id:
+        type: integer
+        required: true
+      include_logs:
+        type: boolean
+        default: false
+        description: "Include job logs (truncated at 50KB)"
+
+  - name: gitlab_get_project_pipelines
+    description: "List recent pipelines for a project"
+    params:
+      instance:
+        type: string
+      project_id:
+        type: string
+        required: true
+      ref:
+        type: string
+        description: "Branch/tag to filter"
+      status:
+        type: string
+        description: "Pipeline status to filter"
+      max_results:
+        type: integer
+        default: 10
+
+  - name: gitlab_get_project_issues
+    description: "List issues with filtering options"
+    params:
+      instance:
+        type: string
+      project_id:
+        type: string
+        required: true
+      state:
+        type: string
+        default: "all"
+        description: "opened, closed, or all"
+      assignee:
+        type: string
+        description: "Username of assignee"
+      author:
+        type: string
+        description: "Username of author"
+      labels:
+        type: array
+      milestone:
+        type: string
+      search:
+        type: string
+      created_after:
+        type: string
+      created_before:
+        type: string
+      updated_after:
+        type: string
+      updated_before:
+        type: string
+      order_by:
+        type: string
+        default: "created_at"
+      sort:
+        type: string
+        default: "desc"
+      max_results:
+        type: integer
+        default: 20
+
+  - name: gitlab_get_issue_details
+    description: "Get detailed issue information with notes"
+    params:
+      instance:
+        type: string
+      project_id:
+        type: string
+        required: true
+      issue_iid:
+        type: integer
+        required: true
+      include_notes:
+        type: boolean
+        default: true
+
+  - name: gitlab_get_todos
+    description: "Get to-do items for the authenticated user"
+    params:
+      instance:
+        type: string
+      action:
+        type: string
+        description: "Filter: assigned, mentioned, build_failed, marked, etc."
+      author_id:
+        type: integer
+      project_id:
+        type: integer
+      group_id:
+        type: integer
+      state:
+        type: string
+        default: "pending"
+      target_type:
+        type: string
+        description: "Filter: Issue, MergeRequest, Commit, Epic"
+      max_results:
+        type: integer
+        default: 20
+
+  - name: gitlab_list_merge_requests
+    description: "List merge requests with filtering"
+    params:
+      instance:
+        type: string
+      state:
+        type: string
+        default: "opened"
+        description: "opened, closed, merged, or all"
+      scope:
+        type: string
+        description: "created_by_me or assigned_to_me"
+      author_username:
+        type: string
+      reviewer_username:
+        type: string
+      project_id:
+        type: string
+        description: "Limit to a specific project"
+      labels:
+        type: array
+      milestone:
+        type: string
+      search:
+        type: string
+      source_branch:
+        type: string
+      target_branch:
+        type: string
+      order_by:
+        type: string
+        default: "created_at"
+      sort:
+        type: string
+        default: "desc"
+      max_results:
+        type: integer
+        default: 20
