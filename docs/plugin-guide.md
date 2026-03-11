@@ -46,8 +46,9 @@ config:
 
 # Tool declarations (registered as MCP tools)
 tools:
-  - name: my_tool
-    description: "What this tool does"
+  - name: my_search
+    access: read
+    description: "Search for items"
     params:
       query:
         type: string
@@ -56,6 +57,13 @@ tools:
       limit:
         type: integer
         default: 10
+  - name: my_create
+    access: write
+    description: "Create a new item"
+    params:
+      name:
+        type: string
+        required: true
 
 enabled: true
 priority: 50
@@ -72,6 +80,32 @@ Tools declare parameters with JSON Schema types:
 | `number` | Float/integer |
 | `boolean` | true/false |
 | `array` | List (use `items.type` for element type) |
+
+### Tool Access Level
+
+Each tool should declare an `access` field indicating whether it
+modifies state:
+
+| Value | MCP Annotation | Meaning |
+|-------|---------------|---------|
+| `read` | `readOnlyHint: true` | Tool only reads data, no side effects |
+| `write` | `destructiveHint: true` | Tool creates, updates, or deletes data |
+
+If `access` is omitted, it defaults to `write` (safe default).
+MCP clients use these annotations to prompt users before calling
+destructive tools.
+
+```yaml
+tools:
+  - name: my_search
+    access: read
+    description: "Search for items"
+    ...
+  - name: my_delete
+    access: write
+    description: "Delete an item"
+    ...
+```
 
 ### Auth Variants
 
@@ -464,18 +498,48 @@ kill -0 $(cat ~/.config/wtmcp/control/mcp.pid) 2>/dev/null && echo "running" || 
 ## Plugin Environment
 
 Plugins do **not** inherit the core's environment. They receive only
-safe variables (`PATH`, `HOME`, `SHELL`, etc.) plus any declared in
-the manifest's `env` section. Credential variables like `MY_TOKEN`
-are resolved by the core and delivered via the `config` block in
-protocol messages — never as environment variables.
+safe system variables (`PATH`, `HOME`, `SHELL`, etc.) plus variables
+declared in the manifest's `env` section — but only from the plugin's
+own `credential_group` env.d file, never from the process environment.
+
+```yaml
+credential_group: jira    # matches env.d/jira.env
+env:
+  - JIRA_URL              # passed from env.d/jira.env only
+  - JIRA_PROJECT_KEY
+```
+
+Plugin credentials and configuration must be set via
+`env.d/<group>.env` files. Shell-exported environment variables
+(e.g., `export JIRA_TOKEN=...`) are ignored for plugin resolution.
+
+`${VAR}` references in `config:`, `base_url`, and `services.auth`
+fields are also resolved exclusively from the plugin's credential
+group — never from the process environment.
 
 ## Security
 
 - Plugins are semi-trusted: they run with the same OS privileges as
   the core. Only install plugins you trust.
+- **User plugins** (in `{workdir}/plugins/`) are disabled by default.
+  Enable with `user_plugins: true` in `config.yaml`. User plugins
+  cannot override system plugins, declare `provides.auth`, or claim
+  credential groups owned by system plugins.
 - Auth tokens are injected by the HTTP proxy. Plugins never see them.
 - The proxy enforces HTTPS when auth is configured.
 - The proxy validates that request URLs match the plugin's declared
-  `base_url` domain or `allowed_domains` list.
+  `base_url` domain or `allowed_domains` list. IP addresses and
+  localhost are rejected in `allowed_domains`.
+- The proxy strips security-sensitive headers (Authorization, Cookie,
+  etc.) from plugin-specified headers before forwarding.
+- The proxy rejects connections to private/loopback IP addresses
+  (SSRF protection).
+- **Credential isolation:** plugins only see env.d variables from
+  their own `credential_group`. Shell-exported environment variables
+  are not used for plugin variable resolution.
+- **env.d file permissions** are enforced (0600 files, 0700 dir) —
+  the server refuses to start if they are world-readable.
+- **Tool access annotations** (`access: read` / `access: write`)
+  inform MCP clients about destructive operations.
 - Cache namespaces are isolated — plugins cannot read other plugins'
   cached data.
