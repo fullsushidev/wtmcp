@@ -65,6 +65,37 @@ func TestBuildPluginEnvIgnoresProcessEnv(t *testing.T) {
 	}
 }
 
+func TestBuildPluginEnvPassthroughAll(t *testing.T) {
+	m := &Manifest{
+		Name:           "test-gitlab",
+		EnvPassthrough: "all",
+		Env:            []string{"GITLAB_TOKEN"}, // listed but not used as filter
+	}
+
+	groupVars := map[string]string{
+		"GITLAB_TOKEN":          "tok1",
+		"GITLAB_INTERNAL_TOKEN": "tok2",
+		"GITLAB_INTERNAL_URL":   "https://internal.example.com",
+		"GITLAB_SSL_VERIFY":     "false",
+	}
+	env := buildPluginEnv(m, groupVars)
+
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitEnvVar(e)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	// All group vars should be passed when env_passthrough is "all"
+	for key, want := range groupVars {
+		if envMap[key] != want {
+			t.Errorf("%s = %q, want %q", key, envMap[key], want)
+		}
+	}
+}
+
 func splitEnvVar(s string) []string {
 	for i, c := range s {
 		if c == '=' {

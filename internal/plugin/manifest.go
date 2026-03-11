@@ -31,6 +31,7 @@ type Manifest struct {
 
 	DependsOn       []string `yaml:"depends_on"`
 	CredentialGroup string   `yaml:"credential_group"` // scopes env.d access
+	EnvPassthrough  string   `yaml:"env_passthrough"`  // "all" to pass all group vars
 	Env             []string `yaml:"env"`              // env vars to pass from credential group
 
 	Services ServiceConfig     `yaml:"services"`

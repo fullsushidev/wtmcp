@@ -201,11 +201,19 @@ func buildPluginEnv(manifest *Manifest, groupVars map[string]string) []string {
 		}
 	}
 
-	// Pass through env vars declared in the manifest, but only from
-	// the plugin's own credential_group env.d file.
-	for _, key := range manifest.Env {
-		if val, ok := groupVars[key]; ok {
+	// Pass env vars from the plugin's credential_group env.d file.
+	// When env_passthrough is "all", pass everything (for plugins
+	// that discover config dynamically, like GitLab multi-instance).
+	// Otherwise, only pass vars listed in the manifest's env: field.
+	if manifest.EnvPassthrough == "all" {
+		for key, val := range groupVars {
 			env = append(env, key+"="+val)
+		}
+	} else {
+		for _, key := range manifest.Env {
+			if val, ok := groupVars[key]; ok {
+				env = append(env, key+"="+val)
+			}
 		}
 	}
 

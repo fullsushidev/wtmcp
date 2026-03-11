@@ -5,11 +5,13 @@ description: "GitLab integration for repositories, MRs, pipelines, and issues"
 execution: persistent
 handler: ./handler
 credential_group: gitlab
+env_passthrough: all
 
 context_files:
   - context.md
 
 env:
+  # Listed for documentation; not used as filter when env_passthrough is "all"
   - GITLAB_TOKEN
   - GITLAB_URL
   - GITLAB_SSL_VERIFY
