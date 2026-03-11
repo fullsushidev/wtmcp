@@ -4,12 +4,10 @@ description: "Gmail — email listing, search, send, drafts, labels"
 
 execution: persistent
 handler: ./handler
+credential_group: google
 
 context_files:
   - context.md
-
-env:
-  - GOOGLE_CREDENTIALS_DIR
 
 tools:
   - name: gmail_list_messages

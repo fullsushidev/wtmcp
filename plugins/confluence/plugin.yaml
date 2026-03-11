@@ -4,6 +4,7 @@ description: "Confluence integration for wiki and documentation management"
 
 execution: persistent
 handler: ./handler.py
+credential_group: confluence
 
 context_files:
   - context.md

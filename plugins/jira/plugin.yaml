@@ -4,6 +4,7 @@ description: "Jira integration for issue tracking and project management"
 
 execution: persistent
 handler: ./handler.py
+credential_group: jira
 
 context_files:
   - context.md

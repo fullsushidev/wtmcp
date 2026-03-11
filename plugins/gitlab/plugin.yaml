@@ -4,6 +4,7 @@ description: "GitLab integration for repositories, MRs, pipelines, and issues"
 
 execution: persistent
 handler: ./handler
+credential_group: gitlab
 
 context_files:
   - context.md
