@@ -34,6 +34,7 @@ config:
 
 tools:
   - name: jira_get_myself
+    access: read
     description: >
       Get the authenticated user's Jira profile. Returns accountId,
       displayName, emailAddress, active status, and timeZone.
@@ -41,6 +42,7 @@ tools:
     params: {}
 
   - name: jira_search
+    access: read
     description: >
       Search Jira issues using JQL. Returns brief per-issue summaries
       (key, summary, status, assignee, priority) by default. Set
@@ -64,6 +66,7 @@ tools:
         description: "Return compact per-issue summaries (true) or full data (false)"
 
   - name: jira_get_issues
+    access: read
     description: >
       Get one or more Jira issues by key. Returns brief per-issue
       summaries by default. Set brief=false for full data. Fetches
@@ -83,6 +86,7 @@ tools:
         description: "Return compact per-issue summaries (true) or full data (false)"
 
   - name: jira_get_user
+    access: read
     description: >
       Look up a Jira user by username, email, or display name. Use
       "me", "myself", or "currentUser" to get the authenticated user.
@@ -94,6 +98,7 @@ tools:
         description: "Username, email, display name, or alias (me/myself/currentUser)"
 
   - name: jira_get_transitions
+    access: read
     description: >
       Get available workflow transitions for a Jira issue. Use before
       jira_transition_issue to find valid transition IDs and names.
@@ -104,6 +109,7 @@ tools:
         description: "Issue key (e.g. PROJ-123)"
 
   - name: jira_get_resolutions
+    access: read
     description: >
       Get all available issue resolution values. Use before
       jira_transition_issue to find valid resolution names for
@@ -111,6 +117,7 @@ tools:
     params: {}
 
   - name: jira_get_link_types
+    access: read
     description: >
       List all available issue link types (e.g. Blocks, Clones,
       Duplicates). Use before jira_add_issue_link to find valid
@@ -120,6 +127,7 @@ tools:
   # --- Phase 2: Write Tools ---
 
   - name: jira_create_issue
+    access: write
     description: >
       Create a new Jira issue. Defaults to dry_run=true which returns
       a preview without creating. Set dry_run=false to create.
@@ -177,6 +185,7 @@ tools:
         description: "Preview only (true) or create for real (false)"
 
   - name: jira_add_comment
+    access: write
     description: >
       Add a comment to a Jira issue. Defaults to dry_run=true.
       Uses ADF format for Cloud instances.
@@ -194,6 +203,7 @@ tools:
         default: true
 
   - name: jira_edit_comment
+    access: write
     description: >
       Edit an existing comment on a Jira issue. Defaults to dry_run=true.
     params:
@@ -214,6 +224,7 @@ tools:
         default: true
 
   - name: jira_transition_issue
+    access: write
     description: >
       Transition a Jira issue to a new workflow status. Use
       jira_get_transitions first to find valid transition IDs.
@@ -235,6 +246,7 @@ tools:
         default: true
 
   - name: jira_assign_issue
+    access: write
     description: >
       Assign a Jira issue to a user. Defaults to dry_run=true.
     params:
@@ -251,6 +263,7 @@ tools:
         default: true
 
   - name: jira_set_priority
+    access: write
     description: >
       Set the priority of a Jira issue. Defaults to dry_run=true.
     params:
@@ -267,6 +280,7 @@ tools:
         default: true
 
   - name: jira_set_labels
+    access: write
     description: >
       Set labels on a Jira issue (replaces all existing labels).
       Defaults to dry_run=true.
@@ -285,6 +299,7 @@ tools:
         default: true
 
   - name: jira_add_labels
+    access: write
     description: >
       Add labels to a Jira issue (preserves existing labels).
       Defaults to dry_run=true.
@@ -303,6 +318,7 @@ tools:
         default: true
 
   - name: jira_remove_labels
+    access: write
     description: >
       Remove labels from a Jira issue. Defaults to dry_run=true.
     params:
@@ -320,6 +336,7 @@ tools:
         default: true
 
   - name: jira_set_text_field
+    access: write
     description: >
       Set a text field on a Jira issue (e.g. summary, description).
       Cloud descriptions are converted to ADF automatically.
@@ -341,6 +358,7 @@ tools:
         default: true
 
   - name: jira_set_custom_field
+    access: write
     description: >
       Set a custom field on a Jira issue. Handles type conversion
       based on field_type (text, number, select, multi-select, user).
@@ -366,6 +384,7 @@ tools:
         default: true
 
   - name: jira_set_story_points
+    access: write
     description: >
       Set story points on a Jira issue. Defaults to dry_run=true.
     params:
@@ -385,6 +404,7 @@ tools:
         default: true
 
   - name: jira_set_components
+    access: write
     description: >
       Set components on a Jira issue (replaces existing).
       Defaults to dry_run=true.
@@ -403,6 +423,7 @@ tools:
         default: true
 
   - name: jira_add_issue_link
+    access: write
     description: >
       Add a link between two Jira issues. Use jira_get_link_types
       to find valid link type names. Defaults to dry_run=true.
@@ -427,6 +448,7 @@ tools:
         default: true
 
   - name: jira_delete_issue_link
+    access: write
     description: >
       Delete an issue link by its ID.
     params:
@@ -436,6 +458,7 @@ tools:
         description: "The link ID to delete"
 
   - name: jira_issue_worklog
+    access: write
     description: >
       Add a worklog entry to a Jira issue. Defaults to dry_run=true.
     params:
@@ -454,6 +477,7 @@ tools:
         default: true
 
   - name: jira_add_issues_to_sprint
+    access: write
     description: >
       Add issues to a sprint. Defaults to dry_run=true.
     params:
@@ -470,6 +494,7 @@ tools:
         default: true
 
   - name: jira_add_issues_to_backlog
+    access: write
     description: >
       Move issues to the backlog (removes from current sprint).
       Defaults to dry_run=true.
@@ -485,6 +510,7 @@ tools:
   # --- Phase 3: Sprint Tools ---
 
   - name: jira_list_available_sprints
+    access: read
     description: >
       List available sprints from a board or from recent tickets.
       Returns compact sprint summaries sorted by name (newest first).
@@ -501,6 +527,7 @@ tools:
         description: "Maximum sprints to return"
 
   - name: jira_get_sprint_issues
+    access: read
     description: >
       Get issues from a sprint by name. Returns brief summaries
       by default. Supports up to 1000 results.
@@ -517,6 +544,7 @@ tools:
         default: true
 
   - name: jira_search_by_sprint
+    access: read
     description: >
       Search issues in a sprint with optional assignee and status
       filters. Returns brief summaries by default.
@@ -539,6 +567,7 @@ tools:
         default: true
 
   - name: jira_get_all_sprints
+    access: read
     description: >
       Get all sprints for a board with optional state filter.
     params:
@@ -553,6 +582,7 @@ tools:
         description: "Return only the N most recent sprints"
 
   - name: jira_get_all_active_sprints
+    access: read
     description: >
       Get all active sprints for a board.
     params:
@@ -561,6 +591,7 @@ tools:
         required: true
 
   - name: jira_get_sprint_details
+    access: read
     description: >
       Get detailed information about a specific sprint.
     params:
@@ -569,6 +600,7 @@ tools:
         required: true
 
   - name: jira_get_sprint_report
+    access: read
     description: >
       Get sprint report with metrics (Server/DC only).
       Not available on Jira Cloud.
@@ -581,6 +613,7 @@ tools:
         required: true
 
   - name: jira_get_all_agile_boards
+    access: read
     description: >
       Get agile boards with compact output (id, name, type,
       projectKey). Can filter by project or board type.
@@ -593,6 +626,7 @@ tools:
         description: "Filter by type: scrum or kanban"
 
   - name: jira_get_issues_for_board
+    access: read
     description: >
       Get issues for a board with brief mode.
     params:
@@ -607,6 +641,7 @@ tools:
         default: true
 
   - name: jira_get_all_issues_for_sprint_in_board
+    access: read
     description: >
       Get issues for a specific sprint in a board with brief mode.
     params:
@@ -626,6 +661,7 @@ tools:
   # --- Phase 4: Export/Cache Tools ---
 
   - name: jira_export_sprint_data
+    access: read
     description: >
       Export all issues for a sprint to a local JSON file.
     params:
@@ -641,6 +677,7 @@ tools:
         description: "Path to write the JSON file"
 
   - name: jira_export_board_sprints
+    access: read
     description: >
       Export all sprints for a board to a local JSON file.
     params:
@@ -655,6 +692,7 @@ tools:
         required: true
 
   - name: jira_export_sprint_report
+    access: read
     description: >
       Export sprint report to a local JSON file (Server/DC only).
     params:
@@ -669,6 +707,7 @@ tools:
         required: true
 
   - name: jira_query_local_sprint_data
+    access: read
     description: >
       Query and filter locally exported sprint data by assignee,
       status, issue type, labels, or priority.
@@ -699,6 +738,7 @@ tools:
         default: true
 
   - name: jira_compare_sprints
+    access: read
     description: >
       Compare metrics across multiple exported sprint files.
       Returns completion rate and issue counts per sprint.
@@ -709,6 +749,7 @@ tools:
         description: "Comma-separated paths to sprint export files"
 
   - name: jira_sprint_metrics_summary
+    access: read
     description: >
       Generate metrics summary from an exported sprint file.
     params:
@@ -717,6 +758,7 @@ tools:
         required: true
 
   - name: jira_read_cache_summary
+    access: read
     description: >
       Read and summarize a cached/exported Jira response file.
       Extracts key fields from each issue for quick overview.
@@ -737,6 +779,7 @@ tools:
         default: 20
 
   - name: jira_get_issue_from_cache
+    access: read
     description: >
       Get full details of a specific issue from a cached file.
       Extracts core fields into a readable flat format.
@@ -750,6 +793,7 @@ tools:
         description: "Issue key (e.g. PROJ-123)"
 
   - name: jira_debug_fields
+    access: read
     description: >
       List Jira custom fields. Optionally filter by name to find
       field IDs for story points, sprint, team, etc.
@@ -761,6 +805,7 @@ tools:
   # --- Attachment Tools ---
 
   - name: jira_download_attachment
+    access: read
     description: >
       Download a Jira attachment by ID. Returns filename, mimeType,
       and content (base64 for binary, text for text files).
@@ -771,6 +816,7 @@ tools:
         description: "Numeric attachment ID"
 
   - name: jira_add_attachment
+    access: write
     description: >
       Add a file attachment to a Jira issue. Provide either
       file_path (preferred, reads from disk) or content
@@ -798,6 +844,7 @@ tools:
         default: true
 
   - name: jira_delete_attachment
+    access: write
     description: >
       Delete a Jira attachment by ID. Defaults to dry_run=true.
     params:

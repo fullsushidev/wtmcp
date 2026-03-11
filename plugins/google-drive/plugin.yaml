@@ -13,6 +13,7 @@ env:
 
 tools:
   - name: drive_get_file_by_id
+    access: read
     description: "Get file metadata by Drive file ID"
     params:
       file_id:
@@ -23,6 +24,7 @@ tools:
         description: "Comma-separated field mask (default: id,name,webViewLink,mimeType,owners,modifiedTime,size)"
 
   - name: drive_get_file_by_url
+    access: read
     description: "Get file metadata from a Google Drive/Docs URL"
     params:
       url:
@@ -33,6 +35,7 @@ tools:
         type: string
 
   - name: drive_extract_and_get_from_text
+    access: read
     description: "Extract Drive/Docs links from text and fetch metadata"
     params:
       text:
@@ -46,6 +49,7 @@ tools:
         type: string
 
   - name: drive_export_google_doc_text
+    access: read
     description: "Export a Google Doc as plain text (saves to file by default)"
     params:
       file_id:
@@ -63,6 +67,7 @@ tools:
         description: "Custom output path"
 
   - name: drive_export_google_sheet_csv
+    access: read
     description: "Export first worksheet of a Google Sheet as CSV (saves to file by default)"
     params:
       file_id:
@@ -77,6 +82,7 @@ tools:
         description: "Custom output path"
 
   - name: drive_export_slides_pdf
+    access: read
     description: "Export Google Slides as PDF (base64 encoded)"
     params:
       file_id:
@@ -84,6 +90,7 @@ tools:
         required: true
 
   - name: drive_export_google_doc_markdown
+    access: read
     description: "Export a Google Doc as text and save locally"
     params:
       file_id_or_url:
@@ -99,6 +106,7 @@ tools:
         description: "Custom output path (default: ./drive/<title>.md)"
 
   - name: drive_search_files
+    access: read
     description: "Search Drive using a raw files.list query"
     params:
       query:
@@ -115,6 +123,7 @@ tools:
         type: string
 
   - name: drive_search_text
+    access: read
     description: "Search Drive by text with optional filters"
     params:
       text:

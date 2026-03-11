@@ -13,6 +13,7 @@ env:
 
 tools:
   - name: calendar_get_events
+    access: read
     description: "List upcoming events from a calendar"
     params:
       calendar_id:
@@ -31,6 +32,7 @@ tools:
         description: "Maximum number of events to return"
 
   - name: calendar_get_event
+    access: read
     description: "Fetch a single event by ID"
     params:
       event_id:
@@ -42,6 +44,7 @@ tools:
         default: "primary"
 
   - name: calendar_create_event
+    access: write
     description: "Create a calendar event (dry_run by default)"
     params:
       summary:
@@ -76,6 +79,7 @@ tools:
         description: "Preview without creating"
 
   - name: calendar_update_event
+    access: write
     description: "Update fields on a calendar event (dry_run by default)"
     params:
       event_id:
@@ -102,6 +106,7 @@ tools:
         default: true
 
   - name: calendar_delete_event
+    access: write
     description: "Delete a calendar event (dry_run by default)"
     params:
       event_id:
@@ -115,9 +120,11 @@ tools:
         default: true
 
   - name: calendar_get_calendars
+    access: read
     description: "List calendars accessible to the authenticated user"
 
   - name: calendar_search_events
+    access: read
     description: "Search for events by text"
     params:
       query:
@@ -132,6 +139,7 @@ tools:
         default: 10
 
   - name: calendar_get_free_busy
+    access: read
     description: "Get free/busy information for calendars"
     params:
       time_min:

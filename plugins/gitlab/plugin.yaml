@@ -15,6 +15,7 @@ env:
 
 tools:
   - name: gitlab_get_commits
+    access: read
     description: "Get commit logs from a project"
     params:
       instance:
@@ -44,6 +45,7 @@ tools:
         default: 20
 
   - name: gitlab_get_commit_diff
+    access: read
     description: "Get diff for a specific commit"
     params:
       instance:
@@ -68,6 +70,7 @@ tools:
         description: "Maximum number of files to include"
 
   - name: gitlab_get_merge_request
+    access: read
     description: "Get MR details with comments (diffs only with include_changes)"
     params:
       instance:
@@ -89,6 +92,7 @@ tools:
         description: "Include system-generated notes"
 
   - name: gitlab_get_pipeline_jobs
+    access: read
     description: "Get jobs from a CI/CD pipeline (logs for failed jobs only)"
     params:
       instance:
@@ -105,6 +109,7 @@ tools:
         description: "Include job logs (truncated at 50KB)"
 
   - name: gitlab_get_project_pipelines
+    access: read
     description: "List recent pipelines for a project"
     params:
       instance:
@@ -123,6 +128,7 @@ tools:
         default: 10
 
   - name: gitlab_get_project_issues
+    access: read
     description: "List issues with filtering options"
     params:
       instance:
@@ -165,6 +171,7 @@ tools:
         default: 20
 
   - name: gitlab_get_issue_details
+    access: read
     description: "Get detailed issue information with notes"
     params:
       instance:
@@ -180,6 +187,7 @@ tools:
         default: true
 
   - name: gitlab_get_todos
+    access: read
     description: "Get to-do items for the authenticated user"
     params:
       instance:
@@ -204,6 +212,7 @@ tools:
         default: 20
 
   - name: gitlab_list_merge_requests
+    access: read
     description: "List merge requests with filtering"
     params:
       instance:

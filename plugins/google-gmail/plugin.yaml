@@ -13,6 +13,7 @@ env:
 
 tools:
   - name: gmail_list_messages
+    access: read
     description: "List Gmail messages matching a search query (returns IDs only)"
     params:
       query:
@@ -27,6 +28,7 @@ tools:
         description: "Filter by label IDs"
 
   - name: gmail_get_messages_summary
+    access: read
     description: "Get lightweight summaries of messages (recommended)"
     params:
       message_ids:
@@ -39,6 +41,7 @@ tools:
         description: "Max messages (hard limit: 100)"
 
   - name: gmail_fetch_and_cache
+    access: read
     description: "Fetch messages and cache locally for processing"
     params:
       query:
@@ -57,6 +60,7 @@ tools:
         description: "Gmail format: full, metadata, minimal, raw"
 
   - name: gmail_get_messages
+    access: read
     description: "Fetch full messages by ID (deprecated, use summary instead)"
     params:
       message_ids:
@@ -68,6 +72,7 @@ tools:
         default: "metadata"
 
   - name: gmail_send_message
+    access: write
     description: "Send an email (dry_run by default)"
     params:
       to:
@@ -90,6 +95,7 @@ tools:
         default: true
 
   - name: gmail_create_draft
+    access: write
     description: "Create an email draft (dry_run by default)"
     params:
       to:
@@ -110,6 +116,7 @@ tools:
         default: true
 
   - name: gmail_modify_labels
+    access: write
     description: "Add or remove labels on a message (dry_run by default)"
     params:
       message_id:
@@ -126,4 +133,5 @@ tools:
         default: true
 
   - name: gmail_list_labels
+    access: read
     description: "List available Gmail labels"

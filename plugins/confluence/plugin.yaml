@@ -41,6 +41,7 @@ config:
 
 tools:
   - name: confluence_get_page
+    access: read
     description: "Fetch a Confluence page by ID"
     params:
       page_id:
@@ -53,6 +54,7 @@ tools:
         description: "Include page body content (set false for metadata only)"
 
   - name: confluence_get_page_by_title
+    access: read
     description: "Fetch a single page by exact title within a space"
     params:
       title:
@@ -67,6 +69,7 @@ tools:
         description: "Include page body content (set false for metadata only)"
 
   - name: confluence_search
+    access: read
     description: "Run a CQL (Confluence Query Language) query"
     params:
       cql:
@@ -78,6 +81,7 @@ tools:
         default: 10
 
   - name: confluence_get_pages_by_title
+    access: read
     description: "Fetch all pages matching a title within a space"
     params:
       title:
@@ -88,6 +92,7 @@ tools:
         required: true
 
   - name: confluence_get_spaces
+    access: read
     description: "List Confluence spaces"
     params:
       limit:
@@ -95,6 +100,7 @@ tools:
         default: 20
 
   - name: confluence_get_space
+    access: read
     description: "Get details for a specific space"
     params:
       space_key:
@@ -102,6 +108,7 @@ tools:
         required: true
 
   - name: confluence_create_page
+    access: write
     description: "Create a Confluence page (dry_run by default)"
     params:
       space_key:
@@ -122,6 +129,7 @@ tools:
         default: true
 
   - name: confluence_update_page
+    access: write
     description: "Update an existing page (dry_run by default)"
     params:
       page_id:
@@ -139,6 +147,7 @@ tools:
         default: true
 
   - name: confluence_add_comment
+    access: write
     description: "Add a comment to a page (dry_run by default)"
     params:
       page_id:
@@ -153,6 +162,7 @@ tools:
         default: true
 
   - name: confluence_get_page_children
+    access: read
     description: "List child pages of a parent page"
     params:
       page_id:
@@ -160,6 +170,7 @@ tools:
         required: true
 
   - name: confluence_get_page_history
+    access: read
     description: "Fetch history metadata for a page"
     params:
       page_id:
