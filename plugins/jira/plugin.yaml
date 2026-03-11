@@ -157,9 +157,20 @@ tools:
         description: "List of component names"
       custom_fields:
         type: array
-        description: "List of custom field objects: [{field_id, value, field_type}]. field_type is optional (auto, text, number, select, multi-select, version, user)"
+        description: "List of custom field objects to set on the new issue"
         items:
           type: object
+          required: [field_id, value]
+          properties:
+            field_id:
+              type: string
+              description: "Custom field ID (must match customfield_NNNNN)"
+            value:
+              description: "Value to set (type depends on field_type)"
+            field_type:
+              type: string
+              default: "auto"
+              description: "Type hint: auto, text, number, select, multi-select, version, or user"
       dry_run:
         type: boolean
         default: true
