@@ -44,7 +44,18 @@ def create_issue(params):
         comp_list = components if isinstance(components, list) else [components]
         fields["components"] = normalize_components(comp_list)
 
-    for cf in params.get("custom_fields", []):
+    for i, cf in enumerate(params.get("custom_fields", [])):
+        if not isinstance(cf, dict):
+            raise ValueError(f"custom_fields[{i}]: expected an object, got {type(cf).__name__}")
+        if "field_id" not in cf:
+            raise ValueError(
+                f"custom_fields[{i}]: missing required key 'field_id'. "
+                "Each custom field must have 'field_id' and 'value'."
+            )
+        if "value" not in cf:
+            raise ValueError(
+                f"custom_fields[{i}]: missing required key 'value'. Each custom field must have 'field_id' and 'value'."
+            )
         cf_id = cf["field_id"]
         if not cf_id.startswith("customfield_"):
             raise ValueError(
@@ -249,6 +260,10 @@ def set_custom_field(params):
     """Set a custom field on a Jira issue."""
     issue_key = validate_issue_key(params.get("issue_key", ""))
     field_id = params.get("field_id", "")
+    if not field_id.startswith("customfield_"):
+        raise ValueError(
+            f"field_id must start with 'customfield_', got '{field_id}'. Use jira_set_field for built-in fields."
+        )
     value = params.get("value")
     field_type = params.get("field_type", "auto")
     dry_run = params.get("dry_run", True)

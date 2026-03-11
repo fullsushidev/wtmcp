@@ -258,7 +258,7 @@ class TestSetCustomField:
         result = tools_write.set_custom_field(
             {
                 "issue_key": "PROJ-1",
-                "field_id": "cf_1",
+                "field_id": "customfield_10001",
                 "value": 42,
                 "dry_run": True,
             }
@@ -268,13 +268,13 @@ class TestSetCustomField:
     def test_select_type(self):
         responses = [
             (204, {}, {}),  # PUT
-            (200, {"fields": {"cf_1": {"value": "Option A"}}}, {}),  # GET verify
+            (200, {"fields": {"customfield_10001": {"value": "Option A"}}}, {}),  # GET verify
         ]
         with patch.object(handler, "http", side_effect=responses) as mock_http:
             tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
-                    "field_id": "cf_1",
+                    "field_id": "customfield_10001",
                     "value": "Option A",
                     "field_type": "select",
                     "dry_run": False,
@@ -282,55 +282,55 @@ class TestSetCustomField:
             )
             # First call is the PUT
             put_body = mock_http.call_args_list[0][1].get("body") or mock_http.call_args_list[0][0][3]
-            assert put_body["fields"]["cf_1"] == {"value": "Option A"}
+            assert put_body["fields"]["customfield_10001"] == {"value": "Option A"}
 
     def test_version_type(self):
         responses = [
             (204, {}, {}),
-            (200, {"fields": {"versions": [{"name": "rhel-10.2"}]}}, {}),
+            (200, {"fields": {"customfield_10002": [{"name": "rhel-10.2"}]}}, {}),
         ]
         with patch.object(handler, "http", side_effect=responses) as mock_http:
             result = tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
-                    "field_id": "versions",
+                    "field_id": "customfield_10002",
                     "value": "rhel-10.2",
                     "field_type": "version",
                     "dry_run": False,
                 }
             )
             put_body = mock_http.call_args_list[0][1].get("body") or mock_http.call_args_list[0][0][3]
-            assert put_body["fields"]["versions"] == [{"name": "rhel-10.2"}]
+            assert put_body["fields"]["customfield_10002"] == [{"name": "rhel-10.2"}]
             assert result["success"] is True
 
     def test_version_type_multiple(self):
         responses = [
             (204, {}, {}),
-            (200, {"fields": {"fixVersions": [{"name": "9.8"}, {"name": "10.2"}]}}, {}),
+            (200, {"fields": {"customfield_10003": [{"name": "9.8"}, {"name": "10.2"}]}}, {}),
         ]
         with patch.object(handler, "http", side_effect=responses) as mock_http:
             tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
-                    "field_id": "fixVersions",
+                    "field_id": "customfield_10003",
                     "value": ["9.8", "10.2"],
                     "field_type": "version",
                     "dry_run": False,
                 }
             )
             put_body = mock_http.call_args_list[0][1].get("body") or mock_http.call_args_list[0][0][3]
-            assert put_body["fields"]["fixVersions"] == [{"name": "9.8"}, {"name": "10.2"}]
+            assert put_body["fields"]["customfield_10003"] == [{"name": "9.8"}, {"name": "10.2"}]
 
     def test_verify_warns_on_unchanged(self):
         responses = [
             (204, {}, {}),  # PUT succeeds
-            (200, {"fields": {"cf_1": None}}, {}),  # GET shows field unchanged
+            (200, {"fields": {"customfield_10001": None}}, {}),  # GET shows field unchanged
         ]
         with patch.object(handler, "http", side_effect=responses):
             result = tools_write.set_custom_field(
                 {
                     "issue_key": "PROJ-1",
-                    "field_id": "cf_1",
+                    "field_id": "customfield_10001",
                     "value": "bad-value",
                     "field_type": "multi-select",
                     "dry_run": False,
