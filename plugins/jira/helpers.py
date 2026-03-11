@@ -3,6 +3,7 @@
 Pure utility functions with no protocol or I/O dependencies.
 """
 
+import math
 import re
 
 _ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+-\d+$")
@@ -187,16 +188,30 @@ def resolve_field_value(value, field_type, is_cloud=False):
             field_type = "text"
 
     if field_type == "number":
-        return float(value), field_type
+        try:
+            result = float(value)
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Cannot convert {str(value)[:50]!r} to number: {exc}") from exc
+        if not math.isfinite(result):
+            raise ValueError(f"Number value must be finite, got {result}")
+        return result, field_type
     elif field_type == "select":
         return {"value": value}, field_type
     elif field_type == "multi-select":
         values = value if isinstance(value, list) else [value]
-        return [{"value": v} for v in values], field_type
+        try:
+            return [{"value": str(v)} for v in values], field_type
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Invalid value in multi-select list: {exc}") from exc
     elif field_type == "version":
         values = value if isinstance(value, list) else [value]
-        return [{"name": v} for v in values], field_type
+        try:
+            return [{"name": str(v)} for v in values], field_type
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Invalid value in version list: {exc}") from exc
     elif field_type == "user":
+        if not isinstance(value, str):
+            raise ValueError(f"User field requires a string value (accountId or username), got {type(value).__name__}")
         return ({"accountId": value} if is_cloud else {"name": value}), field_type
     else:
         return value, field_type
