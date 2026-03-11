@@ -262,7 +262,15 @@ func (m *Manager) pluginVars(manifest *Manifest) map[string]string {
 }
 
 func (m *Manager) resolveConfig(manifest *Manifest) map[string]string {
-	return config.ResolveVarsMap(manifest.Config, m.pluginVars(manifest))
+	resolved := config.ResolveVarsMap(manifest.Config, m.pluginVars(manifest))
+	// Inject per-group credentials dir so plugins can find credential
+	// files (e.g., OAuth2 tokens). Uses underscore prefix to avoid
+	// collisions with plugin-declared config keys.
+	if m.cfg.CredentialsDir != "" && manifest.CredentialGroup != "" {
+		resolved["_credentials_dir"] = filepath.Join(
+			m.cfg.CredentialsDir, manifest.CredentialGroup)
+	}
+	return resolved
 }
 
 // isKerberosAuth checks if a plugin uses Kerberos auth (without variants).

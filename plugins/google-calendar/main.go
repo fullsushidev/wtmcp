@@ -19,9 +19,20 @@ var calendarSvc *calendar.Service
 func main() {
 	p := handler.New()
 
-	p.OnInit(func(_ json.RawMessage) error {
-		client, err := googleauth.NewHTTPClient(
+	p.OnInit(func(cfgRaw json.RawMessage) error {
+		var cfg map[string]string
+		if err := json.Unmarshal(cfgRaw, &cfg); err != nil {
+			return fmt.Errorf("parse config: %w", err)
+		}
+
+		credDir := cfg["_credentials_dir"]
+		if credDir == "" {
+			credDir = googleauth.CredentialsDir()
+		}
+
+		client, err := googleauth.NewHTTPClientFromDir(
 			context.Background(),
+			credDir,
 			"token-calendar.json",
 			[]string{"https://www.googleapis.com/auth/calendar"},
 		)

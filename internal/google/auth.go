@@ -37,13 +37,12 @@ func CredentialsDir() string {
 	return filepath.Join(home, ".config", "wtmcp", "credentials", "google")
 }
 
-// NewHTTPClient creates an HTTP client authenticated with OAuth2 credentials.
-// It loads the client credentials and token from the credentials directory,
-// and returns an http.Client that auto-refreshes the token.
-func NewHTTPClient(ctx context.Context, tokenFile string, scopes []string) (*http.Client, error) {
-	credDir := CredentialsDir()
+// NewHTTPClientFromDir creates an HTTP client authenticated with OAuth2
+// credentials from the specified directory. It loads client-credentials.json
+// and the token file, and returns an http.Client that auto-refreshes the token.
+func NewHTTPClientFromDir(ctx context.Context, credDir, tokenFile string, scopes []string) (*http.Client, error) {
 	if credDir == "" {
-		return nil, fmt.Errorf("cannot determine credentials directory")
+		return nil, fmt.Errorf("credentials directory is empty")
 	}
 
 	clientCredsPath := filepath.Join(credDir, "client-credentials.json")
@@ -72,6 +71,13 @@ func NewHTTPClient(ctx context.Context, tokenFile string, scopes []string) (*htt
 		base:      ts,
 		tokenPath: tokenPath,
 	}), nil
+}
+
+// NewHTTPClient creates an OAuth2 HTTP client using the default
+// credentials directory. Prefer NewHTTPClientFromDir with the
+// config-provided path when available.
+func NewHTTPClient(ctx context.Context, tokenFile string, scopes []string) (*http.Client, error) {
+	return NewHTTPClientFromDir(ctx, CredentialsDir(), tokenFile, scopes)
 }
 
 // savingTokenSource wraps a TokenSource and persists refreshed tokens to disk.
