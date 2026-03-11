@@ -247,6 +247,14 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("execution must be 'oneshot' or 'persistent', got %q", m.Execution)
 	}
 
+	if m.CredentialGroup != "" && !pluginNamePattern.MatchString(m.CredentialGroup) {
+		return fmt.Errorf("invalid credential_group %q: must match [a-z0-9][a-z0-9_-]{0,62}[a-z0-9]", m.CredentialGroup)
+	}
+
+	if m.EnvPassthrough != "" && m.EnvPassthrough != "all" {
+		return fmt.Errorf("env_passthrough must be 'all' or empty, got %q", m.EnvPassthrough)
+	}
+
 	if m.Handler == "" {
 		return fmt.Errorf("handler is required")
 	}

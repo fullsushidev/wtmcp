@@ -184,6 +184,16 @@ func TestManifestValidation(t *testing.T) {
 			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools:\n  - name: test_tool\n    description: test\n    access: admin",
 			wantErr: "access must be 'read' or 'write'",
 		},
+		{
+			name:    "invalid credential_group",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ncredential_group: '../../etc'\ntools: []",
+			wantErr: "invalid credential_group",
+		},
+		{
+			name:    "invalid env_passthrough",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\nenv_passthrough: 'YES'\ntools: []",
+			wantErr: "env_passthrough must be 'all' or empty",
+		},
 	}
 
 	for _, tt := range tests {
