@@ -84,14 +84,14 @@ jira_debug_fields(search="team")      → find team field
 
 Then use `jira_set_custom_field` with the discovered field ID.
 
-For version fields (Affects Version/s, Fix Version/s), use
-`field_type: "version"`:
+For version-type custom fields, use `field_type: "version"`:
 ```
 jira_set_custom_field(issue_key="PROJ-123",
-                      field_id="versions",
+                      field_id="customfield_12311140",
                       value="rhel-10.2",
                       field_type="version")
 ```
+Use `jira_debug_fields(search="version")` to find the right field ID.
 
 ### Cloud vs Server
 
