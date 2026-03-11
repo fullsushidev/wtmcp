@@ -29,6 +29,14 @@ description: "What this plugin does"
 execution: persistent
 handler: ./handler.py
 
+# Scopes env.d access — matches env.d/my-service.env
+credential_group: my-service
+
+# Env vars to pass to handler from credential group's env.d file
+env:
+  - MY_API_URL
+  - MY_TOKEN
+
 # Services the core provides to this plugin
 services:
   auth:
@@ -40,7 +48,7 @@ services:
     enabled: true
     default_ttl: 300
 
-# Config values passed to the handler (env vars resolved at load time)
+# Config values passed to the handler (resolved from credential group)
 config:
   api_url: "${MY_API_URL}"
 
@@ -499,23 +507,88 @@ kill -0 $(cat ~/.config/wtmcp/control/mcp.pid) 2>/dev/null && echo "running" || 
 
 Plugins do **not** inherit the core's environment. They receive only
 safe system variables (`PATH`, `HOME`, `SHELL`, etc.) plus variables
-declared in the manifest's `env` section — but only from the plugin's
-own `credential_group` env.d file, never from the process environment.
+from their `credential_group`'s env.d file.
+
+### credential_group
+
+Every plugin that uses `${VAR}` references or needs env vars must
+declare a `credential_group`. This scopes which `env.d/` file the
+plugin can access:
 
 ```yaml
 credential_group: jira    # matches env.d/jira.env
-env:
-  - JIRA_URL              # passed from env.d/jira.env only
-  - JIRA_PROJECT_KEY
 ```
 
-Plugin credentials and configuration must be set via
-`env.d/<group>.env` files. Shell-exported environment variables
-(e.g., `export JIRA_TOKEN=...`) are ignored for plugin resolution.
+The group name matches the env.d filename (without `.env`). Multiple
+plugins can share a group — e.g., `google-calendar`, `google-drive`,
+and `google-gmail` all declare `credential_group: google` to share
+one `env.d/google.env` credential file.
+
+Without `credential_group`, all `${VAR}` references resolve to empty
+strings and no env.d vars are passed to the handler.
+
+### env: list
+
+The `env:` field lists which vars from the credential group's env.d
+file are passed to the handler process:
+
+```yaml
+credential_group: jira
+env:
+  - JIRA_URL
+  - JIRA_TOKEN
+```
+
+Only vars listed here AND present in `env.d/jira.env` reach the
+handler. Shell-exported variables are ignored.
+
+### env_passthrough: all
+
+For plugins that discover configuration dynamically (e.g., scanning
+env vars for multiple instances), list all group vars explicitly
+is impossible. Use `env_passthrough: all` to pass everything from
+the credential group's env.d file:
+
+```yaml
+credential_group: gitlab
+env_passthrough: all
+
+env:
+  # Listed for documentation only — not used as filter
+  - GITLAB_TOKEN
+  - GITLAB_URL
+```
+
+The `env:` field still serves as documentation of expected vars for
+setup wizards and human readers.
+
+### ${VAR} resolution
 
 `${VAR}` references in `config:`, `base_url`, and `services.auth`
-fields are also resolved exclusively from the plugin's credential
-group — never from the process environment.
+fields are resolved exclusively from the plugin's credential group
+env.d file — never from the process environment. This means
+`export JIRA_TOKEN=xxx` in your shell has no effect on plugins.
+
+### _credentials_dir
+
+The server automatically injects `_credentials_dir` into the
+resolved config for plugins that declare a `credential_group`. This
+is the per-group credentials directory path (e.g.,
+`~/.config/wtmcp/credentials/google/`). Go plugin handlers can read
+it from the init config to find credential files:
+
+```go
+p.OnInit(func(cfgRaw json.RawMessage) error {
+    var cfg map[string]string
+    json.Unmarshal(cfgRaw, &cfg)
+    credDir := cfg["_credentials_dir"]
+    // credDir = "/home/user/.config/wtmcp/credentials/google"
+    ...
+})
+```
+
+Python plugins that use the HTTP proxy don't need this — the server
+handles credential injection automatically.
 
 ## Security
 
