@@ -338,6 +338,121 @@ class TestSetCustomField:
             )
             assert "warning" in result
 
+    def test_rejects_builtin_field(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="must start with 'customfield_'"):
+            tools_write.set_custom_field(
+                {
+                    "issue_key": "PROJ-1",
+                    "field_id": "summary",
+                    "value": "overwritten",
+                }
+            )
+
+
+# --- create_issue custom_fields validation ---
+
+
+class TestCreateIssueCustomFields:
+    def test_dry_run(self):
+        result = tools_write.create_issue(
+            {
+                "project": "PROJ",
+                "issue_type": "Task",
+                "summary": "Test",
+                "custom_fields": [
+                    {"field_id": "customfield_10001", "value": "hello"},
+                    {"field_id": "customfield_10002", "value": 42, "field_type": "number"},
+                ],
+                "dry_run": True,
+            }
+        )
+        assert result["fields"]["customfield_10001"] == "hello"
+        assert result["fields"]["customfield_10002"] == 42.0
+
+    def test_missing_field_id(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="missing required key 'field_id'"):
+            tools_write.create_issue(
+                {
+                    "project": "PROJ",
+                    "issue_type": "Task",
+                    "summary": "Test",
+                    "custom_fields": [{"value": "hello"}],
+                    "dry_run": True,
+                }
+            )
+
+    def test_missing_value(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="missing required key 'value'"):
+            tools_write.create_issue(
+                {
+                    "project": "PROJ",
+                    "issue_type": "Task",
+                    "summary": "Test",
+                    "custom_fields": [{"field_id": "customfield_10001"}],
+                    "dry_run": True,
+                }
+            )
+
+    def test_not_a_dict(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="expected an object"):
+            tools_write.create_issue(
+                {
+                    "project": "PROJ",
+                    "issue_type": "Task",
+                    "summary": "Test",
+                    "custom_fields": ["not a dict"],
+                    "dry_run": True,
+                }
+            )
+
+    def test_invalid_prefix(self):
+        import pytest
+
+        with pytest.raises(ValueError, match="must start with 'customfield_'"):
+            tools_write.create_issue(
+                {
+                    "project": "PROJ",
+                    "issue_type": "Task",
+                    "summary": "Test",
+                    "custom_fields": [{"field_id": "summary", "value": "bad"}],
+                    "dry_run": True,
+                }
+            )
+
+    def test_select_type(self):
+        result = tools_write.create_issue(
+            {
+                "project": "PROJ",
+                "issue_type": "Task",
+                "summary": "Test",
+                "custom_fields": [
+                    {"field_id": "customfield_10001", "value": "Option A", "field_type": "select"},
+                ],
+                "dry_run": True,
+            }
+        )
+        assert result["fields"]["customfield_10001"] == {"value": "Option A"}
+
+    def test_empty_list(self):
+        result = tools_write.create_issue(
+            {
+                "project": "PROJ",
+                "issue_type": "Task",
+                "summary": "Test",
+                "custom_fields": [],
+                "dry_run": True,
+            }
+        )
+        assert "customfield_" not in str(result["fields"])
+
 
 # --- jira_set_story_points ---
 

@@ -12,6 +12,7 @@ from helpers import (
     natural_sort_key,
     normalize_components,
     parse_sprint_field,
+    resolve_field_value,
     text_to_adf,
     validate_issue_key,
 )
@@ -364,3 +365,104 @@ class TestCalculateSprintMetrics:
         issues = [{"fields": {}}]
         result = calculate_sprint_metrics(issues)
         assert result["completed_issues"] == 0
+
+
+# --- resolve_field_value ---
+
+
+class TestResolveFieldValue:
+    # --- auto detection ---
+    def test_auto_int(self):
+        val, ft = resolve_field_value(42, "auto")
+        assert val == 42.0
+        assert ft == "number"
+
+    def test_auto_float(self):
+        val, ft = resolve_field_value(3.14, "auto")
+        assert val == 3.14
+        assert ft == "number"
+
+    def test_auto_bool_is_number(self):
+        # bool is subclass of int in Python — auto-detects as number
+        val, ft = resolve_field_value(True, "auto")
+        assert val == 1.0
+        assert ft == "number"
+
+    def test_auto_list(self):
+        val, ft = resolve_field_value(["a", "b"], "auto")
+        assert val == [{"value": "a"}, {"value": "b"}]
+        assert ft == "multi-select"
+
+    def test_auto_string(self):
+        val, ft = resolve_field_value("hello", "auto")
+        assert val == "hello"
+        assert ft == "text"
+
+    def test_auto_dict(self):
+        val, ft = resolve_field_value({"key": "val"}, "auto")
+        assert val == {"key": "val"}
+        assert ft == "text"
+
+    # --- explicit types ---
+    def test_number_from_string(self):
+        val, ft = resolve_field_value("3.14", "number")
+        assert val == 3.14
+
+    def test_number_invalid(self):
+        with pytest.raises(ValueError, match="Cannot convert"):
+            resolve_field_value("abc", "number")
+
+    def test_number_inf(self):
+        with pytest.raises(ValueError, match="finite"):
+            resolve_field_value(float("inf"), "number")
+
+    def test_number_nan(self):
+        with pytest.raises(ValueError, match="finite"):
+            resolve_field_value(float("nan"), "number")
+
+    def test_select(self):
+        val, ft = resolve_field_value("Option A", "select")
+        assert val == {"value": "Option A"}
+        assert ft == "select"
+
+    def test_multi_select_single(self):
+        val, ft = resolve_field_value("one", "multi-select")
+        assert val == [{"value": "one"}]
+
+    def test_multi_select_list(self):
+        val, ft = resolve_field_value(["a", "b"], "multi-select")
+        assert val == [{"value": "a"}, {"value": "b"}]
+
+    def test_version_single(self):
+        val, ft = resolve_field_value("1.0", "version")
+        assert val == [{"name": "1.0"}]
+
+    def test_version_list(self):
+        val, ft = resolve_field_value(["1.0", "2.0"], "version")
+        assert val == [{"name": "1.0"}, {"name": "2.0"}]
+
+    def test_user_cloud(self):
+        val, ft = resolve_field_value("abc123", "user", is_cloud=True)
+        assert val == {"accountId": "abc123"}
+
+    def test_user_server(self):
+        val, ft = resolve_field_value("jdoe", "user", is_cloud=False)
+        assert val == {"name": "jdoe"}
+
+    def test_user_invalid_type(self):
+        with pytest.raises(ValueError, match="string value"):
+            resolve_field_value(123, "user")
+
+    def test_user_empty_string(self):
+        val, ft = resolve_field_value("", "user", is_cloud=True)
+        assert val == {"accountId": ""}
+
+    def test_text_passthrough(self):
+        val, ft = resolve_field_value("hello", "text")
+        assert val == "hello"
+        assert ft == "text"
+
+    def test_unknown_type_passthrough(self):
+        val, ft = resolve_field_value({"custom": True}, "unknown")
+        assert val == {"custom": True}
+        assert ft == "unknown"
