@@ -53,6 +53,7 @@ tools:
 
   - name: testing_farm_list_requests
     access: read
+    visibility: primary
     description: >
       List test requests with optional filters. Returns request ID,
       state, result, compose, arch, and created time.
@@ -70,6 +71,7 @@ tools:
 
   - name: testing_farm_get_request
     access: read
+    visibility: primary
     description: >
       Get detailed status of a test request. Returns state, result,
       environments, artifacts URL, and stage details.
@@ -138,6 +140,7 @@ tools:
 
   - name: testing_farm_reserve
     access: write
+    visibility: primary
     description: >
       Reserve a system on Testing Farm. Injects SSH public keys
       automatically from ~/.ssh/id_*.pub. Defaults to dry_run=true
@@ -167,6 +170,7 @@ tools:
 
   - name: testing_farm_submit_test
     access: write
+    visibility: primary
     description: >
       Submit a test request to Testing Farm. Defaults to dry_run=true
       which returns a preview of the request payload.
