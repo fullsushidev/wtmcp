@@ -1,0 +1,158 @@
+name: testing-farm
+version: "0.1.0"
+description: "Testing Farm — test execution and system reservation"
+
+execution: persistent
+handler: ./handler.py
+credential_group: testing-farm
+
+context_files:
+  - context.md
+
+services:
+  auth:
+    type: bearer
+    token: "${TESTING_FARM_API_TOKEN}"
+  http:
+    base_url: "${TF_API_URL:-https://api.testing-farm.io}"
+    allowed_domains:
+      - api.testing-farm.io
+      - api.dev.testing-farm.io
+      - artifacts.osci.redhat.com
+      - artifacts.dev.testing-farm.io
+  cache:
+    enabled: true
+    namespace: testing-farm
+    default_ttl: 60
+
+env:
+  - TESTING_FARM_API_TOKEN
+  - TF_API_URL
+  - TF_SSH_KEY_PATH
+
+config:
+  api_url: "${TF_API_URL:-https://api.testing-farm.io}"
+  ssh_key_path: "${TF_SSH_KEY_PATH}"
+
+tools:
+  # --- Read tools ---
+
+  - name: testing_farm_about
+    access: read
+    description: >
+      Get Testing Farm API version and metadata. Useful to verify
+      connectivity and check the API version.
+    params: {}
+
+  - name: testing_farm_whoami
+    access: read
+    description: >
+      Get info about the authenticated token/user. Returns token
+      owner details and permissions.
+    params: {}
+
+  - name: testing_farm_list_requests
+    access: read
+    description: >
+      List test requests with optional filters. Returns request ID,
+      state, result, compose, arch, and created time.
+    params:
+      state:
+        type: string
+        description: "Filter by state (new, queued, running, complete, error)"
+      limit:
+        type: integer
+        default: 10
+        description: "Maximum number of results (1-100)"
+      created_after:
+        type: string
+        description: "ISO date filter (e.g. 2025-01-01)"
+
+  - name: testing_farm_get_request
+    access: read
+    description: >
+      Get detailed status of a test request. Returns state, result,
+      environments, artifacts URL, and stage details.
+    params:
+      request_id:
+        type: string
+        required: true
+        description: "Request ID (UUID)"
+
+  - name: testing_farm_list_composes
+    access: read
+    description: >
+      List available OS composes for the ranch. Returns compose names
+      grouped by OS family. Use this to discover valid compose names
+      before reserving or submitting tests.
+    params: {}
+
+  - name: testing_farm_list_reservations
+    access: read
+    description: >
+      List running reservations. Filters requests for the
+      /testing-farm/reserve test plan. Returns request ID, compose,
+      arch, duration, created time, and state. Does NOT extract SSH
+      info — use testing_farm_get_ssh for that.
+    params:
+      limit:
+        type: integer
+        default: 20
+        description: "Maximum number of results"
+
+  - name: testing_farm_get_ssh
+    access: read
+    description: >
+      Extract SSH connection info for a reservation. Fetches
+      results.xml from artifacts, parses console logs to find the
+      IP address. Returns IP, SSH command, and request details.
+    params:
+      request_id:
+        type: string
+        required: true
+        description: "Request ID (UUID) of a reservation"
+
+  - name: testing_farm_get_results
+    access: read
+    description: >
+      Get test results summary (xunit) for a completed request.
+      Returns test names, results, and duration.
+    params:
+      request_id:
+        type: string
+        required: true
+        description: "Request ID (UUID)"
+
+  - name: testing_farm_get_logs
+    access: read
+    description: >
+      Get pipeline log URL and console log URL for a request.
+      Returns direct URLs to the logs.
+    params:
+      request_id:
+        type: string
+        required: true
+        description: "Request ID (UUID)"
+
+setup:
+  credentials:
+    TESTING_FARM_API_TOKEN:
+      description: "Testing Farm API token"
+      help_url: "https://docs.testing-farm.io/Testing%20Farm/0.1/onboarding.html"
+      instructions: >
+        Request a Testing Farm API token from the Testing Farm team
+        or generate one from the Testing Farm dashboard.
+      secret: true
+    TF_API_URL:
+      description: "Testing Farm API URL (default: public ranch)"
+      example: "https://api.testing-farm.io"
+      secret: false
+    TF_SSH_KEY_PATH:
+      description: "Path to SSH public key for reservations (auto-detected from ~/.ssh/)"
+      example: "/home/user/.ssh/id_ed25519.pub"
+      secret: false
+  validation_tool: testing_farm_about
+  post_setup_message: "Restart the MCP server for changes to take effect."
+
+enabled: true
+priority: 50
