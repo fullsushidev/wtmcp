@@ -21,6 +21,11 @@ def _mock_cache_set():
     return patch.object(handler, "cache_set")
 
 
+def _mock_cache_del():
+    """Return a mock for handler.cache_del."""
+    return patch.object(handler, "cache_del")
+
+
 ABOUT_RESPONSE = {
     "version": "0.1",
     "name": "Testing Farm",
@@ -110,15 +115,21 @@ class TestWhoami:
 class TestListRequests:
     def test_basic_list(self):
         body = [SAMPLE_REQUEST]
-        with _mock_http(200, body):
+        with _mock_cache_get(None), _mock_http(200, body), _mock_cache_set():
             result = handler.testing_farm_list_requests({})
             assert result["count"] == 1
             assert result["requests"][0]["id"] == "req-abc-123"
             assert result["requests"][0]["state"] == "complete"
             assert result["requests"][0]["compose"] == "Fedora-Rawhide"
 
+    def test_cache_hit(self):
+        cached = {"requests": [{"id": "cached"}], "count": 1}
+        with _mock_cache_get(cached):
+            result = handler.testing_farm_list_requests({})
+            assert result == cached
+
     def test_with_filters(self):
-        with _mock_http(200, []) as mock:
+        with _mock_cache_get(None), _mock_http(200, []) as mock, _mock_cache_set():
             handler.testing_farm_list_requests({"state": "running", "limit": 5})
             call_args = mock.call_args
             query = call_args[1].get("query") or call_args[0][2]
@@ -126,7 +137,7 @@ class TestListRequests:
             assert query["limit"] == 5
 
     def test_http_error(self):
-        with _mock_http(500, {"error": "fail"}):
+        with _mock_cache_get(None), _mock_http(500, {"error": "fail"}):
             try:
                 handler.testing_farm_list_requests({})
                 assert False, "Should have raised"
@@ -138,8 +149,8 @@ class TestListRequests:
 
 
 class TestGetRequest:
-    def test_success(self):
-        with _mock_http(200, SAMPLE_REQUEST):
+    def test_success_caches_terminal(self):
+        with _mock_cache_get(None), _mock_http(200, SAMPLE_REQUEST), _mock_cache_set() as mock_set:
             result = handler.testing_farm_get_request({"request_id": "req-abc-123"})
             assert result["id"] == "req-abc-123"
             assert result["state"] == "complete"
@@ -147,9 +158,36 @@ class TestGetRequest:
             assert result["compose"] == "Fedora-Rawhide"
             assert result["arch"] == "x86_64"
             assert result["artifacts_url"] == "https://artifacts.example.com/req-abc-123"
+            # Terminal state should be cached.
+            mock_set.assert_called_once()
+
+    def test_running_not_cached(self):
+        running_req = {**SAMPLE_REQUEST, "state": "running"}
+        with _mock_cache_get(None), _mock_http(200, running_req), _mock_cache_set() as mock_set:
+            result = handler.testing_farm_get_request({"request_id": "req-abc-123"})
+            assert result["state"] == "running"
+            mock_set.assert_not_called()
+
+    def test_stages_trimmed(self):
+        req_with_stages = {
+            **SAMPLE_REQUEST,
+            "run": {
+                "log": "https://example.com/log",
+                "stages": [{"name": "provision", "status": "ok", "extra_data": "big blob"}],
+            },
+        }
+        with _mock_cache_get(None), _mock_http(200, req_with_stages), _mock_cache_set():
+            result = handler.testing_farm_get_request({"request_id": "req-abc-123"})
+            assert result["run_stages"] == [{"name": "provision", "status": "ok"}]
+
+    def test_cache_hit(self):
+        cached = {"id": "req-abc-123", "state": "complete"}
+        with _mock_cache_get(cached):
+            result = handler.testing_farm_get_request({"request_id": "req-abc-123"})
+            assert result == cached
 
     def test_http_error(self):
-        with _mock_http(404, {"error": "not found"}):
+        with _mock_cache_get(None), _mock_http(404, {"error": "not found"}):
             try:
                 handler.testing_farm_get_request({"request_id": "bad-id"})
                 assert False, "Should have raised"
@@ -161,12 +199,20 @@ class TestGetRequest:
 
 
 class TestListComposes:
-    def test_cache_miss(self):
-        composes = {"composes": [{"name": "Fedora-Rawhide"}]}
+    def test_cache_miss_trims_response(self):
+        composes = {"Fedora": [{"name": "Fedora-Rawhide", "allowed_arches": ["x86_64"]}]}
         with _mock_cache_get(None), _mock_http(200, composes), _mock_cache_set() as mock_set:
             result = handler.testing_farm_list_composes({})
-            assert result["composes"][0]["name"] == "Fedora-Rawhide"
+            # Should trim to just names, stripping metadata.
+            assert result == {"Fedora": ["Fedora-Rawhide"]}
             mock_set.assert_called_once()
+            assert mock_set.call_args[1]["ttl"] == 14400
+
+    def test_plain_string_composes(self):
+        composes = {"Fedora": ["Fedora-Rawhide", "Fedora-41"]}
+        with _mock_cache_get(None), _mock_http(200, composes), _mock_cache_set():
+            result = handler.testing_farm_list_composes({})
+            assert result == {"Fedora": ["Fedora-Rawhide", "Fedora-41"]}
 
 
 # --- testing_farm_list_reservations ---
@@ -175,16 +221,22 @@ class TestListComposes:
 class TestListReservations:
     def test_filters_for_reserve_plan(self):
         body = [RESERVE_REQUEST, SAMPLE_REQUEST]
-        with _mock_http(200, body):
+        with _mock_cache_get(None), _mock_http(200, body), _mock_cache_set():
             result = handler.testing_farm_list_reservations({})
             assert result["count"] == 1
             assert result["reservations"][0]["id"] == "req-reserve-456"
             assert result["reservations"][0]["duration_min"] == "60"
 
     def test_empty_when_no_reservations(self):
-        with _mock_http(200, [SAMPLE_REQUEST]):
+        with _mock_cache_get(None), _mock_http(200, [SAMPLE_REQUEST]), _mock_cache_set():
             result = handler.testing_farm_list_reservations({})
             assert result["count"] == 0
+
+    def test_cache_hit(self):
+        cached = {"reservations": [{"id": "cached"}], "count": 1}
+        with _mock_cache_get(cached):
+            result = handler.testing_farm_list_reservations({})
+            assert result == cached
 
 
 # --- _extract_result ---
@@ -241,6 +293,9 @@ class TestParseXunit:
         assert len(tests) == 2
         assert tests[0]["result"] == "passed"
         assert tests[0]["name"] == "test1"
+        # classname and time are trimmed to save tokens.
+        assert "classname" not in tests[0]
+        assert "time" not in tests[0]
 
     def test_failed_test(self):
         xml = """<testsuite>
@@ -304,11 +359,24 @@ class TestGetResults:
 
 
 class TestGetLogs:
-    def test_success(self):
-        with _mock_http(200, SAMPLE_REQUEST):
+    def test_success_caches_terminal(self):
+        with _mock_cache_get(None), _mock_http(200, SAMPLE_REQUEST), _mock_cache_set() as mock_set:
             result = handler.testing_farm_get_logs({"request_id": "req-abc-123"})
             assert result["pipeline_log"] == "https://example.com/log"
             assert result["artifacts_url"] == "https://artifacts.example.com/req-abc-123"
+            mock_set.assert_called_once()
+
+    def test_running_not_cached(self):
+        running_req = {**SAMPLE_REQUEST, "state": "running"}
+        with _mock_cache_get(None), _mock_http(200, running_req), _mock_cache_set() as mock_set:
+            handler.testing_farm_get_logs({"request_id": "req-abc-123"})
+            mock_set.assert_not_called()
+
+    def test_cache_hit(self):
+        cached = {"request_id": "req-1", "pipeline_log": "url"}
+        with _mock_cache_get(cached):
+            result = handler.testing_farm_get_logs({"request_id": "req-1"})
+            assert result == cached
 
 
 # --- testing_farm_reserve ---
@@ -426,14 +494,21 @@ class TestSubmitTest:
 
 
 class TestCancel:
-    def test_success(self):
-        with _mock_http(200, {}):
+    def test_success_invalidates_cache(self):
+        with _mock_http(200, {}), _mock_cache_del() as mock_del:
             result = handler.testing_farm_cancel({"request_id": "req-abc-123"})
             assert result["request_id"] == "req-abc-123"
             assert "cancelled" in result["message"]
+            # Should invalidate all cached data for this request.
+            assert mock_del.call_count == 4
+            deleted_keys = [c[0][0] for c in mock_del.call_args_list]
+            assert "tf:request:req-abc-123" in deleted_keys
+            assert "tf:ssh:req-abc-123" in deleted_keys
+            assert "tf:results:req-abc-123" in deleted_keys
+            assert "tf:logs:req-abc-123" in deleted_keys
 
     def test_204_success(self):
-        with _mock_http(204, {}):
+        with _mock_http(204, {}), _mock_cache_del():
             result = handler.testing_farm_cancel({"request_id": "req-abc-123"})
             assert result["request_id"] == "req-abc-123"
 
@@ -493,16 +568,22 @@ class TestDiscoverSshKeys:
 
 
 class TestGetSsh:
+    def test_cache_hit(self):
+        cached = {"ip": "10.0.0.1", "ssh_command": "ssh root@10.0.0.1"}
+        with _mock_cache_get(cached):
+            result = handler.testing_farm_get_ssh({"request_id": "req-1"})
+            assert result == cached
+
     def test_not_running(self):
         req = {**SAMPLE_REQUEST, "state": "queued", "artifacts_url": "https://artifacts.example.com/req-1"}
-        with _mock_http(200, req):
+        with _mock_cache_get(None), _mock_http(200, req):
             result = handler.testing_farm_get_ssh({"request_id": "req-1"})
             assert "error" in result
             assert result["state"] == "queued"
 
     def test_no_artifacts_url(self):
         req = {**SAMPLE_REQUEST, "artifacts_url": ""}
-        with _mock_http(200, req):
+        with _mock_cache_get(None), _mock_http(200, req):
             try:
                 handler.testing_farm_get_ssh({"request_id": "req-1"})
                 assert False, "Should have raised"

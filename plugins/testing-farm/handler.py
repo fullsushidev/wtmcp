@@ -10,6 +10,7 @@ Zero dependencies beyond Python stdlib.
 
 import base64
 import glob as globmod
+import hashlib
 import json
 import os
 import re
@@ -100,6 +101,12 @@ def cache_set(key, value, ttl=None):
     _recv()  # consume ack
 
 
+def cache_del(key):
+    """Delete a value from the core cache."""
+    _send({"id": _gen_id("cache"), "type": "cache_del", "key": key})
+    _recv()  # consume ack
+
+
 def log(message):
     """Write a log message to stderr (captured by core)."""
     print(f"testing-farm: {message}", file=sys.stderr)
@@ -185,6 +192,12 @@ def testing_farm_list_requests(params):
     if created_after:
         query["created_after"] = created_after
 
+    key_parts = f"{state or ''}/{limit}/{created_after or ''}"
+    cache_key = f"tf:list:{hashlib.sha256(key_parts.encode()).hexdigest()[:12]}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     status, body, _ = http("GET", f"/{API_VERSION}/requests", query=query)
     if status != 200:
         raise Exception(f"API error (HTTP {status}): {body}")
@@ -212,7 +225,9 @@ def testing_farm_list_requests(params):
             }
         )
 
-    return {"requests": results, "count": len(results)}
+    result = {"requests": results, "count": len(results)}
+    cache_set(cache_key, result, ttl=60)
+    return result
 
 
 def _extract_result(req):
@@ -226,6 +241,11 @@ def _extract_result(req):
 def testing_farm_get_request(params):
     """Get detailed status of a test request."""
     request_id = params["request_id"]
+
+    cached = cache_get(f"tf:request:{request_id}")
+    if cached:
+        return cached
+
     status, body, _ = http("GET", f"/{API_VERSION}/requests/{request_id}")
     if status != 200:
         raise Exception(f"API error (HTTP {status}): {body}")
@@ -236,7 +256,7 @@ def testing_farm_get_request(params):
     artifacts_url = body.get("artifacts_url", "")
     run = body.get("run", {}) or {}
 
-    return {
+    result = {
         "id": body.get("id", ""),
         "state": body.get("state", ""),
         "result": _extract_result(body),
@@ -248,8 +268,13 @@ def testing_farm_get_request(params):
         "updated": body.get("updated", ""),
         "artifacts_url": artifacts_url,
         "run_log": run.get("log", ""),
-        "run_stages": run.get("stages", []),
+        "run_stages": [{"name": s.get("name", ""), "status": s.get("status", "")} for s in (run.get("stages") or [])],
     }
+
+    if result["state"] in ("complete", "error"):
+        cache_set(f"tf:request:{request_id}", result, ttl=3600)
+
+    return result
 
 
 def testing_farm_list_composes(_params):
@@ -262,13 +287,30 @@ def testing_farm_list_composes(_params):
     if status != 200:
         raise Exception(f"API error (HTTP {status}): {body}")
 
-    cache_set("tf:composes", body, ttl=3600)
+    # Trim to compose names only — the raw response includes metadata
+    # (allowed_arches, tags, etc.) that wastes LLM context tokens.
+    if isinstance(body, dict):
+        trimmed = {}
+        for group, composes in body.items():
+            if isinstance(composes, list):
+                trimmed[group] = [c.get("name", c) if isinstance(c, dict) else c for c in composes]
+            else:
+                trimmed[group] = composes
+        body = trimmed
+
+    cache_set("tf:composes", body, ttl=14400)
     return body
 
 
 def testing_farm_list_reservations(params):
     """List running reservations."""
     limit = params.get("limit", 20)
+
+    cache_key = f"tf:reservations:{limit}"
+    cached = cache_get(cache_key)
+    if cached:
+        return cached
+
     query = {"limit": min(int(limit), 100)}
 
     status, body, _ = http("GET", f"/{API_VERSION}/requests", query=query)
@@ -302,12 +344,18 @@ def testing_farm_list_reservations(params):
             }
         )
 
-    return {"reservations": results, "count": len(results)}
+    result = {"reservations": results, "count": len(results)}
+    cache_set(cache_key, result, ttl=60)
+    return result
 
 
 def testing_farm_get_ssh(params):
     """Extract SSH connection info for a reservation."""
     request_id = params["request_id"]
+
+    cached = cache_get(f"tf:ssh:{request_id}")
+    if cached:
+        return cached
 
     # Get request details.
     status, body, _ = http("GET", f"/{API_VERSION}/requests/{request_id}")
@@ -347,7 +395,7 @@ def testing_farm_get_ssh(params):
             "hint": "The system may still be provisioning. Try again shortly.",
         }
 
-    return {
+    result = {
         "ip": ip_address,
         "ssh_command": f"ssh root@{ip_address}",
         "request_id": request_id,
@@ -356,6 +404,8 @@ def testing_farm_get_ssh(params):
         "arch": env0.get("arch", ""),
         "artifacts_url": artifacts_url,
     }
+    cache_set(f"tf:ssh:{request_id}", result, ttl=1800)
+    return result
 
 
 def _parse_ssh_from_results_xml(xml_text, artifacts_url):
@@ -498,8 +548,6 @@ def _parse_xunit(xunit_xml):
         for tc in root.iter("testcase"):
             test = {
                 "name": tc.get("name", ""),
-                "classname": tc.get("classname", ""),
-                "time": tc.get("time", ""),
             }
             failure = tc.find("failure")
             error_elem = tc.find("error")
@@ -523,6 +571,10 @@ def testing_farm_get_logs(params):
     """Get log URLs for a request."""
     request_id = params["request_id"]
 
+    cached = cache_get(f"tf:logs:{request_id}")
+    if cached:
+        return cached
+
     status, body, _ = http("GET", f"/{API_VERSION}/requests/{request_id}")
     if status != 200:
         raise Exception(f"API error (HTTP {status}): {body}")
@@ -530,12 +582,17 @@ def testing_farm_get_logs(params):
     artifacts_url = body.get("artifacts_url", "")
     run = body.get("run", {}) or {}
 
-    return {
+    result = {
         "request_id": request_id,
         "state": body.get("state", ""),
         "pipeline_log": run.get("log", ""),
         "artifacts_url": artifacts_url,
     }
+
+    if result["state"] in ("complete", "error"):
+        cache_set(f"tf:logs:{request_id}", result, ttl=3600)
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -683,6 +740,10 @@ def testing_farm_cancel(params):
     status, body, _ = http("DELETE", f"/{API_VERSION}/requests/{request_id}")
     if status not in (200, 204):
         raise Exception(f"API error (HTTP {status}): {body}")
+
+    # Invalidate cached data for this request.
+    for prefix in ("tf:request:", "tf:ssh:", "tf:results:", "tf:logs:"):
+        cache_del(f"{prefix}{request_id}")
 
     return {
         "request_id": request_id,
