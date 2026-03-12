@@ -156,13 +156,14 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	// Register with proxy
 	vars := m.pluginVars(manifest)
 	pa := &proxy.PluginAuth{
-		BaseURL:        config.ResolveVars(manifest.Services.HTTP.BaseURL, vars),
-		AllowedDomains: manifest.Services.HTTP.AllowedDomains,
+		BaseURL:         config.ResolveVars(manifest.Services.HTTP.BaseURL, vars),
+		AllowedDomains:  manifest.Services.HTTP.AllowedDomains,
+		AllowPrivateIPs: manifest.Services.HTTP.AllowPrivateIPs,
 	}
 
 	if m.isKerberosAuth(manifest) {
 		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
-		pa.Client = proxy.NewKerberosClient(spn)
+		pa.Client = proxy.NewKerberosClient(spn, pa.AllowPrivateIPs)
 		log.Printf("[%s] using kerberos client (spn=%q)", name, spn)
 	} else {
 		pa.Provider = m.resolveAuth(manifest)

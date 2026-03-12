@@ -25,9 +25,10 @@ import (
 
 // PluginAuth holds the resolved auth and HTTP config for a plugin.
 type PluginAuth struct {
-	Provider       auth.Provider
-	BaseURL        string
-	AllowedDomains []string
+	Provider        auth.Provider
+	BaseURL         string
+	AllowedDomains  []string
+	AllowPrivateIPs bool
 
 	// Client is an optional per-plugin HTTP client. When set (e.g., for
 	// Kerberos plugins with cookie jar + SPNEGORoundTripper), it is used
@@ -39,13 +40,16 @@ type PluginAuth struct {
 // Proxy executes HTTP requests on behalf of plugins, injecting
 // authentication headers and enforcing security policies.
 type Proxy struct {
-	plugins     map[string]*PluginAuth
-	client      *http.Client
-	maxBodySize int64
+	plugins       map[string]*PluginAuth
+	client        *http.Client
+	privateClient *http.Client // for plugins with allow_private_ips
+	maxBodySize   int64
 }
 
 // New creates a Proxy with the given HTTP client and max response body size.
 // When client is nil, a default client with SSRF-safe dialer is used.
+// A second internal client with relaxed SSRF policy is created for
+// plugins that declare allow_private_ips (with required allowed_domains).
 func New(client *http.Client, maxBodySize int64) *Proxy {
 	if client == nil {
 		client = &http.Client{
@@ -54,8 +58,12 @@ func New(client *http.Client, maxBodySize int64) *Proxy {
 		}
 	}
 	return &Proxy{
-		plugins:     make(map[string]*PluginAuth),
-		client:      client,
+		plugins: make(map[string]*PluginAuth),
+		client:  client,
+		privateClient: &http.Client{
+			Transport:     safeTransport(true),
+			CheckRedirect: stripAuthOnCrossDomainRedirect,
+		},
 		maxBodySize: maxBodySize,
 	}
 }
@@ -68,11 +76,14 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 // NewKerberosClient creates an HTTP client with a cookie jar and
 // SPNEGORoundTripper for Kerberos-authenticated plugins. If spn is
 // empty, the SPN is derived dynamically from each request's hostname.
-func NewKerberosClient(spn string) *http.Client {
+// When allowPrivateIPs is true, the underlying transport permits
+// connections to private/loopback IP addresses (requires the plugin
+// to also declare allowed_domains for defense in depth).
+func NewKerberosClient(spn string, allowPrivateIPs bool) *http.Client {
 	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
 	return &http.Client{
 		Jar:           jar,
-		Transport:     kerberos.NewSPNEGORoundTripper(spn, safeTransport(false)),
+		Transport:     kerberos.NewSPNEGORoundTripper(spn, safeTransport(allowPrivateIPs)),
 		CheckRedirect: stripAuthOnCrossDomainRedirect,
 	}
 }
@@ -96,12 +107,19 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 
 	// Use per-plugin client (Kerberos with cookie jar + round tripper)
 	// or fall back to the shared client with header-based auth injection.
+	// Plugins with allow_private_ips use the privateClient which has a
+	// relaxed SSRF dialer (domain allowlist still enforced above).
 	client := p.client
 	if pa.Client != nil {
 		client = pa.Client
-	} else if pa.Provider != nil {
-		if err := p.injectAuth(ctx, pa.Provider, httpReq); err != nil {
-			return errResponse(req.ID, "auth_failed", err.Error())
+	} else {
+		if pa.AllowPrivateIPs {
+			client = p.privateClient
+		}
+		if pa.Provider != nil {
+			if err := p.injectAuth(ctx, pa.Provider, httpReq); err != nil {
+				return errResponse(req.ID, "auth_failed", err.Error())
+			}
 		}
 	}
 

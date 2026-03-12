@@ -194,6 +194,11 @@ func TestManifestValidation(t *testing.T) {
 			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\nenv_passthrough: 'YES'\ntools: []",
 			wantErr: "env_passthrough must be 'all' or empty",
 		},
+		{
+			name:    "allow_private_ips without allowed_domains",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    base_url: 'https://internal.corp.com'\n    allow_private_ips: true",
+			wantErr: "allow_private_ips requires allowed_domains",
+		},
 	}
 
 	for _, tt := range tests {
@@ -495,6 +500,43 @@ services:
 	}
 	if !contains(err.Error(), "IP addresses") {
 		t.Errorf("error = %q, want substring 'IP addresses'", err.Error())
+	}
+}
+
+func TestManifestAllowPrivateIPsValid(t *testing.T) {
+	dir := t.TempDir()
+	handlerPath := filepath.Join(dir, "handler")
+	if err := os.WriteFile(handlerPath, []byte("#!/bin/bash\n"), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+
+	manifest := `
+name: test-private
+version: "1.0.0"
+handler: ./handler
+tools: []
+services:
+  http:
+    base_url: "https://internal.corp.com"
+    allowed_domains:
+      - "internal.corp.com"
+      - "auth.corp.com"
+    allow_private_ips: true
+`
+	path := filepath.Join(dir, "plugin.yaml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config file
+		t.Fatal(err)
+	}
+
+	m, err := LoadManifest(path)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+	if !m.Services.HTTP.AllowPrivateIPs {
+		t.Error("AllowPrivateIPs should be true")
+	}
+	if len(m.Services.HTTP.AllowedDomains) != 2 {
+		t.Errorf("AllowedDomains = %v, want 2 entries", m.Services.HTTP.AllowedDomains)
 	}
 }
 

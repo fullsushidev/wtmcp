@@ -15,7 +15,7 @@ import (
 // eliminating the TOCTOU window of a separate pre-check.
 type safeDialer struct {
 	dialer       net.Dialer
-	allowPrivate bool // for testing only
+	allowPrivate bool // true for plugins with allow_private_ips + allowed_domains
 }
 
 // DialContext resolves the host, validates all IPs against the

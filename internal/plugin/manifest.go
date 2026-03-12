@@ -80,8 +80,9 @@ type AuthServiceConfig struct {
 
 // HTTPServiceConfig declares HTTP proxy settings.
 type HTTPServiceConfig struct {
-	BaseURL        string   `yaml:"base_url"`
-	AllowedDomains []string `yaml:"allowed_domains"`
+	BaseURL         string   `yaml:"base_url"`
+	AllowedDomains  []string `yaml:"allowed_domains"`
+	AllowPrivateIPs bool     `yaml:"allow_private_ips"`
 }
 
 // CacheServiceConfig declares cache settings.
@@ -295,6 +296,13 @@ func (m *Manifest) Validate() error {
 		if u.RawQuery != "" || u.Fragment != "" {
 			return fmt.Errorf("base_url must not contain query or fragment: %s", m.Services.HTTP.BaseURL)
 		}
+	}
+
+	// allow_private_ips requires allowed_domains as defense in depth:
+	// plugins must declare which domains they need, and only those
+	// domains are permitted to resolve to private IPs.
+	if m.Services.HTTP.AllowPrivateIPs && len(m.Services.HTTP.AllowedDomains) == 0 {
+		return fmt.Errorf("allow_private_ips requires allowed_domains to be set")
 	}
 
 	// Validate allowed_domains

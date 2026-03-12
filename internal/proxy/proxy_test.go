@@ -619,3 +619,123 @@ func TestSafeDialerAllowPrivate(t *testing.T) {
 		_ = conn.Close()
 	}
 }
+
+func TestAllowPrivateIPsUsesPrivateClient(t *testing.T) {
+	// Start a TLS server on localhost — this resolves to 127.0.0.1
+	// which is normally blocked by the SSRF dialer.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"private":true}`))
+	}))
+	defer srv.Close()
+
+	// Create proxy with the test server's TLS client as the
+	// privateClient so the test can reach the local test server.
+	p := &Proxy{
+		plugins: make(map[string]*PluginAuth),
+		client: &http.Client{
+			Transport:     safeTransport(false),
+			CheckRedirect: stripAuthOnCrossDomainRedirect,
+		},
+		privateClient: srv.Client(),
+		maxBodySize:   10 * 1024 * 1024,
+	}
+
+	// Plugin with AllowPrivateIPs should reach the server
+	p.RegisterPlugin("private-ok", &PluginAuth{
+		BaseURL:         srv.URL,
+		AllowPrivateIPs: true,
+	})
+
+	resp := p.Execute(context.Background(), "private-ok", protocol.Message{
+		ID: "req-priv", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
+	})
+	if resp.Status != 200 {
+		t.Errorf("AllowPrivateIPs plugin: status = %d, error = %v", resp.Status, resp.Error)
+	}
+	if string(resp.Body) != `{"private":true}` {
+		t.Errorf("body = %s", resp.Body)
+	}
+}
+
+func TestDefaultPluginBlocksPrivateIPs(t *testing.T) {
+	// Default proxy should block loopback even when a server is there
+	p := New(nil, 10*1024*1024)
+	p.RegisterPlugin("strict", &PluginAuth{
+		BaseURL:         "https://127.0.0.1",
+		AllowPrivateIPs: false,
+	})
+
+	resp := p.Execute(context.Background(), "strict", protocol.Message{
+		ID: "req-strict", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
+	})
+
+	if resp.Error == nil || resp.Error.Code != "transport_error" {
+		t.Errorf("expected transport_error, got status=%d error=%v", resp.Status, resp.Error)
+	}
+	if resp.Error != nil && !strings.Contains(resp.Error.Message, "SSRF blocked") {
+		t.Errorf("expected SSRF blocked, got %q", resp.Error.Message)
+	}
+}
+
+func TestAllowPrivateIPsWithAuth(t *testing.T) {
+	// Verify that AllowPrivateIPs + auth provider injects auth correctly
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader != "Bearer private-token" {
+			t.Errorf("Authorization = %q, want 'Bearer private-token'", authHeader)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"authed":true}`))
+	}))
+	defer srv.Close()
+
+	p := &Proxy{
+		plugins: make(map[string]*PluginAuth),
+		client: &http.Client{
+			Transport:     safeTransport(false),
+			CheckRedirect: stripAuthOnCrossDomainRedirect,
+		},
+		privateClient: srv.Client(),
+		maxBodySize:   10 * 1024 * 1024,
+	}
+
+	p.RegisterPlugin("priv-auth", &PluginAuth{
+		BaseURL:         srv.URL,
+		AllowPrivateIPs: true,
+		Provider:        auth.NewBearerProvider("private-token", "", ""),
+	})
+
+	resp := p.Execute(context.Background(), "priv-auth", protocol.Message{
+		ID: "req-priv-auth", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/secure",
+	})
+
+	if resp.Status != 200 {
+		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
+
+func TestAllowPrivateIPsWithPerPluginClient(t *testing.T) {
+	// When a per-plugin Client is set (e.g., Kerberos), it takes
+	// precedence over AllowPrivateIPs client selection.
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"custom":true}`))
+	}))
+	defer srv.Close()
+
+	p := New(nil, 10*1024*1024)
+	p.RegisterPlugin("custom-client", &PluginAuth{
+		BaseURL:         srv.URL,
+		AllowPrivateIPs: true,
+		Client:          srv.Client(), // per-plugin client overrides
+	})
+
+	resp := p.Execute(context.Background(), "custom-client", protocol.Message{
+		ID: "req-custom", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
+	})
+
+	if resp.Status != 200 {
+		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
