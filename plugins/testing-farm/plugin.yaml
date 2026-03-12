@@ -134,6 +134,88 @@ tools:
         required: true
         description: "Request ID (UUID)"
 
+  # --- Write tools ---
+
+  - name: testing_farm_reserve
+    access: write
+    description: >
+      Reserve a system on Testing Farm. Injects SSH public keys
+      automatically from ~/.ssh/id_*.pub. Defaults to dry_run=true
+      which returns a preview of the request payload.
+    params:
+      compose:
+        type: string
+        required: true
+        description: "OS compose (e.g. Fedora-Rawhide, RHEL-9.3.0-Nightly)"
+      arch:
+        type: string
+        required: true
+        description: "Architecture (x86_64, s390x, aarch64, ppc64le)"
+      duration:
+        type: integer
+        default: 60
+        description: "Reservation duration in minutes (max 720)"
+      hardware:
+        type: object
+        description: "Hardware specs (cpu, memory, disk). Optional."
+      ssh_keys:
+        type: string
+        description: "Additional SSH public keys (one per line). Auto-discovered keys are always included."
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: testing_farm_submit_test
+    access: write
+    description: >
+      Submit a test request to Testing Farm. Defaults to dry_run=true
+      which returns a preview of the request payload.
+    params:
+      git_url:
+        type: string
+        required: true
+        description: "Git repository containing TMT tests"
+      git_ref:
+        type: string
+        default: "main"
+        description: "Git branch or ref"
+      plan_name:
+        type: string
+        description: "TMT plan name (--name filter)"
+      compose:
+        type: string
+        required: true
+        description: "OS compose (e.g. Fedora-Rawhide)"
+      arch:
+        type: string
+        required: true
+        description: "Architecture (x86_64, s390x, aarch64, ppc64le)"
+      artifacts:
+        type: array
+        description: "Artifacts to install [{id, type, packages}]"
+        items:
+          type: object
+      env_vars:
+        type: object
+        description: "Environment variables for the test"
+      timeout:
+        type: integer
+        description: "Timeout in minutes (default 720)"
+      dry_run:
+        type: boolean
+        default: true
+
+  - name: testing_farm_cancel
+    access: write
+    description: >
+      Cancel a test request or release a reserved system. This
+      deletes the request from Testing Farm.
+    params:
+      request_id:
+        type: string
+        required: true
+        description: "Request ID (UUID)"
+
 setup:
   credentials:
     TESTING_FARM_API_TOKEN:

@@ -9,7 +9,9 @@ Zero dependencies beyond Python stdlib.
 """
 
 import base64
+import glob as globmod
 import json
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -18,6 +20,7 @@ _next_id = 0
 
 # Plugin state set during init.
 config = {}
+ssh_keys = []
 
 API_VERSION = "v0.1"
 
@@ -100,6 +103,38 @@ def cache_set(key, value, ttl=None):
 def log(message):
     """Write a log message to stderr (captured by core)."""
     print(f"testing-farm: {message}", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# SSH key discovery
+# ---------------------------------------------------------------------------
+
+
+def _discover_ssh_keys():
+    """Discover SSH public keys from ~/.ssh/ or config override."""
+    keys = []
+    key_path = config.get("ssh_key_path", "")
+
+    if key_path:
+        try:
+            with open(key_path, "r") as f:
+                content = f.read().strip()
+                if content:
+                    keys.append(content)
+        except OSError as e:
+            log(f"failed to read SSH key from {key_path}: {e}")
+    else:
+        home = os.path.expanduser("~")
+        for path in sorted(globmod.glob(os.path.join(home, ".ssh", "id_*.pub"))):
+            try:
+                with open(path, "r") as f:
+                    content = f.read().strip()
+                    if content:
+                        keys.append(content)
+            except OSError:
+                continue
+
+    return keys
 
 
 # ---------------------------------------------------------------------------
@@ -504,10 +539,163 @@ def testing_farm_get_logs(params):
 
 
 # ---------------------------------------------------------------------------
+# Write tools
+# ---------------------------------------------------------------------------
+
+
+def testing_farm_reserve(params):
+    """Reserve a system on Testing Farm."""
+    compose = params["compose"]
+    arch = params["arch"]
+    duration = params.get("duration", 60)
+    hardware = params.get("hardware")
+    extra_keys = params.get("ssh_keys", "")
+    dry_run = params.get("dry_run", True)
+
+    # Combine auto-discovered keys with any extra keys.
+    all_keys = list(ssh_keys)
+    if extra_keys:
+        for line in extra_keys.strip().splitlines():
+            line = line.strip()
+            if line and line not in all_keys:
+                all_keys.append(line)
+
+    if not all_keys:
+        raise Exception("No SSH public keys found. Provide ssh_keys parameter or ensure ~/.ssh/id_*.pub files exist.")
+
+    keys_blob = "\n".join(all_keys)
+    keys_b64 = base64.b64encode(keys_blob.encode("utf-8")).decode("ascii")
+
+    environment = {
+        "os": {"compose": compose},
+        "arch": arch,
+        "variables": {
+            "TF_RESERVATION_DURATION": str(duration),
+        },
+        "secrets": {
+            "TF_RESERVATION_AUTHORIZED_KEYS_BASE64": keys_b64,
+        },
+        "settings": {
+            "provisioning": {
+                "tags": {
+                    "ArtemisUseSpot": "false",
+                },
+            },
+        },
+    }
+
+    if hardware:
+        environment["hardware"] = hardware
+
+    payload = {
+        "test": {
+            "fmf": {
+                "url": "https://gitlab.com/testing-farm/tests",
+                "ref": "main",
+                "name": "/testing-farm/reserve",
+            },
+        },
+        "environments": [environment],
+    }
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "message": "Preview — set dry_run=false to submit",
+            "payload": payload,
+            "ssh_keys_count": len(all_keys),
+        }
+
+    status, body, _ = http("POST", f"/{API_VERSION}/requests", body=payload)
+    if status not in (200, 201):
+        raise Exception(f"API error (HTTP {status}): {body}")
+
+    return {
+        "id": body.get("id", ""),
+        "state": body.get("state", ""),
+        "message": (
+            "Reservation submitted. Use testing_farm_list_reservations to monitor,"
+            " then testing_farm_get_ssh to get connection details."
+        ),
+    }
+
+
+def testing_farm_submit_test(params):
+    """Submit a test request to Testing Farm."""
+    git_url = params["git_url"]
+    git_ref = params.get("git_ref", "main")
+    plan_name = params.get("plan_name")
+    compose = params["compose"]
+    arch = params["arch"]
+    artifacts = params.get("artifacts")
+    env_vars = params.get("env_vars")
+    timeout = params.get("timeout")
+    dry_run = params.get("dry_run", True)
+
+    fmf = {
+        "url": git_url,
+        "ref": git_ref,
+    }
+    if plan_name:
+        fmf["name"] = plan_name
+
+    environment = {
+        "os": {"compose": compose},
+        "arch": arch,
+    }
+
+    if artifacts:
+        environment["artifacts"] = artifacts
+
+    if env_vars:
+        environment["variables"] = env_vars
+
+    payload = {
+        "test": {"fmf": fmf},
+        "environments": [environment],
+    }
+
+    if timeout:
+        payload["settings"] = {"pipeline": {"timeout": int(timeout) * 60}}
+
+    if dry_run:
+        return {
+            "dry_run": True,
+            "message": "Preview — set dry_run=false to submit",
+            "payload": payload,
+        }
+
+    status, body, _ = http("POST", f"/{API_VERSION}/requests", body=payload)
+    if status not in (200, 201):
+        raise Exception(f"API error (HTTP {status}): {body}")
+
+    return {
+        "id": body.get("id", ""),
+        "state": body.get("state", ""),
+        "message": "Test submitted. Use testing_farm_get_request to monitor progress.",
+    }
+
+
+def testing_farm_cancel(params):
+    """Cancel a test request or release a reservation."""
+    request_id = params["request_id"]
+
+    status, body, _ = http("DELETE", f"/{API_VERSION}/requests/{request_id}")
+    if status not in (200, 204):
+        raise Exception(f"API error (HTTP {status}): {body}")
+
+    return {
+        "request_id": request_id,
+        "message": "Request cancelled/deleted successfully",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Main loop
 # ---------------------------------------------------------------------------
 
 TOOLS = {
+    # Read tools
     "testing_farm_about": testing_farm_about,
     "testing_farm_whoami": testing_farm_whoami,
     "testing_farm_list_requests": testing_farm_list_requests,
@@ -517,14 +705,19 @@ TOOLS = {
     "testing_farm_get_ssh": testing_farm_get_ssh,
     "testing_farm_get_results": testing_farm_get_results,
     "testing_farm_get_logs": testing_farm_get_logs,
+    # Write tools
+    "testing_farm_reserve": testing_farm_reserve,
+    "testing_farm_submit_test": testing_farm_submit_test,
+    "testing_farm_cancel": testing_farm_cancel,
 }
 
 
 def _init(msg):
-    """Handle init message: store config."""
-    global config
+    """Handle init message: store config, discover SSH keys."""
+    global config, ssh_keys
     config = msg.get("config", {})
-    log(f"init: api_url={config.get('api_url', '?')}")
+    ssh_keys = _discover_ssh_keys()
+    log(f"init: api_url={config.get('api_url', '?')}, ssh_keys={len(ssh_keys)}")
 
 
 def main():
