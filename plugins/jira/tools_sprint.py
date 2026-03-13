@@ -54,11 +54,12 @@ def _get_board_sprints(board_id, state, limit):
 
 def _get_sprints_from_tickets(state, limit):
     """Extract sprint names from recent tickets via JQL."""
+    sf = handler.sprint_field
     jql = "assignee = currentUser() AND updated >= -60d ORDER BY updated DESC"
     status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
-        query={"jql": jql, "maxResults": "100", "fields": "sprint"},
+        query={"jql": jql, "maxResults": "100", "fields": sf},
     )
     if status < 200 or status >= 300:
         return body
@@ -66,7 +67,7 @@ def _get_sprints_from_tickets(state, limit):
     seen = set()
     sprints = []
     for issue in body.get("issues", []):
-        sprint_data = issue.get("fields", {}).get("sprint")
+        sprint_data = issue.get("fields", {}).get(sf)
         # sprint field can be a single object or a list
         items = sprint_data if isinstance(sprint_data, list) else ([sprint_data] if sprint_data else [])
         for obj in items:

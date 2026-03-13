@@ -16,6 +16,7 @@ _next_id = 0
 # Plugin state set during init.
 config = {}
 is_cloud = False
+sprint_field = "sprint"  # custom field ID, auto-detected at init
 
 
 def _send(msg):
@@ -163,9 +164,26 @@ def _detect_cloud():
     return False, True
 
 
+def _detect_sprint_field():
+    """Detect the sprint custom field ID.
+
+    On Cloud, the sprint field is "sprint". On Server, it's a
+    custom field (e.g., customfield_12310940). Queries the field
+    list and looks for a field named "Sprint".
+    """
+    if is_cloud:
+        return "sprint"
+    status, body, _ = http("GET", "/rest/api/2/field")
+    if 200 <= status < 300 and isinstance(body, list):
+        for field in body:
+            if field.get("name", "").lower() == "sprint":
+                return field.get("id", "sprint")
+    return "sprint"
+
+
 def _init(msg):
     """Handle init message: store config, detect Cloud vs Server."""
-    global config, is_cloud
+    global config, is_cloud, sprint_field
     config = msg.get("config", {})
     is_cloud, auth_ok = _detect_cloud()
     if not auth_ok:
@@ -176,7 +194,8 @@ def _init(msg):
             "to use bearer auth instead of basic auth. "
             "If this is Jira Cloud, verify your API token."
         )
-    log(f"init: cloud={is_cloud}, url={config.get('jira_url', '?')}")
+    sprint_field = _detect_sprint_field()
+    log(f"init: cloud={is_cloud}, sprint_field={sprint_field}, url={config.get('jira_url', '?')}")
 
 
 def log(message):
