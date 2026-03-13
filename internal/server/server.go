@@ -19,7 +19,9 @@ import (
 )
 
 // New creates an MCP server with tools from all loaded plugins.
-func New(version string, manager *plugin.Manager, cfg *config.Config) *mcpserver.MCPServer {
+// The index is used for tool_search and must be rebuilt on plugin
+// reload via ReloadPlugin.
+func New(version string, manager *plugin.Manager, cfg *config.Config, index *ToolIndex) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer(
 		"wtmcp",
 		version,
@@ -27,27 +29,33 @@ func New(version string, manager *plugin.Manager, cfg *config.Config) *mcpserver
 		mcpserver.WithResourceCapabilities(true, false),
 	)
 
-	// Register tools from all plugin manifests
+	progressive := cfg.Tools.Discovery == "progressive"
+
+	// Register tools from all plugin manifests. In progressive
+	// mode, non-primary tools get the defer_loading flag.
 	for _, manifest := range manager.Manifests() {
 		outputFormat := cfg.Output.Format
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
-		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback)
+		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback, progressive)
 	}
 
 	// Register context files as MCP resources
 	registerContextResources(srv, manager)
 
 	// Built-in management tools
-	registerManagementTools(srv, manager, cfg)
+	registerManagementTools(srv, manager, cfg, index)
+
+	// tool_search — useful in both modes
+	registerToolSearch(srv, index)
 
 	return srv
 }
 
-func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool) {
+func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool, progressive bool) {
 	for _, toolDef := range manifest.Tools {
-		tool := buildMCPTool(toolDef)
+		tool := buildMCPTool(toolDef, progressive)
 		toolName := toolDef.Name
 		format := outputFormat
 		fallback := toonFallback
@@ -81,10 +89,14 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 	}
 }
 
-func buildMCPTool(def plugin.ToolDef) mcp.Tool {
+func buildMCPTool(def plugin.ToolDef, progressive bool) mcp.Tool {
 	schema := def.ParamsSchema()
 	schemaJSON, _ := json.Marshal(schema)
 	tool := mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
+
+	if progressive && !def.IsPrimary() {
+		tool.DeferLoading = true
+	}
 
 	if def.IsReadOnly() {
 		t := true
@@ -97,7 +109,7 @@ func buildMCPTool(def plugin.ToolDef) mcp.Tool {
 	return tool
 }
 
-func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config) {
+func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex) {
 	// plugin_list: list all loaded plugins
 	srv.AddTool(
 		mcp.NewTool("plugin_list",
@@ -106,12 +118,22 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var plugins []map[string]any
 			for name, manifest := range mgr.Manifests() {
+				var primaryCount, deferredCount int
+				for _, t := range manifest.Tools {
+					if t.IsPrimary() {
+						primaryCount++
+					} else {
+						deferredCount++
+					}
+				}
 				plugins = append(plugins, map[string]any{
 					"name":        name,
 					"version":     manifest.Version,
 					"description": manifest.Description,
 					"execution":   manifest.Execution,
 					"tools":       len(manifest.Tools),
+					"primary":     primaryCount,
+					"deferred":    deferredCount,
 				})
 			}
 			data, _ := json.Marshal(plugins)
@@ -130,7 +152,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 			if !ok || name == "" {
 				return mcp.NewToolResultError("name is required"), nil
 			}
-			if err := ReloadPlugin(ctx, srv, mgr, cfg, name); err != nil {
+			if err := ReloadPlugin(ctx, srv, mgr, cfg, name, index); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 			return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
@@ -142,7 +164,12 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 // resources with the MCP server. The mcp-go library automatically sends
 // notifications/tools/list_changed and notifications/resources/list_changed
 // when tools and resources are added or deleted.
-func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string) error {
+//
+// The index is rebuilt to reflect manifest changes, and tool_search is
+// re-registered so its CategorySummary stays current.
+func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string, index *ToolIndex) error {
+	progressive := cfg.Tools.Discovery == "progressive"
+
 	// Collect old tool names and context URIs before reload
 	var oldToolNames []string
 	var oldContextURIs []string
@@ -174,9 +201,15 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
-		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback)
+		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback, progressive)
 		registerPluginContextResources(srv, manifest)
 	}
+
+	// Rebuild tool index and re-register tool_search so the
+	// CategorySummary reflects the reloaded manifest.
+	index.Rebuild(mgr)
+	srv.DeleteTools("tool_search")
+	registerToolSearch(srv, index)
 
 	return nil
 }

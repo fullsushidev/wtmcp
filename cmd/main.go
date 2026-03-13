@@ -98,10 +98,11 @@ func run() error {
 		return fmt.Errorf("plugin loading: %w", err)
 	}
 
-	srv := server.New(Version, mgr, cfg)
+	index := server.NewToolIndex(mgr)
+	srv := server.New(Version, mgr, cfg, index)
 
 	// Start control directory watcher for external reload triggers
-	controlWatcher := server.NewControlWatcher(workdir, srv, mgr, cfg)
+	controlWatcher := server.NewControlWatcher(workdir, srv, mgr, cfg, index)
 	if err := controlWatcher.Start(); err != nil {
 		log.Printf("control watcher disabled: %v", err)
 	}

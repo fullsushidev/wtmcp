@@ -27,12 +27,13 @@ type ControlWatcher struct {
 	srv         *mcpserver.MCPServer
 	mgr         *plugin.Manager
 	cfg         *config.Config
+	index       *ToolIndex
 	stop        chan struct{}
 	done        chan struct{}
 }
 
 // NewControlWatcher creates a control watcher for the given workdir.
-func NewControlWatcher(workdir string, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config) *ControlWatcher {
+func NewControlWatcher(workdir string, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex) *ControlWatcher {
 	controlDir := filepath.Join(workdir, "control")
 	return &ControlWatcher{
 		commandsDir: filepath.Join(controlDir, "commands"),
@@ -42,6 +43,7 @@ func NewControlWatcher(workdir string, srv *mcpserver.MCPServer, mgr *plugin.Man
 		srv:         srv,
 		mgr:         mgr,
 		cfg:         cfg,
+		index:       index,
 		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
 	}
@@ -123,7 +125,7 @@ func (w *ControlWatcher) processCommand(filename string) {
 			result["status"] = "success"
 			var reloaded []string
 			for name := range w.mgr.Manifests() {
-				if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, name); err != nil {
+				if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, name, w.index); err != nil {
 					result["status"] = "partial"
 					result["error"] = fmt.Sprintf("failed to reload %s: %v", name, err)
 				} else {
@@ -132,7 +134,7 @@ func (w *ControlWatcher) processCommand(filename string) {
 			}
 			result["reloaded"] = reloaded
 		} else {
-			if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, pluginName); err != nil {
+			if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, pluginName, w.index); err != nil {
 				result["status"] = "error"
 				result["error"] = err.Error()
 			} else {
