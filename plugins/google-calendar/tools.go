@@ -148,15 +148,11 @@ func toolUpdateEvent(params, _ json.RawMessage) (any, error) {
 		p.Calendar = "primary"
 	}
 
-	// Fetch existing event
-	event, err := calendarSvc.Events.Get(p.Calendar, p.EventID).Do()
-	if err != nil {
-		return nil, fmt.Errorf("get event for update: %w", err)
-	}
-
-	changes := applyEventUpdates(event, p)
-
 	if p.DryRun {
+		// In dry_run mode, report which fields would change
+		// without fetching or modifying the event.
+		event := &calendar.Event{}
+		changes := applyEventUpdates(event, p)
 		return map[string]any{
 			"dry_run":     true,
 			"action":      "calendar_update_event",
@@ -165,6 +161,13 @@ func toolUpdateEvent(params, _ json.RawMessage) (any, error) {
 			"changes":     changes,
 		}, nil
 	}
+
+	// Fetch existing event, apply updates, and save
+	event, err := calendarSvc.Events.Get(p.Calendar, p.EventID).Do()
+	if err != nil {
+		return nil, fmt.Errorf("get event for update: %w", err)
+	}
+	applyEventUpdates(event, p)
 
 	res, err := calendarSvc.Events.Update(p.Calendar, p.EventID, event).Fields(eventFields).Do()
 	if err != nil {

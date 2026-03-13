@@ -184,6 +184,74 @@ func TestDeleteEventMissingEventID(t *testing.T) {
 	}
 }
 
+// --- toolUpdateEvent dry_run tests ---
+
+func TestUpdateEventDryRun(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"event_id": "evt-789",
+		"summary":  "Updated meeting",
+		"location": "Room B",
+	})
+
+	result, err := toolUpdateEvent(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+	if m["action"] != "calendar_update_event" {
+		t.Errorf("action = %v", m["action"])
+	}
+	if m["event_id"] != "evt-789" {
+		t.Errorf("event_id = %v", m["event_id"])
+	}
+	changes, ok := m["changes"].(map[string]any)
+	if !ok {
+		t.Fatalf("changes type = %T", m["changes"])
+	}
+	if changes["summary"] != "Updated meeting" {
+		t.Errorf("changes[summary] = %v", changes["summary"])
+	}
+	if changes["location"] != "Room B" {
+		t.Errorf("changes[location] = %v", changes["location"])
+	}
+}
+
+func TestUpdateEventDryRunNoServiceAccess(t *testing.T) {
+	// calendarSvc is nil — this test verifies that dry_run does
+	// NOT access the service (would panic if it did).
+	params := mustJSON(t, map[string]any{
+		"event_id": "evt-999",
+		"summary":  "Safe update",
+	})
+
+	result, err := toolUpdateEvent(params, nil)
+	if err != nil {
+		t.Fatalf("dry_run should not access service: %v", err)
+	}
+	m := result.(map[string]any)
+	if m["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+}
+
+func TestUpdateEventMissingEventID(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"summary": "No event ID",
+	})
+
+	_, err := toolUpdateEvent(params, nil)
+	if err == nil {
+		t.Fatal("expected error for missing event_id")
+	}
+}
+
 // --- buildEvent tests ---
 
 func TestBuildEventMinimal(t *testing.T) {
