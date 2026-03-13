@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -97,6 +98,90 @@ func TestCleanGoogleDocsCSS(t *testing.T) {
 			got := cleanGoogleDocsCSS(tt.input)
 			if got != tt.want {
 				t.Errorf("cleanGoogleDocsCSS() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildSearchQuery(t *testing.T) {
+	tests := []struct {
+		name           string
+		text           string
+		inNameOnly     bool
+		mimeTypes      []string
+		owners         []string
+		includeTrashed bool
+		wantContains   []string
+		wantNotContain []string
+	}{
+		{
+			name:         "text only full-text",
+			text:         "quarterly report",
+			wantContains: []string{"fullText contains 'quarterly report'", "name contains 'quarterly report'", "trashed = false"},
+		},
+		{
+			name:           "name only",
+			text:           "budget",
+			inNameOnly:     true,
+			wantContains:   []string{"name contains 'budget'"},
+			wantNotContain: []string{"fullText"},
+		},
+		{
+			name:         "single mime type",
+			text:         "doc",
+			mimeTypes:    []string{"application/vnd.google-apps.document"},
+			wantContains: []string{"mimeType = 'application/vnd.google-apps.document'"},
+		},
+		{
+			name:         "multiple mime types ORed",
+			text:         "doc",
+			mimeTypes:    []string{"application/vnd.google-apps.document", "application/pdf"},
+			wantContains: []string{"(mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/pdf')"},
+		},
+		{
+			name:         "single owner",
+			text:         "design",
+			owners:       []string{"me"},
+			wantContains: []string{"'me' in owners"},
+		},
+		{
+			name:         "multiple owners ORed",
+			text:         "design",
+			owners:       []string{"alice@example.com", "bob@example.com"},
+			wantContains: []string{"('alice@example.com' in owners or 'bob@example.com' in owners)"},
+		},
+		{
+			name:           "include trashed",
+			text:           "old",
+			includeTrashed: true,
+			wantNotContain: []string{"trashed"},
+		},
+		{
+			name:         "combined filters",
+			text:         "meeting",
+			mimeTypes:    []string{"application/vnd.google-apps.document"},
+			owners:       []string{"me"},
+			wantContains: []string{"fullText contains", "mimeType =", "'me' in owners", "trashed = false"},
+		},
+		{
+			name:         "escapes quotes in text",
+			text:         "it's a test",
+			wantContains: []string{"it\\'s a test"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := buildSearchQuery(tt.text, tt.inNameOnly, tt.mimeTypes, tt.owners, tt.includeTrashed)
+			for _, want := range tt.wantContains {
+				if !strings.Contains(got, want) {
+					t.Errorf("query %q should contain %q", got, want)
+				}
+			}
+			for _, notWant := range tt.wantNotContain {
+				if strings.Contains(got, notWant) {
+					t.Errorf("query %q should not contain %q", got, notWant)
+				}
 			}
 		})
 	}

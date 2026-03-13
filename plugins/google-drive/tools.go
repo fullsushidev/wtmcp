@@ -447,44 +447,7 @@ func toolSearchText(params, _ json.RawMessage) (any, error) {
 		p.Fields = "files(id,name,webViewLink,mimeType,owners,modifiedTime,size),nextPageToken"
 	}
 
-	escaped := strings.ReplaceAll(p.Text, "'", "\\'")
-	var clauses []string
-
-	if p.InNameOnly {
-		clauses = append(clauses, fmt.Sprintf("name contains '%s'", escaped))
-	} else {
-		clauses = append(clauses, fmt.Sprintf("(name contains '%s' or fullText contains '%s')", escaped, escaped))
-	}
-
-	if len(p.MIMETypes) > 0 {
-		var mt []string
-		for _, m := range p.MIMETypes {
-			mt = append(mt, fmt.Sprintf("mimeType = '%s'", strings.ReplaceAll(m, "'", "\\'")))
-		}
-		if len(mt) == 1 {
-			clauses = append(clauses, mt[0])
-		} else {
-			clauses = append(clauses, "("+strings.Join(mt, " or ")+")")
-		}
-	}
-
-	if len(p.Owners) > 0 {
-		var own []string
-		for _, o := range p.Owners {
-			own = append(own, fmt.Sprintf("'%s' in owners", strings.ReplaceAll(o, "'", "\\'")))
-		}
-		if len(own) == 1 {
-			clauses = append(clauses, own[0])
-		} else {
-			clauses = append(clauses, "("+strings.Join(own, " or ")+")")
-		}
-	}
-
-	if !p.IncludeTrashed {
-		clauses = append(clauses, "trashed = false")
-	}
-
-	q := strings.Join(clauses, " and ")
+	q := buildSearchQuery(p.Text, p.InNameOnly, p.MIMETypes, p.Owners, p.IncludeTrashed)
 
 	res, err := driveSvc.Files.List().
 		Q(q).
@@ -498,4 +461,47 @@ func toolSearchText(params, _ json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("search text: %w", err)
 	}
 	return res, nil
+}
+
+// buildSearchQuery constructs a Drive API query string from search
+// parameters. Pure function — no service access.
+func buildSearchQuery(text string, inNameOnly bool, mimeTypes, owners []string, includeTrashed bool) string {
+	escaped := strings.ReplaceAll(text, "'", "\\'")
+	var clauses []string
+
+	if inNameOnly {
+		clauses = append(clauses, fmt.Sprintf("name contains '%s'", escaped))
+	} else {
+		clauses = append(clauses, fmt.Sprintf("(name contains '%s' or fullText contains '%s')", escaped, escaped))
+	}
+
+	if len(mimeTypes) > 0 {
+		var mt []string
+		for _, m := range mimeTypes {
+			mt = append(mt, fmt.Sprintf("mimeType = '%s'", strings.ReplaceAll(m, "'", "\\'")))
+		}
+		if len(mt) == 1 {
+			clauses = append(clauses, mt[0])
+		} else {
+			clauses = append(clauses, "("+strings.Join(mt, " or ")+")")
+		}
+	}
+
+	if len(owners) > 0 {
+		var own []string
+		for _, o := range owners {
+			own = append(own, fmt.Sprintf("'%s' in owners", strings.ReplaceAll(o, "'", "\\'")))
+		}
+		if len(own) == 1 {
+			clauses = append(clauses, own[0])
+		} else {
+			clauses = append(clauses, "("+strings.Join(own, " or ")+")")
+		}
+	}
+
+	if !includeTrashed {
+		clauses = append(clauses, "trashed = false")
+	}
+
+	return strings.Join(clauses, " and ")
 }
