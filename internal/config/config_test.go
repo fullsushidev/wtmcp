@@ -164,7 +164,7 @@ func TestLoadConfigMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("should not error on missing file: %v", err)
 	}
-	if cfg.Output.Format != "json" {
+	if cfg.Output.Format != "toon" {
 		t.Errorf("should return defaults, got format=%q", cfg.Output.Format)
 	}
 }
@@ -175,8 +175,8 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Plugins.MaxMessageSize != 10*1024*1024 {
 		t.Errorf("MaxMessageSize = %d, want %d", cfg.Plugins.MaxMessageSize, 10*1024*1024)
 	}
-	if cfg.Output.Format != "json" {
-		t.Errorf("Output.Format = %q, want %q", cfg.Output.Format, "json")
+	if cfg.Output.Format != "toon" {
+		t.Errorf("Output.Format = %q, want %q", cfg.Output.Format, "toon")
 	}
 	if cfg.Cache.Backend != "memory" {
 		t.Errorf("Cache.Backend = %q, want %q", cfg.Cache.Backend, "memory")

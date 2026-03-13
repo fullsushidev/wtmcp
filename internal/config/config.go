@@ -110,7 +110,7 @@ func DefaultConfig() *Config {
 			ShutdownKillAfter: 5 * time.Second,
 		},
 		Output: OutputConfig{
-			Format:       "json",
+			Format:       "toon",
 			ToonFallback: true,
 		},
 		Tools: ToolsConfig{
