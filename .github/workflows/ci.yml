@@ -49,9 +49,5 @@ jobs:
       - name: Install pytest
         run: pip install pytest
 
-      - name: Test Jira plugin
-        run: python -m pytest tests/plugins/jira/ -v
-
-      - name: Test Confluence plugin
-        working-directory: plugins/confluence
-        run: python -m pytest test_handler.py -v
+      - name: Test Python plugins
+        run: python -m pytest plugins/ -v
