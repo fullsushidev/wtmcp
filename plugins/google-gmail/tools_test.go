@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -160,5 +161,233 @@ func TestCacheDirectory(t *testing.T) {
 	got := cacheDirectory()
 	if got != ".gmail_cache" {
 		t.Errorf("cacheDirectory() = %q, want .gmail_cache", got)
+	}
+}
+
+// --- toolSendMessage dry_run tests ---
+
+func mustJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func TestSendMessageDryRunBasic(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"to":      "alice@example.com",
+		"subject": "Test",
+		"body":    "Hello",
+	})
+
+	result, err := toolSendMessage(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+	if m["action"] != "gmail_send_message" {
+		t.Errorf("action = %v", m["action"])
+	}
+	if m["to"] != "alice@example.com" {
+		t.Errorf("to = %v", m["to"])
+	}
+	if m["subject"] != "Test" {
+		t.Errorf("subject = %v", m["subject"])
+	}
+	if m["body_preview"] != "Hello" {
+		t.Errorf("body_preview = %v", m["body_preview"])
+	}
+}
+
+func TestSendMessageDryRunWithCCBCC(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"to":      "alice@example.com",
+		"subject": "Test",
+		"body":    "Hello",
+		"cc":      "cc@example.com",
+		"bcc":     "bcc@example.com",
+	})
+
+	result, err := toolSendMessage(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["cc"] != "cc@example.com" {
+		t.Errorf("cc = %v", m["cc"])
+	}
+	if m["bcc"] != "bcc@example.com" {
+		t.Errorf("bcc = %v", m["bcc"])
+	}
+}
+
+func TestSendMessageDryRunDefault(t *testing.T) {
+	// dry_run defaults to true when omitted
+	params := mustJSON(t, map[string]any{
+		"to":      "alice@example.com",
+		"subject": "Test",
+		"body":    "Hello",
+	})
+
+	result, err := toolSendMessage(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["dry_run"] != true {
+		t.Error("dry_run should default to true")
+	}
+}
+
+func TestSendMessageMissingRequired(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"to": "alice@example.com",
+	})
+
+	_, err := toolSendMessage(params, nil)
+	if err == nil {
+		t.Fatal("expected error for missing subject/body")
+	}
+}
+
+func TestSendMessageDryRunTruncatesBody(t *testing.T) {
+	longBody := strings.Repeat("x", 500)
+	params := mustJSON(t, map[string]any{
+		"to":      "alice@example.com",
+		"subject": "Test",
+		"body":    longBody,
+	})
+
+	result, err := toolSendMessage(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m := result.(map[string]any)
+	preview := m["body_preview"].(string)
+	if len(preview) != 300 {
+		t.Errorf("body_preview length = %d, want 300", len(preview))
+	}
+}
+
+// --- toolCreateDraft dry_run tests ---
+
+func TestCreateDraftDryRun(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"to":      "bob@example.com",
+		"subject": "Draft",
+		"body":    "Draft content",
+	})
+
+	result, err := toolCreateDraft(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+	if m["action"] != "gmail_create_draft" {
+		t.Errorf("action = %v", m["action"])
+	}
+}
+
+// --- toolModifyLabels dry_run tests ---
+
+func TestModifyLabelsDryRunAdd(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"message_id": "msg-123",
+		"add_labels": []string{"STARRED", "IMPORTANT"},
+	})
+
+	result, err := toolModifyLabels(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+	if m["action"] != "gmail_modify_labels" {
+		t.Errorf("action = %v", m["action"])
+	}
+	if m["message_id"] != "msg-123" {
+		t.Errorf("message_id = %v", m["message_id"])
+	}
+}
+
+func TestModifyLabelsDryRunRemove(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"message_id":    "msg-456",
+		"remove_labels": []string{"INBOX"},
+	})
+
+	result, err := toolModifyLabels(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["dry_run"] != true {
+		t.Error("expected dry_run=true")
+	}
+}
+
+func TestModifyLabelsMissingMessageID(t *testing.T) {
+	params := mustJSON(t, map[string]any{
+		"add_labels": []string{"STARRED"},
+	})
+
+	_, err := toolModifyLabels(params, nil)
+	if err == nil {
+		t.Fatal("expected error for missing message_id")
+	}
+}
+
+// --- toolGetMessages early-return guard ---
+
+func TestGetMessagesTooMany(t *testing.T) {
+	ids := make([]string, 25)
+	for i := range ids {
+		ids[i] = "msg-" + strings.Repeat("x", 5)
+	}
+
+	params := mustJSON(t, map[string]any{
+		"message_ids": ids,
+	})
+
+	result, err := toolGetMessages(params, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map (error response), got %T", result)
+	}
+	if _, hasErr := m["error"]; !hasErr {
+		t.Error("expected error key in response")
+	}
+	if m["max_allowed"] != maxMessagesPerRequest {
+		t.Errorf("max_allowed = %v, want %d", m["max_allowed"], maxMessagesPerRequest)
 	}
 }
