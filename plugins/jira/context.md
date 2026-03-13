@@ -52,6 +52,51 @@ jql: "assignee = currentUser() AND updated >= -7d ORDER BY updated DESC"
 jql: "sprint = 'Sprint Name' ORDER BY assignee ASC, status ASC"
 ```
 
+### Finding the User's Sprint
+
+When asked "what sprint am I on?" or similar:
+
+1. **Try open sprints first:**
+   ```
+   jql: "assignee = currentUser() AND sprint in openSprints() ORDER BY updated DESC"
+   ```
+   If results, that's the current sprint.
+
+2. **If 0 results, check closed sprints** — the sprint may have
+   just ended (common at sprint boundaries):
+   ```
+   jql: "assignee = currentUser() AND sprint in closedSprints() ORDER BY updated DESC"
+   max_results: 5
+   ```
+   The most recently updated tickets reveal the last sprint.
+
+3. **To find the sprint name**, get the board for the project
+   (use the project key from the tickets found in step 2):
+   ```
+   jira_get_all_agile_boards(project_key="PROJ")
+   ```
+   Then list sprints for that board:
+   ```
+   jira_list_available_sprints(board_id=<id>, state="closed", limit=3)
+   ```
+   The most recently closed sprint is the one the user was in.
+
+4. **Answer the question directly.** If the user asks about their
+   sprint, report:
+   - The sprint name and state (active/closed)
+   - The tickets from that sprint and their status
+   - If between sprints, say so — don't pivot to listing all
+     open tickets (that's a different question)
+
+5. **Don't rely on the sprint field in search responses.** On
+   Jira Server, `fields=sprint` often returns empty even when
+   tickets are in sprints. Use `sprint in openSprints()` /
+   `closedSprints()` as JQL **filters** — these always work.
+
+6. **Don't list all boards.** `jira_get_all_agile_boards` without
+   `project_key` returns dozens of boards. Always filter by
+   project.
+
 ### Sprint Operations
 
 To find sprint names, use `jira_list_available_sprints` first, then
