@@ -1,10 +1,18 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"google.golang.org/api/drive/v3"
+	"google.golang.org/api/option"
 )
 
 func TestExtractFileID(t *testing.T) {
@@ -241,4 +249,151 @@ func TestSaveExportFile(t *testing.T) {
 			t.Errorf("permissions = %o, want 0600", perm)
 		}
 	})
+}
+
+// --- httptest integration tests ---
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func setupDriveTest(t *testing.T, handler http.Handler) {
+	t.Helper()
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+
+	svc, err := drive.NewService(context.Background(),
+		option.WithHTTPClient(ts.Client()),
+		option.WithEndpoint(ts.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	driveSvc = svc
+}
+
+func TestToolGetFileByID(t *testing.T) {
+	setupDriveTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"abc","name":"doc.txt","mimeType":"text/plain","webViewLink":"https://drive.google.com/file/d/abc/view"}`)
+	}))
+
+	result, err := toolGetFileByID(mustJSON(t, map[string]any{
+		"file_id": "abc",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetFileByID: %v", err)
+	}
+
+	file, ok := result.(*drive.File)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if file.Name != "doc.txt" {
+		t.Errorf("name = %q", file.Name)
+	}
+}
+
+func TestToolGetFileByIDMissing(t *testing.T) {
+	_, err := toolGetFileByID(mustJSON(t, map[string]any{}), nil)
+	if err == nil {
+		t.Fatal("expected error for missing file_id")
+	}
+}
+
+func TestToolGetFileByURL(t *testing.T) {
+	setupDriveTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"xyz","name":"design.doc","mimeType":"application/vnd.google-apps.document"}`)
+	}))
+
+	result, err := toolGetFileByURL(mustJSON(t, map[string]any{
+		"url": "https://docs.google.com/document/d/xyz/edit",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetFileByURL: %v", err)
+	}
+
+	file, ok := result.(*drive.File)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if file.Id != "xyz" {
+		t.Errorf("id = %q", file.Id)
+	}
+}
+
+func TestToolGetFileByURLInvalid(t *testing.T) {
+	result, err := toolGetFileByURL(mustJSON(t, map[string]any{
+		"url": "https://example.com/not-a-drive-url",
+	}), nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	m, ok := result.(map[string]string)
+	if !ok {
+		t.Fatalf("expected error map, got %T", result)
+	}
+	if _, hasErr := m["error"]; !hasErr {
+		t.Error("expected error key")
+	}
+}
+
+func TestToolSearchText(t *testing.T) {
+	setupDriveTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"files":[{"id":"f1","name":"report.doc","mimeType":"application/vnd.google-apps.document"}]}`)
+	}))
+
+	result, err := toolSearchText(mustJSON(t, map[string]any{
+		"text": "quarterly report",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolSearchText: %v", err)
+	}
+
+	list, ok := result.(*drive.FileList)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(list.Files) != 1 {
+		t.Fatalf("got %d files, want 1", len(list.Files))
+	}
+	if list.Files[0].Name != "report.doc" {
+		t.Errorf("name = %q", list.Files[0].Name)
+	}
+}
+
+func TestToolSearchTextMissing(t *testing.T) {
+	_, err := toolSearchText(mustJSON(t, map[string]any{}), nil)
+	if err == nil {
+		t.Fatal("expected error for missing text")
+	}
+}
+
+func TestToolSearchFiles(t *testing.T) {
+	setupDriveTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"files":[{"id":"f2","name":"data.csv"}]}`)
+	}))
+
+	result, err := toolSearchFiles(mustJSON(t, map[string]any{
+		"query": "name contains 'data'",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolSearchFiles: %v", err)
+	}
+
+	list, ok := result.(*drive.FileList)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(list.Files) != 1 {
+		t.Fatalf("got %d files, want 1", len(list.Files))
+	}
 }
