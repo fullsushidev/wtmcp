@@ -39,6 +39,9 @@ proxying, caching, and output encoding so plugins stay minimal.
 - **Cache**: In-memory store with namespace isolation and TTL
 - **Output**: TOON encoding for ~40% token savings (optional)
 - **Plugin setup**: Manifest-declared wizard metadata for CLI tooling
+- **Progressive discovery**: Tools default to deferred; only primary
+  tools are loaded into model context. Deferred tools are
+  discoverable via `tool_search` and called directly through MCP
 
 ## Building and Running
 
@@ -234,6 +237,23 @@ operations:
 All write tools default to `dry_run=true`. Cloud-aware (ADF format,
 accountId assignments). Auth variants: Cloud Basic, Server Bearer,
 Server Kerberos.
+
+## Progressive Tool Discovery
+
+By default (`tools.discovery: full`), all tools are loaded into the
+model's context. With progressive discovery, only primary tools are
+loaded; deferred tools are discoverable via `tool_search`.
+
+Enable in `config.yaml`:
+
+```yaml
+tools:
+  discovery: progressive
+```
+
+Plugin authors mark key tools with `visibility: primary` in
+`plugin.yaml`. All other tools default to deferred. See
+[docs/plugin-guide.md](docs/plugin-guide.md) for details.
 
 ## Testing
 

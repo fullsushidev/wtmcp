@@ -115,6 +115,48 @@ tools:
     ...
 ```
 
+### Tool Visibility (Progressive Discovery)
+
+Each tool can declare a `visibility` field to control how it is
+presented to MCP clients:
+
+| Value | Behavior | Default |
+|-------|----------|---------|
+| `primary` | Always loaded into model context | — |
+| `deferred` | Marked with `defer_loading: true`; loaded on demand | Yes |
+
+If `visibility` is omitted, the tool defaults to **deferred**.
+Plugin authors only need to annotate the few most important tools
+as `primary`.
+
+```yaml
+tools:
+  - name: my_search
+    access: read
+    visibility: primary       # always in model context
+    description: "Main search tool"
+    ...
+  - name: my_export
+    access: read
+    # no visibility → deferred by default
+    description: "Export data to file"
+    ...
+```
+
+**When to mark a tool as `primary`:**
+
+- It is the main entry point for the plugin (e.g., a search tool)
+- It is the most commonly used write operation (e.g., create, send)
+- Users would expect it to be available without discovery
+
+**Rule of thumb:** 2-6 primary tools per plugin. Everything else
+is deferred. Deferred tools are discoverable via the built-in
+`tool_search` meta-tool.
+
+This feature requires `tools.discovery: progressive` in the server
+config. In `full` mode (the default), all tools are loaded into
+context regardless of visibility.
+
 ### Auth Variants
 
 For plugins that support multiple auth methods:
