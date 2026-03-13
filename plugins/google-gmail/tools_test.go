@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"google.golang.org/api/gmail/v1"
+	"google.golang.org/api/option"
 )
 
 func TestExtractSummary(t *testing.T) {
@@ -389,5 +394,141 @@ func TestGetMessagesTooMany(t *testing.T) {
 	}
 	if m["max_allowed"] != maxMessagesPerRequest {
 		t.Errorf("max_allowed = %v, want %d", m["max_allowed"], maxMessagesPerRequest)
+	}
+}
+
+// --- httptest integration tests ---
+
+func setupGmailTest(t *testing.T, handler http.Handler) {
+	t.Helper()
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+
+	svc, err := gmail.NewService(context.Background(),
+		option.WithHTTPClient(ts.Client()),
+		option.WithEndpoint(ts.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	gmailSvc = svc
+}
+
+func TestToolListMessages(t *testing.T) {
+	setupGmailTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"messages":[{"id":"msg1","threadId":"t1"},{"id":"msg2","threadId":"t2"}],"resultSizeEstimate":2}`)
+	}))
+
+	result, err := toolListMessages(mustJSON(t, map[string]any{
+		"query": "from:alice",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolListMessages: %v", err)
+	}
+
+	list, ok := result.(*gmail.ListMessagesResponse)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(list.Messages) != 2 {
+		t.Fatalf("got %d messages, want 2", len(list.Messages))
+	}
+}
+
+func TestToolGetMessagesSummary(t *testing.T) {
+	setupGmailTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg1","threadId":"t1","snippet":"Hello","payload":{"headers":[{"name":"From","value":"alice@example.com"},{"name":"Subject","value":"Test"}]}}`)
+	}))
+
+	result, err := toolGetMessagesSummary(mustJSON(t, map[string]any{
+		"message_ids": []string{"msg1"},
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetMessagesSummary: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if m["total"] != 1 {
+		t.Errorf("total = %v", m["total"])
+	}
+}
+
+func TestToolSendMessageFull(t *testing.T) {
+	setupGmailTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"sent-1","threadId":"t1","labelIds":["SENT"]}`)
+	}))
+
+	result, err := toolSendMessage(mustJSON(t, map[string]any{
+		"to":      "bob@example.com",
+		"subject": "Hello",
+		"body":    "Hi Bob",
+		"dry_run": false,
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolSendMessage: %v", err)
+	}
+
+	msg, ok := result.(*gmail.Message)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if msg.Id != "sent-1" {
+		t.Errorf("id = %q", msg.Id)
+	}
+}
+
+func TestToolListLabels(t *testing.T) {
+	setupGmailTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"labels":[{"id":"INBOX","name":"INBOX","type":"system"},{"id":"SENT","name":"SENT","type":"system"}]}`)
+	}))
+
+	result, err := toolListLabels(nil, nil)
+	if err != nil {
+		t.Fatalf("toolListLabels: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	labels, ok := m["labels"].([]map[string]string)
+	if !ok {
+		t.Fatalf("labels type = %T", m["labels"])
+	}
+	if len(labels) != 2 {
+		t.Fatalf("got %d labels, want 2", len(labels))
+	}
+	if labels[0]["name"] != "INBOX" {
+		t.Errorf("first label name = %q", labels[0]["name"])
+	}
+}
+
+func TestToolModifyLabelsFull(t *testing.T) {
+	setupGmailTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"msg1","labelIds":["STARRED"]}`)
+	}))
+
+	result, err := toolModifyLabels(mustJSON(t, map[string]any{
+		"message_id": "msg1",
+		"add_labels": []string{"STARRED"},
+		"dry_run":    false,
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolModifyLabels: %v", err)
+	}
+
+	msg, ok := result.(*gmail.Message)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if msg.Id != "msg1" {
+		t.Errorf("id = %q", msg.Id)
 	}
 }
