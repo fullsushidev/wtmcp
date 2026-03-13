@@ -138,7 +138,8 @@ type SetupVariant struct {
 type ToolDef struct {
 	Name        string              `yaml:"name"`
 	Description string              `yaml:"description"`
-	Access      string              `yaml:"access"` // "read" or "write" (default: "write")
+	Access      string              `yaml:"access"`     // "read" or "write" (default: "write")
+	Visibility  string              `yaml:"visibility"` // "primary" or "deferred" (default: "deferred")
 	Params      map[string]ParamDef `yaml:"params"`
 }
 
@@ -146,6 +147,12 @@ type ToolDef struct {
 // (no side effects).
 func (t ToolDef) IsReadOnly() bool {
 	return t.Access == "read"
+}
+
+// IsPrimary returns true if the tool should be registered without
+// the defer_loading flag. Tools default to deferred.
+func (t ToolDef) IsPrimary() bool {
+	return t.Visibility == "primary"
 }
 
 // ParamDef describes a tool parameter.
@@ -319,6 +326,9 @@ func (m *Manifest) Validate() error {
 		}
 		if tool.Access != "" && tool.Access != "read" && tool.Access != "write" {
 			return fmt.Errorf("tool %s: access must be 'read' or 'write', got %q", tool.Name, tool.Access)
+		}
+		if tool.Visibility != "" && tool.Visibility != "primary" && tool.Visibility != "deferred" {
+			return fmt.Errorf("tool %s: visibility must be 'primary' or 'deferred', got %q", tool.Name, tool.Visibility)
 		}
 	}
 

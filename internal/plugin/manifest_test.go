@@ -185,6 +185,11 @@ func TestManifestValidation(t *testing.T) {
 			wantErr: "access must be 'read' or 'write'",
 		},
 		{
+			name:    "invalid tool visibility",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools:\n  - name: test_tool\n    description: test\n    visibility: hidden",
+			wantErr: "visibility must be 'primary' or 'deferred'",
+		},
+		{
 			name:    "invalid credential_group",
 			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ncredential_group: '../../etc'\ntools: []",
 			wantErr: "invalid credential_group",
@@ -554,6 +559,23 @@ func TestToolDefAccess(t *testing.T) {
 	unset := ToolDef{Name: "default"}
 	if unset.IsReadOnly() {
 		t.Error("unset access should default to write (not read-only)")
+	}
+}
+
+func TestToolDefVisibility(t *testing.T) {
+	primary := ToolDef{Name: "search", Visibility: "primary"}
+	if !primary.IsPrimary() {
+		t.Error("visibility=primary should be primary")
+	}
+
+	deferred := ToolDef{Name: "export", Visibility: "deferred"}
+	if deferred.IsPrimary() {
+		t.Error("visibility=deferred should not be primary")
+	}
+
+	unset := ToolDef{Name: "default"}
+	if unset.IsPrimary() {
+		t.Error("unset visibility should default to deferred (not primary)")
 	}
 }
 
