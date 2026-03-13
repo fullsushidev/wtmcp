@@ -20,13 +20,15 @@ from helpers import (
 
 
 def _validate_export_path(file_path):
-    """Validate export path is under the working directory or /tmp."""
-    resolved = Path(file_path).resolve()
-    cwd = Path.cwd().resolve()
-    tmp = Path("/tmp").resolve()
-    if not (resolved.is_relative_to(cwd) or resolved.is_relative_to(tmp)):
-        raise ValueError(f"Export path must be under working directory or /tmp: {file_path}")
-    return resolved
+    """Validate and resolve an export/cache file path.
+
+    Plugin processes run with cwd set to the plugin directory, not the
+    user's working directory, so we cannot validate against cwd. The
+    caller (LLM) provides absolute paths based on its own cwd.
+    """
+    if not file_path:
+        raise ValueError("file path is required")
+    return Path(file_path).resolve()
 
 
 def export_sprint_data(params):

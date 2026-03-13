@@ -54,21 +54,19 @@ def _write_export(tmp_path, data=None, name="sprint.json"):
 
 
 class TestValidateExportPath:
-    def test_under_cwd(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
+    def test_resolves_absolute(self, tmp_path):
         path = tools_cache._validate_export_path(str(tmp_path / "out.json"))
         assert path.name == "out.json"
 
-    def test_under_tmp(self):
+    def test_resolves_tmp(self):
         path = tools_cache._validate_export_path("/tmp/test_export.json")
         assert str(path).startswith("/tmp")
 
-    def test_rejects_outside(self, tmp_path, monkeypatch):
-        monkeypatch.chdir(tmp_path)
+    def test_rejects_empty(self):
         import pytest
 
-        with pytest.raises(ValueError, match="Export path must be under"):
-            tools_cache._validate_export_path("/etc/passwd")
+        with pytest.raises(ValueError, match="file path is required"):
+            tools_cache._validate_export_path("")
 
 
 # --- jira_export_sprint_data ---
