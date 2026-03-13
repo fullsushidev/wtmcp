@@ -246,6 +246,15 @@ func (m *Manager) Manifests() map[string]*Manifest {
 	return m.manifests
 }
 
+// LoadedPlugins returns the names of successfully loaded plugins.
+func (m *Manager) LoadedPlugins() []string {
+	names := make([]string, 0, len(m.handles))
+	for name := range m.handles {
+		names = append(names, name)
+	}
+	return names
+}
+
 // ToolOwner returns the plugin name that owns a tool.
 func (m *Manager) ToolOwner(toolName string) string {
 	name, _ := m.CallTool(context.Background(), toolName)
