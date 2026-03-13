@@ -1,6 +1,11 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -199,5 +204,251 @@ func TestMRListResultNilAuthor(t *testing.T) {
 	items := result["merge_requests"].([]map[string]any)
 	if items[0]["author"] != "" {
 		t.Errorf("author should be empty for nil Author, got %v", items[0]["author"])
+	}
+}
+
+// --- httptest integration tests ---
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+// setupGitLabTest creates a test HTTP server and injects it as the
+// default GitLab instance. The handler function receives the request
+// path (URL-decoded) for matching.
+func setupGitLabTest(t *testing.T, handler func(w http.ResponseWriter, r *http.Request)) {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(handler))
+	t.Cleanup(ts.Close)
+
+	client, err := gogitlab.NewClient("test-token", gogitlab.WithBaseURL(ts.URL+"/api/v4"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	instances = map[string]*instance{
+		"default": {Name: "default", URL: ts.URL, Client: client},
+	}
+	defaultInstance = "default"
+}
+
+func jsonResponse(w http.ResponseWriter, data string) {
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = fmt.Fprint(w, data)
+}
+
+func TestToolGetCommits(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/repository/commits") {
+			jsonResponse(w, `[{"id":"abc123","short_id":"abc","title":"Initial commit","author_name":"Alice","author_email":"alice@example.com","web_url":"https://gitlab.example.com/commit/abc123"}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolGetCommits(mustJSON(t, map[string]any{
+		"project_id": "team/myproject",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetCommits: %v", err)
+	}
+
+	commits, ok := result.([]map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(commits) != 1 {
+		t.Fatalf("got %d commits, want 1", len(commits))
+	}
+	if commits[0]["id"] != "abc123" {
+		t.Errorf("id = %v", commits[0]["id"])
+	}
+	if commits[0]["author_name"] != "Alice" {
+		t.Errorf("author_name = %v", commits[0]["author_name"])
+	}
+}
+
+func TestToolGetCommitsMissingProject(t *testing.T) {
+	_, err := toolGetCommits(mustJSON(t, map[string]any{}), nil)
+	if err == nil {
+		t.Fatal("expected error for missing project_id")
+	}
+}
+
+func TestToolGetCommitDiff(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/diff") {
+			jsonResponse(w, `[{"old_path":"main.go","new_path":"main.go","diff":"@@ -1 +1 @@\n-old\n+new","new_file":false,"renamed_file":false,"deleted_file":false}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolGetCommitDiff(mustJSON(t, map[string]any{
+		"project_id": "team/proj",
+		"commit_sha": "abc123",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetCommitDiff: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["commit_id"] != "abc123" {
+		t.Errorf("commit_id = %v", m["commit_id"])
+	}
+	diffs := m["diffs"].([]map[string]any)
+	if len(diffs) != 1 {
+		t.Fatalf("got %d diffs, want 1", len(diffs))
+	}
+	if diffs[0]["new_path"] != "main.go" {
+		t.Errorf("new_path = %v", diffs[0]["new_path"])
+	}
+}
+
+func TestToolGetCommitDiffTruncation(t *testing.T) {
+	longDiff := strings.Repeat("x", maxDiffBytes+100)
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/diff") {
+			data, _ := json.Marshal([]map[string]any{
+				{"old_path": "big.txt", "new_path": "big.txt", "diff": longDiff, "new_file": false, "renamed_file": false, "deleted_file": false},
+			})
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(data)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolGetCommitDiff(mustJSON(t, map[string]any{
+		"project_id": "team/proj",
+		"commit_sha": "abc",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetCommitDiff: %v", err)
+	}
+
+	m := result.(map[string]any)
+	diffs := m["diffs"].([]map[string]any)
+	diff := diffs[0]["diff"].(string)
+	if !strings.HasSuffix(diff, "[TRUNCATED]") {
+		t.Error("expected diff to be truncated")
+	}
+	if diffs[0]["truncated"] != true {
+		t.Error("expected truncated=true")
+	}
+}
+
+func TestToolGetCommitDiffFilesOnly(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/diff") {
+			jsonResponse(w, `[{"old_path":"a.go","new_path":"a.go","diff":"some diff","new_file":false,"renamed_file":false,"deleted_file":false}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolGetCommitDiff(mustJSON(t, map[string]any{
+		"project_id": "team/proj",
+		"commit_sha": "abc",
+		"files_only": true,
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetCommitDiff: %v", err)
+	}
+
+	m := result.(map[string]any)
+	diffs := m["diffs"].([]map[string]any)
+	if _, hasDiff := diffs[0]["diff"]; hasDiff {
+		t.Error("files_only=true should omit diff content")
+	}
+}
+
+func TestToolGetProjectPipelines(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/pipelines") {
+			jsonResponse(w, `[{"id":100,"iid":1,"status":"success","ref":"main","sha":"abc","web_url":"https://gitlab.example.com/pipelines/100","source":"push"}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolGetProjectPipelines(mustJSON(t, map[string]any{
+		"project_id": "team/proj",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetProjectPipelines: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["total"] != 1 {
+		t.Errorf("total = %v", m["total"])
+	}
+}
+
+func TestToolGetProjectIssues(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/issues") {
+			jsonResponse(w, `[{"id":1,"iid":1,"title":"Bug","state":"opened","web_url":"https://gitlab.example.com/issues/1","labels":[],"author":{"username":"alice"},"assignees":[],"task_completion_status":{"count":0,"completed_count":0}}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolGetProjectIssues(mustJSON(t, map[string]any{
+		"project_id": "team/proj",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetProjectIssues: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["total"] != 1 {
+		t.Errorf("total = %v", m["total"])
+	}
+}
+
+func TestToolListMergeRequestsGlobal(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v4/merge_requests" {
+			jsonResponse(w, `[{"iid":5,"title":"Global MR","state":"opened","source_branch":"feat","target_branch":"main"}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolListMergeRequests(mustJSON(t, map[string]any{}), nil)
+	if err != nil {
+		t.Fatalf("toolListMergeRequests: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["total"] != 1 {
+		t.Errorf("total = %v", m["total"])
+	}
+}
+
+func TestToolListMergeRequestsProject(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/merge_requests") {
+			jsonResponse(w, `[{"iid":10,"title":"Project MR","state":"merged","source_branch":"fix","target_branch":"main"}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolListMergeRequests(mustJSON(t, map[string]any{
+		"project_id": "team/proj",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolListMergeRequests: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["total"] != 1 {
+		t.Errorf("total = %v", m["total"])
 	}
 }
