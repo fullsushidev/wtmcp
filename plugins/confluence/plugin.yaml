@@ -43,6 +43,7 @@ config:
 tools:
   - name: confluence_get_page
     access: read
+    visibility: primary
     description: "Fetch a Confluence page by ID"
     params:
       page_id:
@@ -71,6 +72,7 @@ tools:
 
   - name: confluence_search
     access: read
+    visibility: primary
     description: "Run a CQL (Confluence Query Language) query"
     params:
       cql:
@@ -110,6 +112,7 @@ tools:
 
   - name: confluence_create_page
     access: write
+    visibility: primary
     description: "Create a Confluence page (dry_run by default)"
     params:
       space_key:

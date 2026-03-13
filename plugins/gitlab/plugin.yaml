@@ -19,6 +19,7 @@ env:
 tools:
   - name: gitlab_get_commits
     access: read
+    visibility: primary
     description: "Get commit logs from a project"
     params:
       instance:
@@ -74,6 +75,7 @@ tools:
 
   - name: gitlab_get_merge_request
     access: read
+    visibility: primary
     description: "Get MR details with comments (diffs only with include_changes)"
     params:
       instance:
@@ -216,6 +218,7 @@ tools:
 
   - name: gitlab_list_merge_requests
     access: read
+    visibility: primary
     description: "List merge requests with filtering"
     params:
       instance:

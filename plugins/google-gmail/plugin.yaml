@@ -12,6 +12,7 @@ context_files:
 tools:
   - name: gmail_list_messages
     access: read
+    visibility: primary
     description: "List Gmail messages matching a search query (returns IDs only)"
     params:
       query:
@@ -27,6 +28,7 @@ tools:
 
   - name: gmail_get_messages_summary
     access: read
+    visibility: primary
     description: "Get lightweight summaries of messages (recommended)"
     params:
       message_ids:
@@ -71,6 +73,7 @@ tools:
 
   - name: gmail_send_message
     access: write
+    visibility: primary
     description: "Send an email (dry_run by default)"
     params:
       to:

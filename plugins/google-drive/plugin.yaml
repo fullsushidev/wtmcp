@@ -89,6 +89,7 @@ tools:
 
   - name: drive_export_google_doc_markdown
     access: read
+    visibility: primary
     description: "Export a Google Doc as text and save locally"
     params:
       file_id_or_url:
@@ -122,6 +123,7 @@ tools:
 
   - name: drive_search_text
     access: read
+    visibility: primary
     description: "Search Drive by text with optional filters"
     params:
       text:

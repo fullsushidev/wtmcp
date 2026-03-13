@@ -12,6 +12,7 @@ context_files:
 tools:
   - name: calendar_get_events
     access: read
+    visibility: primary
     description: "List upcoming events from a calendar"
     params:
       calendar_id:
@@ -43,6 +44,7 @@ tools:
 
   - name: calendar_create_event
     access: write
+    visibility: primary
     description: "Create a calendar event (dry_run by default)"
     params:
       summary:

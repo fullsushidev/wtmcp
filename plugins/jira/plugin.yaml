@@ -44,6 +44,7 @@ tools:
 
   - name: jira_search
     access: read
+    visibility: primary
     description: >
       Search Jira issues using JQL. Returns brief per-issue summaries
       (key, summary, status, assignee, priority) by default. Set
@@ -68,6 +69,7 @@ tools:
 
   - name: jira_get_issues
     access: read
+    visibility: primary
     description: >
       Get one or more Jira issues by key. Returns brief per-issue
       summaries by default. Set brief=false for full data. Fetches
@@ -129,6 +131,7 @@ tools:
 
   - name: jira_create_issue
     access: write
+    visibility: primary
     description: >
       Create a new Jira issue. Defaults to dry_run=true which returns
       a preview without creating. Set dry_run=false to create.
@@ -187,6 +190,7 @@ tools:
 
   - name: jira_add_comment
     access: write
+    visibility: primary
     description: >
       Add a comment to a Jira issue. Defaults to dry_run=true.
       Uses ADF format for Cloud instances.
@@ -226,6 +230,7 @@ tools:
 
   - name: jira_transition_issue
     access: write
+    visibility: primary
     description: >
       Transition a Jira issue to a new workflow status. Use
       jira_get_transitions first to find valid transition IDs.
@@ -248,6 +253,7 @@ tools:
 
   - name: jira_assign_issue
     access: write
+    visibility: primary
     description: >
       Assign a Jira issue to a user. Defaults to dry_run=true.
     params:
