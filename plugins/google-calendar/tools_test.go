@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"google.golang.org/api/calendar/v3"
+	"google.golang.org/api/option"
 )
 
 func mustJSON(t *testing.T, v any) json.RawMessage {
@@ -411,5 +416,172 @@ func TestApplyEventUpdatesNoChanges(t *testing.T) {
 
 	if len(changes) != 0 {
 		t.Errorf("expected 0 changes, got %d: %v", len(changes), changes)
+	}
+}
+
+// --- httptest integration tests ---
+
+func setupCalendarTest(t *testing.T, handler http.Handler) {
+	t.Helper()
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+
+	svc, err := calendar.NewService(context.Background(),
+		option.WithHTTPClient(ts.Client()),
+		option.WithEndpoint(ts.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	calendarSvc = svc
+}
+
+func TestToolGetEvents(t *testing.T) {
+	setupCalendarTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"items":[{"id":"evt1","summary":"Standup","start":{"dateTime":"2026-03-12T09:00:00Z"},"end":{"dateTime":"2026-03-12T09:15:00Z"}}]}`)
+	}))
+
+	result, err := toolGetEvents(mustJSON(t, map[string]any{}), nil)
+	if err != nil {
+		t.Fatalf("toolGetEvents: %v", err)
+	}
+
+	events, ok := result.(*calendar.Events)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(events.Items) != 1 {
+		t.Fatalf("got %d events, want 1", len(events.Items))
+	}
+	if events.Items[0].Summary != "Standup" {
+		t.Errorf("summary = %q", events.Items[0].Summary)
+	}
+}
+
+func TestToolGetEvent(t *testing.T) {
+	setupCalendarTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"evt1","summary":"Meeting","start":{"dateTime":"2026-03-12T14:00:00Z"}}`)
+	}))
+
+	result, err := toolGetEvent(mustJSON(t, map[string]any{
+		"event_id": "evt1",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolGetEvent: %v", err)
+	}
+
+	event, ok := result.(*calendar.Event)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if event.Summary != "Meeting" {
+		t.Errorf("summary = %q", event.Summary)
+	}
+}
+
+func TestToolGetEventMissingID(t *testing.T) {
+	_, err := toolGetEvent(mustJSON(t, map[string]any{}), nil)
+	if err == nil {
+		t.Fatal("expected error for missing event_id")
+	}
+}
+
+func TestToolCreateEventFull(t *testing.T) {
+	setupCalendarTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"id":"new-evt","summary":"Design review","status":"confirmed"}`)
+	}))
+
+	result, err := toolCreateEvent(mustJSON(t, map[string]any{
+		"summary":        "Design review",
+		"start_datetime": "2026-03-12T14:00:00Z",
+		"end_datetime":   "2026-03-12T15:00:00Z",
+		"dry_run":        false,
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolCreateEvent: %v", err)
+	}
+
+	event, ok := result.(*calendar.Event)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if event.Id != "new-evt" {
+		t.Errorf("id = %q", event.Id)
+	}
+}
+
+func TestToolDeleteEventFull(t *testing.T) {
+	setupCalendarTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	result, err := toolDeleteEvent(mustJSON(t, map[string]any{
+		"event_id": "evt-del",
+		"dry_run":  false,
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolDeleteEvent: %v", err)
+	}
+
+	m, ok := result.(map[string]any)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if m["success"] != true {
+		t.Errorf("success = %v", m["success"])
+	}
+}
+
+func TestToolSearchEvents(t *testing.T) {
+	setupCalendarTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"items":[{"id":"evt1","summary":"Standup"}]}`)
+	}))
+
+	result, err := toolSearchEvents(mustJSON(t, map[string]any{
+		"query": "standup",
+	}), nil)
+	if err != nil {
+		t.Fatalf("toolSearchEvents: %v", err)
+	}
+
+	events, ok := result.(*calendar.Events)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(events.Items) != 1 {
+		t.Fatalf("got %d events, want 1", len(events.Items))
+	}
+}
+
+func TestToolSearchEventsMissingQuery(t *testing.T) {
+	_, err := toolSearchEvents(mustJSON(t, map[string]any{}), nil)
+	if err == nil {
+		t.Fatal("expected error for missing query")
+	}
+}
+
+func TestToolGetCalendars(t *testing.T) {
+	setupCalendarTest(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"items":[{"id":"primary","summary":"My Calendar","primary":true}]}`)
+	}))
+
+	result, err := toolGetCalendars(nil, nil)
+	if err != nil {
+		t.Fatalf("toolGetCalendars: %v", err)
+	}
+
+	list, ok := result.(*calendar.CalendarList)
+	if !ok {
+		t.Fatalf("result type = %T", result)
+	}
+	if len(list.Items) != 1 {
+		t.Fatalf("got %d calendars, want 1", len(list.Items))
+	}
+	if !list.Items[0].Primary {
+		t.Error("expected primary calendar")
 	}
 }
