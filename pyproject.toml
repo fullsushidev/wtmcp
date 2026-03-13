@@ -6,10 +6,10 @@ line-length = 120
 select = ["E", "F", "W", "I"]
 
 [tool.ty.environment]
-extra-paths = ["plugins/jira"]
+extra-paths = []
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["plugins"]
 python_files = ["test_*.py"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
