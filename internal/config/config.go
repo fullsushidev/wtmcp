@@ -26,6 +26,7 @@ type Config struct {
 	Cache          CacheConfig   `yaml:"cache"`
 	Plugins        PluginsConfig `yaml:"plugins"`
 	Output         OutputConfig  `yaml:"output"`
+	Tools          ToolsConfig   `yaml:"tools"`
 }
 
 // HTTPConfig controls the HTTP proxy behavior.
@@ -75,6 +76,13 @@ type OutputConfig struct {
 	ToonFallback bool   `yaml:"toon_fallback"`
 }
 
+// ToolsConfig controls progressive tool discovery.
+type ToolsConfig struct {
+	// Discovery mode: "full" registers all tools normally;
+	// "progressive" marks non-primary tools with defer_loading.
+	Discovery string `yaml:"discovery"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -105,6 +113,9 @@ func DefaultConfig() *Config {
 			Format:       "json",
 			ToonFallback: true,
 		},
+		Tools: ToolsConfig{
+			Discovery: "full",
+		},
 	}
 }
 
@@ -129,6 +140,10 @@ func Load(configPath, workdir string) (*Config, error) {
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse config %s: %w", configPath, err)
+	}
+
+	if cfg.Tools.Discovery != "full" && cfg.Tools.Discovery != "progressive" {
+		return nil, fmt.Errorf("tools.discovery must be 'full' or 'progressive', got %q", cfg.Tools.Discovery)
 	}
 
 	applyWorkdirDefaults(cfg, workdir)

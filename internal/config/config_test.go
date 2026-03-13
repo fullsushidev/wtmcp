@@ -181,6 +181,44 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Cache.Backend != "memory" {
 		t.Errorf("Cache.Backend = %q, want %q", cfg.Cache.Backend, "memory")
 	}
+	if cfg.Tools.Discovery != "full" {
+		t.Errorf("Tools.Discovery = %q, want full", cfg.Tools.Discovery)
+	}
+}
+
+func TestLoadConfigToolDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	cfgYAML := `
+tools:
+  discovery: progressive
+`
+	if err := os.WriteFile(cfgFile, []byte(cfgYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(cfgFile, dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Tools.Discovery != "progressive" {
+		t.Errorf("Discovery = %q, want progressive", cfg.Tools.Discovery)
+	}
+}
+
+func TestLoadConfigInvalidDiscovery(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+	cfgYAML := `
+tools:
+  discovery: lazy
+`
+	if err := os.WriteFile(cfgFile, []byte(cfgYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(cfgFile, dir)
+	if err == nil {
+		t.Fatal("expected error for invalid discovery value")
+	}
 }
 
 func TestDefaultPluginDirs(t *testing.T) {
