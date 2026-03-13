@@ -31,7 +31,12 @@ def list_available_sprints(params):
 
 
 def _get_board_sprints(board_id, state, limit):
-    """Fetch sprints from a board via the agile API with pagination."""
+    """Fetch sprints from a board via the agile API.
+
+    The API returns sprints oldest-first. For closed/active sprints
+    we want the most recent ones, so we paginate to the end and
+    return the last `limit` entries.
+    """
     all_sprints = []
     start = 0
     page_size = 50
@@ -47,9 +52,8 @@ def _get_board_sprints(board_id, state, limit):
         if body.get("isLast", True) or len(values) < page_size:
             break
         start += page_size
-        if len(all_sprints) >= limit:
-            break
-    return all_sprints
+    # API returns oldest-first; return the most recent entries.
+    return all_sprints[-limit:] if len(all_sprints) > limit else all_sprints
 
 
 def _get_sprints_from_tickets(state, limit):
