@@ -170,11 +170,26 @@ func runCheck() error {
 
 	manifests := mgr.Manifests()
 	fmt.Printf("\ndiscovered plugins: %d\n", len(manifests))
+	var totalPrimary, totalDeferred int
 	for _, m := range manifests {
+		var primaryCount, deferredCount int
+		for _, t := range m.Tools {
+			if t.IsPrimary() {
+				primaryCount++
+			} else {
+				deferredCount++
+			}
+		}
+		totalPrimary += primaryCount
+		totalDeferred += deferredCount
 		fmt.Printf("  - %s v%s (%s)\n", m.Name, m.Version, m.Dir)
-		fmt.Printf("    handler: %s | execution: %s | tools: %d\n",
-			m.Handler, m.Execution, len(m.Tools))
+		fmt.Printf("    handler: %s | execution: %s | tools: %d (primary: %d, deferred: %d)\n",
+			m.Handler, m.Execution, len(m.Tools), primaryCount, deferredCount)
 	}
+
+	fmt.Printf("\ntool discovery: %s\n", cfg.Tools.Discovery)
+	fmt.Printf("primary tools: %d\n", totalPrimary)
+	fmt.Printf("deferred tools: %d\n", totalDeferred)
 
 	if len(manifests) == 0 {
 		fmt.Println("\nno plugins found. check that plugin directories contain")
