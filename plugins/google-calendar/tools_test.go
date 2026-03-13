@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"testing"
+
+	"google.golang.org/api/calendar/v3"
 )
 
 func mustJSON(t *testing.T, v any) json.RawMessage {
@@ -179,5 +181,167 @@ func TestDeleteEventMissingEventID(t *testing.T) {
 	_, err := toolDeleteEvent(params, nil)
 	if err == nil {
 		t.Fatal("expected error for missing event_id")
+	}
+}
+
+// --- buildEvent tests ---
+
+func TestBuildEventMinimal(t *testing.T) {
+	event := buildEvent(createEventParams{
+		Summary: "Standup",
+		Start:   "2026-03-12T09:00:00Z",
+		End:     "2026-03-12T09:15:00Z",
+	})
+
+	if event.Summary != "Standup" {
+		t.Errorf("Summary = %q", event.Summary)
+	}
+	if event.Start.DateTime != "2026-03-12T09:00:00Z" {
+		t.Errorf("Start.DateTime = %q", event.Start.DateTime)
+	}
+	if event.End.DateTime != "2026-03-12T09:15:00Z" {
+		t.Errorf("End.DateTime = %q", event.End.DateTime)
+	}
+	if event.Description != "" {
+		t.Errorf("Description should be empty, got %q", event.Description)
+	}
+}
+
+func TestBuildEventAllDay(t *testing.T) {
+	event := buildEvent(createEventParams{
+		Summary: "Holiday",
+		Start:   "2026-12-25",
+		End:     "2026-12-26",
+		AllDay:  true,
+	})
+
+	if event.Start.Date != "2026-12-25" {
+		t.Errorf("Start.Date = %q", event.Start.Date)
+	}
+	if event.Start.DateTime != "" {
+		t.Errorf("Start.DateTime should be empty for all-day, got %q", event.Start.DateTime)
+	}
+	if event.End.Date != "2026-12-26" {
+		t.Errorf("End.Date = %q", event.End.Date)
+	}
+}
+
+func TestBuildEventAllFields(t *testing.T) {
+	event := buildEvent(createEventParams{
+		Summary:   "Team meeting",
+		Start:     "2026-03-12T14:00:00Z",
+		End:       "2026-03-12T15:00:00Z",
+		Desc:      "Weekly sync",
+		Location:  "Room 42",
+		Attendees: []string{"alice@example.com", "bob@example.com"},
+	})
+
+	if event.Description != "Weekly sync" {
+		t.Errorf("Description = %q", event.Description)
+	}
+	if event.Location != "Room 42" {
+		t.Errorf("Location = %q", event.Location)
+	}
+	if len(event.Attendees) != 2 {
+		t.Fatalf("Attendees count = %d, want 2", len(event.Attendees))
+	}
+	if event.Attendees[0].Email != "alice@example.com" {
+		t.Errorf("Attendees[0].Email = %q", event.Attendees[0].Email)
+	}
+}
+
+// --- applyEventUpdates tests ---
+
+func TestApplyEventUpdatesSummaryOnly(t *testing.T) {
+	event := &calendar.Event{
+		Summary:     "Old title",
+		Description: "Keep this",
+	}
+	changes := applyEventUpdates(event, updateEventParams{
+		Summary: "New title",
+	})
+
+	if event.Summary != "New title" {
+		t.Errorf("Summary = %q", event.Summary)
+	}
+	if event.Description != "Keep this" {
+		t.Errorf("Description should be unchanged, got %q", event.Description)
+	}
+	if changes["summary"] != "New title" {
+		t.Errorf("changes[summary] = %v", changes["summary"])
+	}
+	if _, ok := changes["description"]; ok {
+		t.Error("description should not be in changes")
+	}
+}
+
+func TestApplyEventUpdatesMultipleFields(t *testing.T) {
+	event := &calendar.Event{Summary: "Meeting"}
+	changes := applyEventUpdates(event, updateEventParams{
+		Desc:     "Updated description",
+		Location: "New room",
+	})
+
+	if event.Description != "Updated description" {
+		t.Errorf("Description = %q", event.Description)
+	}
+	if event.Location != "New room" {
+		t.Errorf("Location = %q", event.Location)
+	}
+	if len(changes) != 2 {
+		t.Errorf("expected 2 changes, got %d", len(changes))
+	}
+}
+
+func TestApplyEventUpdatesTimeFields(t *testing.T) {
+	event := &calendar.Event{
+		Summary: "Meeting",
+		Start:   &calendar.EventDateTime{DateTime: "2026-03-12T14:00:00Z"},
+		End:     &calendar.EventDateTime{DateTime: "2026-03-12T15:00:00Z"},
+	}
+	changes := applyEventUpdates(event, updateEventParams{
+		Start: "2026-03-12T16:00:00Z",
+		End:   "2026-03-12T17:00:00Z",
+	})
+
+	if event.Start.DateTime != "2026-03-12T16:00:00Z" {
+		t.Errorf("Start.DateTime = %q", event.Start.DateTime)
+	}
+	if event.End.DateTime != "2026-03-12T17:00:00Z" {
+		t.Errorf("End.DateTime = %q", event.End.DateTime)
+	}
+	if changes["start"] != "2026-03-12T16:00:00Z" {
+		t.Errorf("changes[start] = %v", changes["start"])
+	}
+}
+
+func TestApplyEventUpdatesAllDayToggle(t *testing.T) {
+	event := &calendar.Event{
+		Summary: "Meeting",
+		Start:   &calendar.EventDateTime{DateTime: "2026-03-12T14:00:00Z"},
+	}
+	changes := applyEventUpdates(event, updateEventParams{
+		Start:  "2026-03-12",
+		End:    "2026-03-13",
+		AllDay: true,
+	})
+
+	if event.Start.Date != "2026-03-12" {
+		t.Errorf("Start.Date = %q", event.Start.Date)
+	}
+	if event.Start.DateTime != "" {
+		t.Errorf("Start.DateTime should be empty for all-day, got %q", event.Start.DateTime)
+	}
+	if len(changes) != 2 {
+		t.Errorf("expected 2 changes, got %d", len(changes))
+	}
+}
+
+func TestApplyEventUpdatesNoChanges(t *testing.T) {
+	event := &calendar.Event{Summary: "Meeting"}
+	changes := applyEventUpdates(event, updateEventParams{})
+
+	if len(changes) != 0 {
+		t.Errorf("expected 0 changes, got %d: %v", len(changes), changes)
 	}
 }

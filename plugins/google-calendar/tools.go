@@ -106,25 +106,7 @@ func toolCreateEvent(params, _ json.RawMessage) (any, error) {
 		p.Calendar = "primary"
 	}
 
-	event := &calendar.Event{Summary: p.Summary}
-
-	if p.AllDay {
-		event.Start = &calendar.EventDateTime{Date: p.Start}
-		event.End = &calendar.EventDateTime{Date: p.End}
-	} else {
-		event.Start = &calendar.EventDateTime{DateTime: p.Start}
-		event.End = &calendar.EventDateTime{DateTime: p.End}
-	}
-
-	if p.Desc != "" {
-		event.Description = p.Desc
-	}
-	if p.Location != "" {
-		event.Location = p.Location
-	}
-	for _, email := range p.Attendees {
-		event.Attendees = append(event.Attendees, &calendar.EventAttendee{Email: email})
-	}
+	event := buildEvent(p)
 
 	if p.DryRun {
 		return map[string]any{
@@ -172,36 +154,7 @@ func toolUpdateEvent(params, _ json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("get event for update: %w", err)
 	}
 
-	changes := map[string]any{}
-
-	if p.Summary != "" {
-		event.Summary = p.Summary
-		changes["summary"] = p.Summary
-	}
-	if p.Desc != "" {
-		event.Description = p.Desc
-		changes["description"] = p.Desc
-	}
-	if p.Location != "" {
-		event.Location = p.Location
-		changes["location"] = p.Location
-	}
-	if p.Start != "" {
-		if p.AllDay {
-			event.Start = &calendar.EventDateTime{Date: p.Start}
-		} else {
-			event.Start = &calendar.EventDateTime{DateTime: p.Start}
-		}
-		changes["start"] = p.Start
-	}
-	if p.End != "" {
-		if p.AllDay {
-			event.End = &calendar.EventDateTime{Date: p.End}
-		} else {
-			event.End = &calendar.EventDateTime{DateTime: p.End}
-		}
-		changes["end"] = p.End
-	}
+	changes := applyEventUpdates(event, p)
 
 	if p.DryRun {
 		return map[string]any{
@@ -329,4 +282,68 @@ func toolGetFreeBusy(params, _ json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("freebusy query: %w", err)
 	}
 	return res, nil
+}
+
+// buildEvent constructs a calendar.Event from creation parameters.
+// Pure function — no service access.
+func buildEvent(p createEventParams) *calendar.Event {
+	event := &calendar.Event{Summary: p.Summary}
+
+	if p.AllDay {
+		event.Start = &calendar.EventDateTime{Date: p.Start}
+		event.End = &calendar.EventDateTime{Date: p.End}
+	} else {
+		event.Start = &calendar.EventDateTime{DateTime: p.Start}
+		event.End = &calendar.EventDateTime{DateTime: p.End}
+	}
+
+	if p.Desc != "" {
+		event.Description = p.Desc
+	}
+	if p.Location != "" {
+		event.Location = p.Location
+	}
+	for _, email := range p.Attendees {
+		event.Attendees = append(event.Attendees, &calendar.EventAttendee{Email: email})
+	}
+
+	return event
+}
+
+// applyEventUpdates applies partial updates to an existing event
+// and returns a map of changed fields. Pure function — modifies
+// the event in place but does not access any service.
+func applyEventUpdates(event *calendar.Event, p updateEventParams) map[string]any {
+	changes := map[string]any{}
+
+	if p.Summary != "" {
+		event.Summary = p.Summary
+		changes["summary"] = p.Summary
+	}
+	if p.Desc != "" {
+		event.Description = p.Desc
+		changes["description"] = p.Desc
+	}
+	if p.Location != "" {
+		event.Location = p.Location
+		changes["location"] = p.Location
+	}
+	if p.Start != "" {
+		if p.AllDay {
+			event.Start = &calendar.EventDateTime{Date: p.Start}
+		} else {
+			event.Start = &calendar.EventDateTime{DateTime: p.Start}
+		}
+		changes["start"] = p.Start
+	}
+	if p.End != "" {
+		if p.AllDay {
+			event.End = &calendar.EventDateTime{Date: p.End}
+		} else {
+			event.End = &calendar.EventDateTime{DateTime: p.End}
+		}
+		changes["end"] = p.End
+	}
+
+	return changes
 }
