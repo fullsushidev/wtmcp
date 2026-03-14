@@ -347,11 +347,11 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("client_cert (mTLS) and services.auth cannot both be set")
 	}
 
-	// allow_private_ips requires allowed_domains as defense in depth:
-	// plugins must declare which domains they need, and only those
-	// domains are permitted to resolve to private IPs.
-	if m.Services.HTTP.AllowPrivateIPs && len(m.Services.HTTP.AllowedDomains) == 0 {
-		return fmt.Errorf("allow_private_ips requires allowed_domains to be set")
+	// allow_private_ips requires domain restrictions as defense in depth.
+	// Domains come from either explicit allowed_domains or the base_url
+	// hostname (auto-added at load time by manager.go).
+	if m.Services.HTTP.AllowPrivateIPs && len(m.Services.HTTP.AllowedDomains) == 0 && m.Services.HTTP.BaseURL == "" {
+		return fmt.Errorf("allow_private_ips requires allowed_domains or base_url to be set")
 	}
 
 	// Validate allowed_domains — skip template entries (${VAR})

@@ -200,9 +200,9 @@ func TestManifestValidation(t *testing.T) {
 			wantErr: "env_passthrough must be 'all' or empty",
 		},
 		{
-			name:    "allow_private_ips without allowed_domains",
-			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    base_url: 'https://internal.corp.com'\n    allow_private_ips: true",
-			wantErr: "allow_private_ips requires allowed_domains",
+			name:    "allow_private_ips without domains or base_url",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    allow_private_ips: true",
+			wantErr: "allow_private_ips requires allowed_domains or base_url",
 		},
 		{
 			name:    "tls client_cert without client_key",
