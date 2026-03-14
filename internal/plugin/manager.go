@@ -201,7 +201,12 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 
 	if m.isKerberosAuth(manifest) {
 		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
-		pa.Client = proxy.NewKerberosClient(spn, pa.AllowPrivateIPs)
+		client, err := proxy.NewKerberosClient(spn, pa.AllowPrivateIPs, pa.TLS)
+		if err != nil {
+			return fmt.Errorf("[%s] create kerberos client: %w", name, err)
+		}
+		pa.Client = client
+		pa.IsKerberos = true
 		log.Printf("[%s] using kerberos client (spn=%q)", name, spn)
 	} else {
 		pa.Provider = m.resolveAuth(manifest)

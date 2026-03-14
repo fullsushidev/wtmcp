@@ -23,18 +23,36 @@ import (
 	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
+// TLSConfig holds per-plugin TLS settings for custom CAs and mTLS.
+// Populated by the plugin manager after resolving env vars.
+type TLSConfig struct {
+	CACert             string // resolved path to PEM CA cert file
+	ClientCert         string // resolved path to PEM client cert file
+	ClientKey          string // resolved path to PEM client key file
+	SkipHostnameVerify bool
+
+	// CACertPEM holds pre-loaded CA cert bytes to prevent TOCTOU.
+	CACertPEM []byte
+}
+
+// HasConfig returns true if any TLS setting is configured.
+func (t TLSConfig) HasConfig() bool {
+	return len(t.CACertPEM) > 0 || t.ClientCert != "" || t.SkipHostnameVerify
+}
+
 // PluginAuth holds the resolved auth and HTTP config for a plugin.
 type PluginAuth struct {
 	Provider        auth.Provider
 	BaseURL         string
 	AllowedDomains  []string
 	AllowPrivateIPs bool
+	TLS             TLSConfig
 
 	// Client is an optional per-plugin HTTP client. When set (e.g., for
-	// Kerberos plugins with cookie jar + SPNEGORoundTripper), it is used
-	// instead of the shared proxy client, and header-based auth injection
-	// is skipped.
-	Client *http.Client
+	// Kerberos or mTLS plugins), it is used instead of the shared proxy
+	// client.
+	Client     *http.Client
+	IsKerberos bool // true when Client uses SPNEGO transport
 }
 
 // Proxy executes HTTP requests on behalf of plugins, injecting
@@ -76,16 +94,18 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 // NewKerberosClient creates an HTTP client with a cookie jar and
 // SPNEGORoundTripper for Kerberos-authenticated plugins. If spn is
 // empty, the SPN is derived dynamically from each request's hostname.
-// When allowPrivateIPs is true, the underlying transport permits
-// connections to private/loopback IP addresses (requires the plugin
-// to also declare allowed_domains for defense in depth).
-func NewKerberosClient(spn string, allowPrivateIPs bool) *http.Client {
+// The TLS config enables custom CA certs alongside Kerberos auth.
+func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig) (*http.Client, error) {
+	transport, err := safeTransportWithTLS(allowPrivateIPs, tlsCfg)
+	if err != nil {
+		return nil, fmt.Errorf("create TLS transport: %w", err)
+	}
 	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
 	return &http.Client{
 		Jar:           jar,
-		Transport:     kerberos.NewSPNEGORoundTripper(spn, safeTransport(allowPrivateIPs)),
+		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport),
 		CheckRedirect: stripAuthOnCrossDomainRedirect,
-	}
+	}, nil
 }
 
 // Execute handles an http_request message from a plugin.
