@@ -90,10 +90,10 @@ func safeTransport(allowPrivate bool) *http.Transport {
 	}
 }
 
-// safeTransportWithTLS returns a transport with custom TLS config
+// SafeTransportWithTLS returns a transport with custom TLS config
 // for plugins that need private CAs, mTLS, or hostname skip.
 // Uses pre-loaded CACertPEM bytes (not file path) to prevent TOCTOU.
-func safeTransportWithTLS(allowPrivate bool, tlsCfg TLSConfig) (*http.Transport, error) {
+func SafeTransportWithTLS(allowPrivate bool, tlsCfg TLSConfig) (*http.Transport, error) {
 	transport := safeTransport(allowPrivate)
 
 	if !tlsCfg.HasConfig() {

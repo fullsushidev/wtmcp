@@ -635,7 +635,7 @@ func TestAllowPrivateIPsUsesPrivateClient(t *testing.T) {
 		plugins: make(map[string]*PluginAuth),
 		client: &http.Client{
 			Transport:     safeTransport(false),
-			CheckRedirect: stripAuthOnCrossDomainRedirect,
+			CheckRedirect: StripAuthOnCrossDomainRedirect,
 		},
 		privateClient: srv.Client(),
 		maxBodySize:   10 * 1024 * 1024,
@@ -694,7 +694,7 @@ func TestAllowPrivateIPsWithAuth(t *testing.T) {
 		plugins: make(map[string]*PluginAuth),
 		client: &http.Client{
 			Transport:     safeTransport(false),
-			CheckRedirect: stripAuthOnCrossDomainRedirect,
+			CheckRedirect: StripAuthOnCrossDomainRedirect,
 		},
 		privateClient: srv.Client(),
 		maxBodySize:   10 * 1024 * 1024,

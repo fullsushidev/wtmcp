@@ -72,7 +72,7 @@ func New(client *http.Client, maxBodySize int64) *Proxy {
 	if client == nil {
 		client = &http.Client{
 			Transport:     safeTransport(false),
-			CheckRedirect: stripAuthOnCrossDomainRedirect,
+			CheckRedirect: StripAuthOnCrossDomainRedirect,
 		}
 	}
 	return &Proxy{
@@ -80,7 +80,7 @@ func New(client *http.Client, maxBodySize int64) *Proxy {
 		client:  client,
 		privateClient: &http.Client{
 			Transport:     safeTransport(true),
-			CheckRedirect: stripAuthOnCrossDomainRedirect,
+			CheckRedirect: StripAuthOnCrossDomainRedirect,
 		},
 		maxBodySize: maxBodySize,
 	}
@@ -96,7 +96,7 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 // empty, the SPN is derived dynamically from each request's hostname.
 // The TLS config enables custom CA certs alongside Kerberos auth.
 func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig) (*http.Client, error) {
-	transport, err := safeTransportWithTLS(allowPrivateIPs, tlsCfg)
+	transport, err := SafeTransportWithTLS(allowPrivateIPs, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create TLS transport: %w", err)
 	}
@@ -104,7 +104,7 @@ func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig) (*htt
 	return &http.Client{
 		Jar:           jar,
 		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport),
-		CheckRedirect: stripAuthOnCrossDomainRedirect,
+		CheckRedirect: StripAuthOnCrossDomainRedirect,
 	}, nil
 }
 
@@ -399,11 +399,11 @@ func errResponse(id, code, message string) protocol.Message {
 	}
 }
 
-// stripAuthOnCrossDomainRedirect is a CheckRedirect function that
+// StripAuthOnCrossDomainRedirect is a CheckRedirect function that
 // strips sensitive auth headers when a redirect crosses domain
 // boundaries. This prevents credential leakage if a plugin's target
 // server redirects to an attacker-controlled domain.
-func stripAuthOnCrossDomainRedirect(req *http.Request, via []*http.Request) error {
+func StripAuthOnCrossDomainRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= 10 {
 		return fmt.Errorf("stopped after 10 redirects")
 	}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,6 +13,7 @@ import (
 	"github.com/LeGambiArt/wtmcp/internal/auth"
 	"github.com/LeGambiArt/wtmcp/internal/cache"
 	"github.com/LeGambiArt/wtmcp/internal/config"
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"github.com/LeGambiArt/wtmcp/internal/proxy"
 )
 
@@ -199,7 +200,12 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		AllowPrivateIPs: manifest.Services.HTTP.AllowPrivateIPs,
 	}
 
-	if m.isKerberosAuth(manifest) {
+	// Build per-plugin HTTP client based on auth and TLS config.
+	// Kerberos gets a cookie jar + SPNEGORoundTripper.
+	// mTLS gets a client with custom TLS transport.
+	// Both may include custom CA certs.
+	switch {
+	case m.isKerberosAuth(manifest):
 		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
 		client, err := proxy.NewKerberosClient(spn, pa.AllowPrivateIPs, pa.TLS)
 		if err != nil {
@@ -208,7 +214,18 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		pa.Client = client
 		pa.IsKerberos = true
 		log.Printf("[%s] using kerberos client (spn=%q)", name, spn)
-	} else {
+	case pa.TLS.HasConfig():
+		transport, err := proxy.SafeTransportWithTLS(pa.AllowPrivateIPs, pa.TLS)
+		if err != nil {
+			return fmt.Errorf("[%s] create TLS transport: %w", name, err)
+		}
+		pa.Client = &http.Client{
+			Transport:     transport,
+			CheckRedirect: proxy.StripAuthOnCrossDomainRedirect,
+		}
+		log.Printf("[%s] using TLS client (ca=%v, mtls=%v, skip_hostname=%v)",
+			name, pa.TLS.CACert != "", pa.TLS.ClientCert != "", pa.TLS.SkipHostnameVerify)
+	default:
 		pa.Provider = m.resolveAuth(manifest)
 	}
 
