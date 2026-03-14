@@ -181,6 +181,64 @@ services:
 When `select` is `auto`, the core picks the first variant with
 valid credentials.
 
+### TLS Configuration
+
+Plugins connecting to services with private CAs or requiring mutual
+TLS (mTLS) can configure custom TLS settings:
+
+```yaml
+services:
+  http:
+    base_url: "https://internal.example.com"
+    tls:
+      ca_cert: "${MY_CA_CERT}"           # PEM CA certificate path
+      client_cert: "${CLIENT_CERT}"       # PEM client cert for mTLS
+      client_key: "${CLIENT_KEY}"         # PEM client key for mTLS
+      skip_hostname_verify: false         # skip hostname check only
+```
+
+**Custom CA certificate:** Appended to the system CA pool (not
+replacing it). Use this for services with self-signed or internal
+CA certificates.
+
+**Mutual TLS (mTLS):** For services requiring client certificate
+authentication. Requirements:
+
+- `client_cert` and `client_key` must both be set or both empty
+- `client_key` file must have mode 0600 or 0400 (no group/other)
+- Cannot be combined with `services.auth` — mTLS replaces
+  header-based auth at the transport level
+- HTTPS is always required when client certificates are configured
+
+**Hostname verification skip:** For services with certificates
+lacking proper SANs (e.g., auto-generated certs). The certificate
+chain is still verified against the CA pool — only hostname
+matching is skipped. A warning is logged at load time.
+
+### Domain Allowlisting
+
+The `base_url` hostname is automatically added to the allowed
+domains list. You only need to declare `allowed_domains` for
+additional hosts beyond the base URL:
+
+```yaml
+services:
+  http:
+    base_url: "https://api.example.com"
+    allowed_domains:
+      - secondary.example.com
+```
+
+Env var references in `allowed_domains` are resolved from the
+credential group's env.d file. Full URLs are automatically
+reduced to hostnames:
+
+```yaml
+allowed_domains:
+  - ${OTHER_SERVICE_URL}
+  # https://other.example.com:8443 → other.example.com
+```
+
 ## Wire Protocol
 
 All communication is JSON objects separated by newlines (JSON-lines).
@@ -244,6 +302,26 @@ Full URL override (for URLs outside base_url):
 {"id": "http-3", "type": "http_request",
  "method": "GET", "url": "https://other.example.com/api/data"}
 ```
+
+#### Per-Request Auth Bypass (no_auth)
+
+Plugins can send individual requests without auth injection. This
+is useful for bootstrap endpoints that don't require auth (e.g.,
+downloading a CA certificate from a public endpoint):
+
+```json
+{"id": "http-4", "type": "http_request",
+ "method": "GET",
+ "url": "http://server.example.com/public/ca.crt",
+ "no_auth": true}
+```
+
+When `no_auth` is set:
+- Auth headers (Kerberos, Bearer, Basic) are not injected
+- HTTP scheme is allowed (normally HTTPS is required with auth)
+- Domain allowlisting and SSRF protection still apply
+- If the plugin uses mTLS (`client_cert`), HTTPS is still required
+  regardless of `no_auth`
 
 #### Binary Responses
 
@@ -464,6 +542,9 @@ setup:
   post_setup_message: "Restart the MCP server for changes to take effect."
 ```
 
+The `auth_type` field is informational (for setup wizards):
+`kerberos`, `bearer`, `basic`, `oauth2`, `mtls`.
+
 For plugins with auth variants, add variant labels:
 
 ```yaml
@@ -641,14 +722,22 @@ handles credential injection automatically.
   cannot override system plugins, declare `provides.auth`, or claim
   credential groups owned by system plugins.
 - Auth tokens are injected by the HTTP proxy. Plugins never see them.
-- The proxy enforces HTTPS when auth is configured.
+- The proxy enforces HTTPS when auth or mTLS is configured.
+  mTLS HTTPS enforcement cannot be bypassed by `no_auth`.
 - The proxy validates that request URLs match the plugin's declared
-  `base_url` domain or `allowed_domains` list. IP addresses and
-  localhost are rejected in `allowed_domains`.
+  `base_url` domain or `allowed_domains` list. The `base_url`
+  hostname is auto-added. IP addresses and localhost are rejected
+  in user-declared `allowed_domains`.
+- Only `http` and `https` URL schemes are permitted. Exotic schemes
+  (`file://`, `ftp://`, etc.) are rejected.
 - The proxy strips security-sensitive headers (Authorization, Cookie,
   etc.) from plugin-specified headers before forwarding.
 - The proxy rejects connections to private/loopback IP addresses
   (SSRF protection).
+- **TLS certificate files** (`ca_cert`, `client_cert`, `client_key`)
+  are validated at plugin load time. Private key files must have
+  restrictive permissions (0600/0400). CA cert PEM is pre-loaded to
+  prevent TOCTOU attacks. Cert/key pairs are validated as matching.
 - **Credential isolation:** plugins only see env.d variables from
   their own `credential_group`. Shell-exported environment variables
   are not used for plugin variable resolution.
