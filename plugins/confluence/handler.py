@@ -599,4 +599,5 @@ def main():
 
 
 if __name__ == "__main__":
+    sys.modules["handler"] = sys.modules[__name__]
     main()
