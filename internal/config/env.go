@@ -41,34 +41,51 @@ func (g EnvGroups) Get(group string) map[string]string {
 	return g[group]
 }
 
+// EnvLoadResult holds both successfully loaded env groups and
+// per-group errors for files that could not be loaded (bad
+// permissions, symlinks, parse errors). Plugins whose credential
+// group appears in Errors should be disabled, not loaded.
+type EnvLoadResult struct {
+	Groups EnvGroups
+	Errors map[string]string // group name → human-readable error
+}
+
 // LoadEnvGroups reads env.d/*.env files and returns them as scoped
 // groups. Each file becomes a group keyed by its filename without
 // the .env extension. Variables are NOT loaded into the process
 // environment — they are only available through the returned map.
 //
+// Directory-level errors (env.d missing permissions) are fatal and
+// returned as the error. Per-file errors (bad permissions, symlinks,
+// parse failures) are captured in EnvLoadResult.Errors and the file
+// is skipped — other groups continue loading normally.
+//
 // Plugin credentials and configuration must be set via env.d files;
 // shell-exported environment variables are not used for plugin
 // variable resolution.
-func LoadEnvGroups(workdir string) (EnvGroups, error) {
-	groups := make(EnvGroups)
+func LoadEnvGroups(workdir string) (EnvLoadResult, error) {
+	result := EnvLoadResult{
+		Groups: make(EnvGroups),
+		Errors: make(map[string]string),
+	}
 
 	envDir := filepath.Join(workdir, "env.d")
 
-	// Check env.d directory permissions
+	// Check env.d directory permissions — fatal if bad
 	dirInfo, err := os.Stat(envDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return groups, nil
+			return result, nil
 		}
-		return nil, fmt.Errorf("stat %s: %w", envDir, err)
+		return result, fmt.Errorf("stat %s: %w", envDir, err)
 	}
 	if err := checkPermissions(envDir, dirInfo); err != nil {
-		return nil, err
+		return result, err
 	}
 
 	entries, err := os.ReadDir(envDir)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", envDir, err)
+		return result, fmt.Errorf("read %s: %w", envDir, err)
 	}
 
 	// Sort for deterministic order
@@ -81,33 +98,47 @@ func LoadEnvGroups(workdir string) (EnvGroups, error) {
 	sort.Strings(files)
 
 	for _, name := range files {
+		group := strings.TrimSuffix(name, ".env")
 		path := filepath.Join(envDir, name)
 
-		// Reject symlinks to prevent credential injection via
-		// env.d/name.env -> /tmp/attacker-controlled.env
-		if err := rejectSymlink(path); err != nil {
-			return nil, err
-		}
-
-		// Check file permissions before reading
-		info, err := os.Stat(path)
+		vars, err := loadEnvFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("stat %s: %w", path, err)
+			relPath := filepath.Join("env.d", name)
+			result.Errors[group] = fmt.Sprintf("%s: %v", relPath, err)
+			continue
 		}
-		if err := checkPermissions(path, info); err != nil {
-			return nil, err
-		}
-
-		vars, err := parseEnvFile(path)
-		if err != nil {
-			return nil, fmt.Errorf("load %s: %w", path, err)
-		}
-		group := strings.TrimSuffix(name, ".env")
-		groups[group] = vars
+		result.Groups[group] = vars
 		log.Printf("loaded env group: %s (%d vars)", group, len(vars))
 	}
 
-	return groups, nil
+	return result, nil
+}
+
+// LoadSingleEnvGroup loads (or reloads) a single env.d file by
+// group name. Performs symlink rejection, permission checks, and
+// parsing — same validation as LoadEnvGroups. Used by the plugin
+// reload path to re-read credentials after the user fixes permissions.
+func LoadSingleEnvGroup(workdir, group string) (map[string]string, error) {
+	path := filepath.Join(workdir, "env.d", group+".env")
+	return loadEnvFile(path)
+}
+
+// loadEnvFile validates and reads a single env.d file.
+// Rejects symlinks, checks permissions, then parses.
+func loadEnvFile(path string) (map[string]string, error) {
+	if err := rejectSymlink(path); err != nil {
+		return nil, err
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat %s: %w", path, err)
+	}
+	if err := checkPermissions(path, info); err != nil {
+		return nil, err
+	}
+
+	return parseEnvFile(path)
 }
 
 // rejectSymlink returns an error if path is a symbolic link.

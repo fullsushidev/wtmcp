@@ -31,15 +31,24 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 
 	progressive := cfg.Tools.Discovery == "progressive"
 
+	disabled := manager.DisabledPlugins()
+
 	// Register tools from all plugin manifests. In progressive
 	// mode, non-primary tools get the defer_loading flag.
-	for _, manifest := range manager.Manifests() {
+	// Skip disabled plugins — they get separate registration below.
+	for name, manifest := range manager.Manifests() {
+		if _, isDisabled := disabled[name]; isDisabled {
+			continue
+		}
 		outputFormat := cfg.Output.Format
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
 		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback, progressive)
 	}
+
+	// Register disabled plugin tools with [DISABLED] descriptions
+	registerDisabledPluginTools(srv, disabled, progressive)
 
 	// Register context files as MCP resources
 	registerContextResources(srv, manager)
@@ -109,15 +118,50 @@ func buildMCPTool(def plugin.ToolDef, progressive bool) mcp.Tool {
 	return tool
 }
 
+func registerDisabledPluginTools(srv *mcpserver.MCPServer, disabled map[string]plugin.DisabledPlugin, progressive bool) {
+	for _, dp := range disabled {
+		pluginName := dp.Name
+		for _, toolDef := range dp.Manifest.Tools {
+			tool := buildMCPTool(toolDef, progressive)
+			tool.Description = fmt.Sprintf(
+				"[DISABLED] %s — after fixing, run plugin_reload(name=\"%s\") to enable.\n\n---\n\n%s",
+				dp.Reason, pluginName, toolDef.Description,
+			)
+
+			reason := dp.Reason
+			name := pluginName
+			srv.AddTool(tool, func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				return mcp.NewToolResultError(fmt.Sprintf(
+					"[DISABLED] %s\n\nAfter fixing, run: plugin_reload(name=\"%s\")",
+					reason, name,
+				)), nil
+			})
+		}
+	}
+}
+
 func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex) {
-	// plugin_list: list all loaded plugins
+	// plugin_list: list all plugins and their status
 	srv.AddTool(
 		mcp.NewTool("plugin_list",
-			mcp.WithDescription("List all loaded plugins and their status"),
+			mcp.WithDescription("List all plugins and their status (loaded, disabled)"),
 		),
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var plugins []map[string]any
+
+			disabled := mgr.DisabledPlugins()
 			for name, manifest := range mgr.Manifests() {
+				if dp, ok := disabled[name]; ok {
+					plugins = append(plugins, map[string]any{
+						"name":             name,
+						"status":           "disabled",
+						"reason":           dp.Reason,
+						"credential_group": manifest.CredentialGroup,
+						"tools":            len(manifest.Tools),
+					})
+					continue
+				}
+
 				var primaryCount, deferredCount int
 				for _, t := range manifest.Tools {
 					if t.IsPrimary() {

@@ -41,16 +41,19 @@ func TestLoadEnvGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	groups, err := LoadEnvGroups(dir)
+	result, err := LoadEnvGroups(dir)
 	if err != nil {
 		t.Fatalf("LoadEnvGroups: %v", err)
 	}
 
-	if len(groups) != 2 {
-		t.Fatalf("got %d groups, want 2", len(groups))
+	if len(result.Groups) != 2 {
+		t.Fatalf("got %d groups, want 2", len(result.Groups))
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("got %d errors, want 0: %v", len(result.Errors), result.Errors)
 	}
 
-	jira := groups.Get("jira")
+	jira := result.Groups.Get("jira")
 	if jira == nil {
 		t.Fatal("expected jira group")
 	}
@@ -61,7 +64,7 @@ func TestLoadEnvGroups(t *testing.T) {
 		t.Errorf("JIRA_TOKEN = %q", jira["JIRA_TOKEN"])
 	}
 
-	google := groups.Get("google")
+	google := result.Groups.Get("google")
 	if google == nil {
 		t.Fatal("expected google group")
 	}
@@ -70,7 +73,7 @@ func TestLoadEnvGroups(t *testing.T) {
 	}
 
 	// Nonexistent group
-	if groups.Get("nonexistent") != nil {
+	if result.Groups.Get("nonexistent") != nil {
 		t.Error("expected nil for nonexistent group")
 	}
 }
@@ -99,12 +102,144 @@ func TestLoadEnvGroupsNotInProcessEnv(t *testing.T) {
 }
 
 func TestLoadEnvGroupsMissingDir(t *testing.T) {
-	groups, err := LoadEnvGroups("/nonexistent/path")
+	result, err := LoadEnvGroups("/nonexistent/path")
 	if err != nil {
 		t.Errorf("should not error on missing dir: %v", err)
 	}
-	if len(groups) != 0 {
-		t.Errorf("expected empty groups, got %d", len(groups))
+	if len(result.Groups) != 0 {
+		t.Errorf("expected empty groups, got %d", len(result.Groups))
+	}
+}
+
+func TestLoadEnvGroupsPartialOnBadFilePerms(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Good file
+	if err := os.WriteFile(filepath.Join(envDir, "good.env"), []byte("KEY=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Bad permissions — should be skipped, not fatal
+	if err := os.WriteFile(filepath.Join(envDir, "bad.env"), []byte("SECRET=oops\n"), 0o644); err != nil { //nolint:gosec // intentionally insecure for test
+		t.Fatal(err)
+	}
+
+	result, err := LoadEnvGroups(dir)
+	if err != nil {
+		t.Fatalf("should not return fatal error: %v", err)
+	}
+
+	// Good group loaded
+	if result.Groups.Get("good") == nil {
+		t.Error("expected good group to load")
+	}
+
+	// Bad group captured as error, not loaded
+	if result.Groups.Get("bad") != nil {
+		t.Error("bad group should not be loaded")
+	}
+	if errMsg, ok := result.Errors["bad"]; !ok {
+		t.Error("expected error for bad group")
+	} else if !strings.Contains(errMsg, "must not be accessible") {
+		t.Errorf("error = %q, want permission error", errMsg)
+	}
+}
+
+func TestLoadEnvGroupsRejectsLooseDirPerms(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o755); err != nil { //nolint:gosec // intentionally insecure for test
+		t.Fatal(err)
+	}
+
+	_, err := LoadEnvGroups(dir)
+	if err == nil {
+		t.Fatal("expected error for world-readable env.d directory")
+	}
+	if !strings.Contains(err.Error(), "must not be accessible") {
+		t.Errorf("error = %q, want permission error", err)
+	}
+}
+
+func TestLoadEnvGroupsRejectsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Good file alongside the symlink
+	if err := os.WriteFile(filepath.Join(envDir, "good.env"), []byte("KEY=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlink — should be captured as error, not fatal
+	target := filepath.Join(dir, "real.env")
+	if err := os.WriteFile(target, []byte("SECRET=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(envDir, "linked.env")); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := LoadEnvGroups(dir)
+	if err != nil {
+		t.Fatalf("should not return fatal error: %v", err)
+	}
+
+	// Good file loaded
+	if result.Groups.Get("good") == nil {
+		t.Error("expected good group to load")
+	}
+
+	// Symlink captured as error
+	if errMsg, ok := result.Errors["linked"]; !ok {
+		t.Error("expected error for linked group")
+	} else if !strings.Contains(errMsg, "symlink") {
+		t.Errorf("error = %q, want symlink error", errMsg)
+	}
+}
+
+func TestLoadSingleEnvGroup(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(envDir, "mygroup.env"), []byte("KEY=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	vars, err := LoadSingleEnvGroup(dir, "mygroup")
+	if err != nil {
+		t.Fatalf("LoadSingleEnvGroup: %v", err)
+	}
+	if vars["KEY"] != "value" {
+		t.Errorf("KEY = %q", vars["KEY"])
+	}
+}
+
+func TestLoadSingleEnvGroupBadPerms(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(envDir, "bad.env"), []byte("KEY=value\n"), 0o644); err != nil { //nolint:gosec // intentionally insecure for test
+		t.Fatal(err)
+	}
+
+	_, err := LoadSingleEnvGroup(dir, "bad")
+	if err == nil {
+		t.Fatal("expected error for bad permissions")
+	}
+	if !strings.Contains(err.Error(), "must not be accessible") {
+		t.Errorf("error = %q", err)
 	}
 }
 
@@ -144,68 +279,6 @@ EMPTY_LINE_ABOVE=yes
 		if got := vars[key]; got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
-	}
-}
-
-func TestLoadEnvGroupsRejectsLooseFilePerms(t *testing.T) {
-	dir := t.TempDir()
-	envDir := filepath.Join(dir, "env.d")
-	if err := os.MkdirAll(envDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	// World-readable env file — must be rejected
-	if err := os.WriteFile(filepath.Join(envDir, "jira.env"), []byte("JIRA_TOKEN=secret\n"), 0o644); err != nil { //nolint:gosec // intentionally insecure for test
-		t.Fatal(err)
-	}
-
-	_, err := LoadEnvGroups(dir)
-	if err == nil {
-		t.Fatal("expected error for world-readable env file")
-	}
-	if !strings.Contains(err.Error(), "must not be accessible") {
-		t.Errorf("error = %q, want permission error", err)
-	}
-}
-
-func TestLoadEnvGroupsRejectsLooseDirPerms(t *testing.T) {
-	dir := t.TempDir()
-	envDir := filepath.Join(dir, "env.d")
-	if err := os.MkdirAll(envDir, 0o755); err != nil { //nolint:gosec // intentionally insecure for test
-		t.Fatal(err)
-	}
-
-	_, err := LoadEnvGroups(dir)
-	if err == nil {
-		t.Fatal("expected error for world-readable env.d directory")
-	}
-	if !strings.Contains(err.Error(), "must not be accessible") {
-		t.Errorf("error = %q, want permission error", err)
-	}
-}
-
-func TestLoadEnvGroupsRejectsSymlinks(t *testing.T) {
-	dir := t.TempDir()
-	envDir := filepath.Join(dir, "env.d")
-	if err := os.MkdirAll(envDir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	// Create a regular file and a symlink to it
-	target := filepath.Join(dir, "real.env")
-	if err := os.WriteFile(target, []byte("SECRET=value\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(target, filepath.Join(envDir, "linked.env")); err != nil {
-		t.Fatal(err)
-	}
-
-	_, err := LoadEnvGroups(dir)
-	if err == nil {
-		t.Fatal("expected error for symlinked env file")
-	}
-	if !strings.Contains(err.Error(), "symlink") {
-		t.Errorf("error = %q, want symlink error", err)
 	}
 }
 

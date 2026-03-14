@@ -61,9 +61,12 @@ func run() error {
 	}
 
 	// Load scoped env.d groups (not into process env)
-	envGroups, err := config.LoadEnvGroups(workdir)
+	envResult, err := config.LoadEnvGroups(workdir)
 	if err != nil {
 		return fmt.Errorf("load env: %w", err)
+	}
+	for group, msg := range envResult.Errors {
+		log.Printf("WARNING: env group %s disabled: %s", group, msg)
 	}
 
 	// Load config (uses workdir for defaults)
@@ -88,7 +91,7 @@ func run() error {
 	cacheStore := cache.NewMemoryStore()
 	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize)
 
-	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envGroups)
+	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envResult.Groups, envResult.Errors, workdir)
 
 	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return fmt.Errorf("plugin discovery: %w", err)
@@ -136,7 +139,7 @@ func runCheck() error {
 		workdir = workdirOverride
 	}
 
-	envGroups, err := config.LoadEnvGroups(workdir)
+	envResult, err := config.LoadEnvGroups(workdir)
 	if err != nil {
 		return err
 	}
@@ -149,9 +152,15 @@ func runCheck() error {
 	fmt.Printf("wtmcp %s\n", Version)
 	fmt.Printf("workdir: %s\n", workdir)
 	fmt.Printf("user plugins: %v\n", cfg.Plugins.UserPlugins)
-	fmt.Printf("env groups: %d\n", len(envGroups))
-	for group := range envGroups {
+	fmt.Printf("env groups: %d\n", len(envResult.Groups))
+	for group := range envResult.Groups {
 		fmt.Printf("  - %s\n", group)
+	}
+	if len(envResult.Errors) > 0 {
+		fmt.Printf("env group errors: %d\n", len(envResult.Errors))
+		for group, msg := range envResult.Errors {
+			fmt.Printf("  - %s: %s\n", group, msg)
+		}
 	}
 	fmt.Printf("\nplugin search path:\n")
 	for i, dir := range cfg.PluginDirs {
@@ -163,7 +172,7 @@ func runCheck() error {
 	}
 
 	// Discover plugins (without loading/starting them)
-	mgr := plugin.NewManager(nil, nil, nil, cfg, envGroups)
+	mgr := plugin.NewManager(nil, nil, nil, cfg, envResult.Groups, envResult.Errors, workdir)
 	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return err
 	}

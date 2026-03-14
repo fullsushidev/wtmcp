@@ -16,11 +16,24 @@ import (
 	"github.com/LeGambiArt/wtmcp/internal/proxy"
 )
 
+// DisabledPlugin records a plugin that was discovered but could not
+// be loaded due to a configuration issue (e.g., env.d file with bad
+// permissions). Its tools are registered with [DISABLED] descriptions
+// so the LLM can tell the user how to fix it.
+type DisabledPlugin struct {
+	Name     string
+	Reason   string
+	Manifest *Manifest
+}
+
 // Manager discovers, loads, and manages plugin lifecycles.
 type Manager struct {
 	handles    map[string]*Handle
 	manifests  map[string]*Manifest
+	disabled   map[string]DisabledPlugin
 	envGroups  config.EnvGroups
+	envErrors  map[string]string // credential group → error message
+	workdir    string
 	authReg    *auth.Registry
 	proxy      *proxy.Proxy
 	cache      cache.Store
@@ -28,12 +41,22 @@ type Manager struct {
 	svcHandler *serviceHandlerImpl
 }
 
-// NewManager creates a plugin manager.
-func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *config.Config, envGroups config.EnvGroups) *Manager {
+// NewManager creates a plugin manager. envErrors maps credential
+// group names to their load errors (from LoadEnvGroups). Plugins
+// whose credential_group appears in envErrors will be disabled
+// during LoadAll instead of loaded. workdir is needed to re-read
+// env.d files on plugin reload.
+func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *config.Config, envGroups config.EnvGroups, envErrors map[string]string, workdir string) *Manager {
+	if envErrors == nil {
+		envErrors = make(map[string]string)
+	}
 	return &Manager{
 		handles:    make(map[string]*Handle),
 		manifests:  make(map[string]*Manifest),
+		disabled:   make(map[string]DisabledPlugin),
 		envGroups:  envGroups,
+		envErrors:  envErrors,
+		workdir:    workdir,
 		authReg:    authReg,
 		proxy:      p,
 		cache:      c,
@@ -130,6 +153,21 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 		if manifest.ProvidesAuth() {
 			continue // already loaded
 		}
+
+		// Check if the plugin's credential group has an env.d error
+		if manifest.CredentialGroup != "" {
+			if errMsg, ok := m.envErrors[manifest.CredentialGroup]; ok {
+				m.disabled[name] = DisabledPlugin{
+					Name:     name,
+					Reason:   errMsg,
+					Manifest: manifest,
+				}
+				log.Printf("plugin %s disabled: credential group %q: %s",
+					name, manifest.CredentialGroup, errMsg)
+				continue
+			}
+		}
+
 		if err := m.Load(ctx, name); err != nil {
 			log.Printf("failed to load plugin %s: %v", name, err)
 		}
@@ -206,8 +244,25 @@ func (m *Manager) Unload(ctx context.Context, name string) error {
 	return nil
 }
 
-// Reload stops and restarts a plugin.
+// Reload stops and restarts a plugin. If the plugin was disabled
+// due to an env.d error, re-reads the env.d file and enables the
+// plugin if the issue is resolved.
 func (m *Manager) Reload(ctx context.Context, name string) error {
+	// If disabled, try re-reading the env.d file
+	if dp, ok := m.disabled[name]; ok {
+		group := dp.Manifest.CredentialGroup
+		if group != "" && m.workdir != "" {
+			vars, err := config.LoadSingleEnvGroup(m.workdir, group)
+			if err != nil {
+				return fmt.Errorf("env group %s still has issues: %w", group, err)
+			}
+			m.envGroups[group] = vars
+			delete(m.envErrors, group)
+			delete(m.disabled, name)
+			log.Printf("env group %s re-read successfully, enabling plugin %s", group, name)
+		}
+	}
+
 	if _, ok := m.handles[name]; ok {
 		if err := m.Unload(ctx, name); err != nil {
 			return err
@@ -244,6 +299,12 @@ func (m *Manager) CallTool(_ context.Context, toolName string) (string, *Handle)
 // Manifests returns all discovered manifests.
 func (m *Manager) Manifests() map[string]*Manifest {
 	return m.manifests
+}
+
+// DisabledPlugins returns plugins that were discovered but could
+// not be loaded due to configuration issues.
+func (m *Manager) DisabledPlugins() map[string]DisabledPlugin {
+	return m.disabled
 }
 
 // LoadedPlugins returns the names of successfully loaded plugins.

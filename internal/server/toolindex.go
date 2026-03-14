@@ -21,13 +21,15 @@ const (
 // Contains only safe-to-expose fields — no manifest pointer,
 // no resolved config, no credentials.
 type ToolEntry struct {
-	Name        string
-	Plugin      string
-	Description string
-	Access      string
-	Visibility  string
-	ParamNames  []string
-	Def         plugin.ToolDef // safe: contains only YAML-level schema
+	Name          string
+	Plugin        string
+	Description   string
+	Access        string
+	Visibility    string
+	ParamNames    []string
+	Def           plugin.ToolDef // safe: contains only YAML-level schema
+	Disabled      bool
+	DisableReason string
 }
 
 // searchResult is the safe subset returned to callers via JSON.
@@ -191,6 +193,14 @@ func (idx *ToolIndex) CategorySummary() string {
 		plugins[entry.Plugin] = append(plugins[entry.Plugin], entry.Name)
 	}
 
+	// Track which plugins are disabled (any disabled tool marks the plugin).
+	disabledPlugins := make(map[string]bool)
+	for _, entry := range idx.entries {
+		if entry.Disabled {
+			disabledPlugins[entry.Plugin] = true
+		}
+	}
+
 	var sb strings.Builder
 	for _, p := range pluginOrder {
 		tools := plugins[p]
@@ -198,8 +208,12 @@ func (idx *ToolIndex) CategorySummary() string {
 		if len(examples) > 3 {
 			examples = examples[:3]
 		}
-		fmt.Fprintf(&sb, "- %s (%d tools): %s",
-			p, len(tools), strings.Join(examples, ", "))
+		label := fmt.Sprintf("%d tools", len(tools))
+		if disabledPlugins[p] {
+			label += ", disabled"
+		}
+		fmt.Fprintf(&sb, "- %s (%s): %s",
+			p, label, strings.Join(examples, ", "))
 		if len(tools) > 3 {
 			sb.WriteString(", ...")
 		}
@@ -208,7 +222,7 @@ func (idx *ToolIndex) CategorySummary() string {
 	return sb.String()
 }
 
-// buildEntries creates index entries from loaded plugin manifests.
+// buildEntries creates index entries from loaded and disabled plugin manifests.
 func buildEntries(mgr *plugin.Manager) []ToolEntry {
 	loaded := mgr.LoadedPlugins()
 	loadedSet := make(map[string]bool, len(loaded))
@@ -216,11 +230,15 @@ func buildEntries(mgr *plugin.Manager) []ToolEntry {
 		loadedSet[name] = true
 	}
 
+	disabled := mgr.DisabledPlugins()
+
 	var entries []ToolEntry
 	for _, manifest := range mgr.Manifests() {
-		if !loadedSet[manifest.Name] {
+		dp, isDisabled := disabled[manifest.Name]
+		if !loadedSet[manifest.Name] && !isDisabled {
 			continue
 		}
+
 		for _, tool := range manifest.Tools {
 			paramNames := make([]string, 0, len(tool.Params))
 			for name := range tool.Params {
@@ -228,7 +246,7 @@ func buildEntries(mgr *plugin.Manager) []ToolEntry {
 			}
 			sort.Strings(paramNames)
 
-			entries = append(entries, ToolEntry{
+			entry := ToolEntry{
 				Name:        tool.Name,
 				Plugin:      manifest.Name,
 				Description: tool.Description,
@@ -236,7 +254,12 @@ func buildEntries(mgr *plugin.Manager) []ToolEntry {
 				Visibility:  tool.Visibility,
 				ParamNames:  paramNames,
 				Def:         tool,
-			})
+			}
+			if isDisabled {
+				entry.Disabled = true
+				entry.DisableReason = dp.Reason
+			}
+			entries = append(entries, entry)
 		}
 	}
 
