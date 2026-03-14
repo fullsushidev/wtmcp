@@ -222,10 +222,41 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		}
 	}
 
+	// Resolve TLS config paths from env.d
+	tlsCfg := proxy.TLSConfig{
+		CACert:             resolve(manifest.Services.HTTP.TLS.CACert),
+		ClientCert:         resolve(manifest.Services.HTTP.TLS.ClientCert),
+		ClientKey:          resolve(manifest.Services.HTTP.TLS.ClientKey),
+		SkipHostnameVerify: manifest.Services.HTTP.TLS.SkipHostnameVerify,
+	}
+
+	// Load CA cert bytes once (TOCTOU prevention)
+	if tlsCfg.CACert != "" {
+		pem, err := os.ReadFile(tlsCfg.CACert) //nolint:gosec // path from env.d (permission-checked)
+		if err != nil {
+			return fmt.Errorf("[%s] read ca_cert %s: %w", name, tlsCfg.CACert, err)
+		}
+		tlsCfg.CACertPEM = pem
+		log.Printf("[%s] loaded CA cert from %s", name, tlsCfg.CACert)
+	}
+
+	// Validate client key permissions
+	if tlsCfg.ClientKey != "" {
+		info, err := os.Stat(tlsCfg.ClientKey)
+		if err != nil {
+			return fmt.Errorf("[%s] stat client_key %s: %w", name, tlsCfg.ClientKey, err)
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return fmt.Errorf("[%s] client_key %s mode %04o, must not be group/other accessible",
+				name, tlsCfg.ClientKey, info.Mode().Perm())
+		}
+	}
+
 	pa := &proxy.PluginAuth{
 		BaseURL:         resolvedBaseURL,
 		AllowedDomains:  domains,
 		AllowPrivateIPs: manifest.Services.HTTP.AllowPrivateIPs,
+		TLS:             tlsCfg,
 	}
 
 	// Build per-plugin HTTP client based on auth and TLS config.
