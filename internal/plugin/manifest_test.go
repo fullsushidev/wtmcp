@@ -204,6 +204,26 @@ func TestManifestValidation(t *testing.T) {
 			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    base_url: 'https://internal.corp.com'\n    allow_private_ips: true",
 			wantErr: "allow_private_ips requires allowed_domains",
 		},
+		{
+			name:    "tls client_cert without client_key",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    tls:\n      client_cert: /tmp/cert.pem",
+			wantErr: "client_cert and client_key must both be set",
+		},
+		{
+			name:    "tls client_key without client_cert",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    tls:\n      client_key: /tmp/key.pem",
+			wantErr: "client_cert and client_key must both be set",
+		},
+		{
+			name:    "tls client_cert with services.auth",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    tls:\n      client_cert: /tmp/cert.pem\n      client_key: /tmp/key.pem\n  auth:\n    type: bearer\n    token: xyz",
+			wantErr: "client_cert (mTLS) and services.auth cannot both be set",
+		},
+		{
+			name:    "tls client_cert with auth variants",
+			yaml:    `name: ok-name` + "\nversion: '1.0'\nhandler: ./handler\ntools: []\nservices:\n  http:\n    tls:\n      client_cert: /tmp/cert.pem\n      client_key: /tmp/key.pem\n  auth:\n    select: auto\n    variants:\n      v1:\n        type: bearer\n        token: xyz",
+			wantErr: "client_cert (mTLS) and services.auth cannot both be set",
+		},
 	}
 
 	for _, tt := range tests {
@@ -539,6 +559,78 @@ services:
 	}
 	if !m.Services.HTTP.AllowPrivateIPs {
 		t.Error("AllowPrivateIPs should be true")
+	}
+	if len(m.Services.HTTP.AllowedDomains) != 2 {
+		t.Errorf("AllowedDomains = %v, want 2 entries", m.Services.HTTP.AllowedDomains)
+	}
+}
+
+func TestManifestTLSConfigValid(t *testing.T) {
+	dir := t.TempDir()
+	handlerPath := filepath.Join(dir, "handler")
+	if err := os.WriteFile(handlerPath, []byte("#!/bin/bash\n"), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+
+	manifest := `
+name: test-tls
+version: "1.0.0"
+handler: ./handler
+tools: []
+services:
+  http:
+    base_url: "https://service.example.com"
+    tls:
+      ca_cert: "${CA_CERT}"
+      client_cert: "${CLIENT_CERT}"
+      client_key: "${CLIENT_KEY}"
+`
+	path := filepath.Join(dir, "plugin.yaml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config file
+		t.Fatal(err)
+	}
+
+	m, err := LoadManifest(path)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+	if m.Services.HTTP.TLS.CACert != "${CA_CERT}" {
+		t.Errorf("CACert = %q, want ${CA_CERT}", m.Services.HTTP.TLS.CACert)
+	}
+	if m.Services.HTTP.TLS.ClientCert != "${CLIENT_CERT}" {
+		t.Errorf("ClientCert = %q, want ${CLIENT_CERT}", m.Services.HTTP.TLS.ClientCert)
+	}
+}
+
+func TestManifestAllowedDomainsTemplateSkipped(t *testing.T) {
+	dir := t.TempDir()
+	handlerPath := filepath.Join(dir, "handler")
+	if err := os.WriteFile(handlerPath, []byte("#!/bin/bash\n"), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+
+	// Template entries like ${VAR} should not be validated by validateDomain
+	// since they are resolved later at load time.
+	manifest := `
+name: test-template
+version: "1.0.0"
+handler: ./handler
+tools: []
+services:
+  http:
+    base_url: "https://api.example.com"
+    allowed_domains:
+      - "${REGISTRAR_URL:-https://localhost:8891}"
+      - api.example.com
+`
+	path := filepath.Join(dir, "plugin.yaml")
+	if err := os.WriteFile(path, []byte(manifest), 0o644); err != nil { //nolint:gosec // test config file
+		t.Fatal(err)
+	}
+
+	m, err := LoadManifest(path)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
 	}
 	if len(m.Services.HTTP.AllowedDomains) != 2 {
 		t.Errorf("AllowedDomains = %v, want 2 entries", m.Services.HTTP.AllowedDomains)

@@ -84,9 +84,22 @@ type AuthServiceConfig struct {
 
 // HTTPServiceConfig declares HTTP proxy settings.
 type HTTPServiceConfig struct {
-	BaseURL         string   `yaml:"base_url"`
-	AllowedDomains  []string `yaml:"allowed_domains"`
-	AllowPrivateIPs bool     `yaml:"allow_private_ips"`
+	BaseURL         string    `yaml:"base_url"`
+	AllowedDomains  []string  `yaml:"allowed_domains"`
+	AllowPrivateIPs bool      `yaml:"allow_private_ips"`
+	TLS             TLSConfig `yaml:"tls"`
+}
+
+// TLSConfig declares per-plugin TLS settings for custom CAs and mTLS.
+type TLSConfig struct {
+	CACert             string `yaml:"ca_cert"`
+	ClientCert         string `yaml:"client_cert"`
+	ClientKey          string `yaml:"client_key"`
+	SkipHostnameVerify bool   `yaml:"skip_hostname_verify"`
+
+	// CACertPEM holds the pre-loaded CA cert bytes (set at load time,
+	// not from YAML). Prevents TOCTOU between validation and use.
+	CACertPEM []byte `yaml:"-"`
 }
 
 // CacheServiceConfig declares cache settings.
@@ -324,6 +337,16 @@ func (m *Manifest) Validate() error {
 		}
 	}
 
+	// Validate TLS config
+	tlsCfg := m.Services.HTTP.TLS
+	if (tlsCfg.ClientCert != "") != (tlsCfg.ClientKey != "") {
+		return fmt.Errorf("client_cert and client_key must both be set or both be empty")
+	}
+	hasAuth := m.Services.Auth.Type != "" || len(m.Services.Auth.Variants) > 0
+	if tlsCfg.ClientCert != "" && hasAuth {
+		return fmt.Errorf("client_cert (mTLS) and services.auth cannot both be set")
+	}
+
 	// allow_private_ips requires allowed_domains as defense in depth:
 	// plugins must declare which domains they need, and only those
 	// domains are permitted to resolve to private IPs.
@@ -331,8 +354,12 @@ func (m *Manifest) Validate() error {
 		return fmt.Errorf("allow_private_ips requires allowed_domains to be set")
 	}
 
-	// Validate allowed_domains
+	// Validate allowed_domains — skip template entries (${VAR})
+	// which are resolved later at load time in manager.go.
 	for _, domain := range m.Services.HTTP.AllowedDomains {
+		if strings.Contains(domain, "${") {
+			continue
+		}
 		if err := validateDomain(domain); err != nil {
 			return fmt.Errorf("allowed_domains: %w", err)
 		}
