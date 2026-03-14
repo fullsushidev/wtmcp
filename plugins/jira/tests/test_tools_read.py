@@ -79,10 +79,9 @@ class TestGetMyself:
             mock_get.assert_called_once_with("myself")
 
     def test_http_error_returns_error_body(self):
-        error_body = {"error": "Unauthorized"}
-        with _mock_cache_get(None), _mock_http(401, error_body):
+        with _mock_cache_get(None), _mock_http(401, {"error": "Unauthorized"}):
             result = tools_read.get_myself({})
-            assert result == error_body
+            assert result["error"] == "HTTP 401"
 
 
 # --- jira_search ---
@@ -132,7 +131,7 @@ class TestSearch:
     def test_http_error(self):
         with _mock_cache_get(None), _mock_http(500, {"error": "Server Error"}):
             result = tools_read.search({"jql": "bad"})
-            assert result == {"error": "Server Error"}
+            assert result["error"] == "HTTP 500"
 
 
 # --- jira_get_issues ---
@@ -180,7 +179,7 @@ class TestGetIssues:
     def test_http_error(self):
         with _mock_http(403, {"error": "Forbidden"}):
             result = tools_read.get_issues({"issue_keys": "PROJ-1"})
-            assert result == {"error": "Forbidden"}
+            assert result["error"] == "HTTP 403"
 
 
 # --- jira_get_user ---
@@ -249,7 +248,7 @@ class TestGetTransitions:
     def test_http_error(self):
         with _mock_http(404, {"error": "Not Found"}):
             result = tools_read.get_transitions({"issue_key": "PROJ-999"})
-            assert result == {"error": "Not Found"}
+            assert result["error"] == "HTTP 404"
 
 
 # --- jira_get_resolutions ---
@@ -271,7 +270,7 @@ class TestGetResolutions:
     def test_http_error(self):
         with _mock_http(500, {"error": "Server Error"}):
             result = tools_read.get_resolutions({})
-            assert result == {"error": "Server Error"}
+            assert result["error"] == "HTTP 500"
 
 
 # --- jira_get_link_types ---
@@ -292,4 +291,4 @@ class TestGetLinkTypes:
     def test_http_error(self):
         with _mock_http(403, {"error": "Forbidden"}):
             result = tools_read.get_link_types({})
-            assert result == {"error": "Forbidden"}
+            assert result["error"] == "HTTP 403"

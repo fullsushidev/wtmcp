@@ -11,6 +11,33 @@ _ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+-\d+$")
 _USER_ALIASES = frozenset({"me", "myself", "currentuser"})
 
 
+def http_error(status, body):
+    """Build a compact error dict from an HTTP error response.
+
+    Prevents raw HTML error pages (auth redirects, 500 pages) from
+    flooding the LLM context. Extracts the message from JSON errors
+    or truncates non-JSON responses.
+    """
+    result = {"error": f"HTTP {status}"}
+
+    if isinstance(body, dict):
+        # Jira JSON error: {"errorMessages": [...], "errors": {...}}
+        msgs = body.get("errorMessages") or body.get("errors")
+        if msgs:
+            result["detail"] = msgs
+        else:
+            msg = body.get("message") or body.get("error")
+            if msg:
+                result["detail"] = msg
+    elif isinstance(body, str):
+        # HTML or plain text — truncate to prevent token waste
+        if len(body) > 200:
+            result["detail"] = body[:200] + "... (truncated)"
+        elif body:
+            result["detail"] = body
+    return result
+
+
 def validate_issue_key(key):
     """Validate and return a cleaned issue key.
 

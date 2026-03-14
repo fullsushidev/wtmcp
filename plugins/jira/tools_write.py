@@ -4,7 +4,7 @@ All write tools default to dry_run=true for safety.
 """
 
 import handler
-from helpers import normalize_components, resolve_field_value, text_to_adf, validate_issue_key
+from helpers import http_error, normalize_components, resolve_field_value, text_to_adf, validate_issue_key
 
 
 def create_issue(params):
@@ -89,7 +89,7 @@ def add_comment(params):
     body_data = {"body": text_to_adf(comment)} if handler.is_cloud else {"body": comment}
     status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/comment", body=body_data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "id": body.get("id"), "issue_key": issue_key}
 
 
@@ -115,7 +115,7 @@ def edit_comment(params):
     body_data = {"body": text_to_adf(comment)} if handler.is_cloud else {"body": comment}
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}/comment/{comment_id}", body=body_data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "comment_id": comment_id}
 
 
@@ -143,7 +143,7 @@ def transition_issue(params):
 
     status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/transitions", body=data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "transition_id": transition_id}
 
 
@@ -163,7 +163,7 @@ def assign_issue(params):
 
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}/assignee", body=body_data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "assignee": assignee}
 
 
@@ -179,7 +179,7 @@ def set_priority(params):
     fields = {"priority": {"name": priority} if isinstance(priority, str) else priority}
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": fields})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "priority": priority}
 
 
@@ -194,7 +194,7 @@ def set_labels(params):
 
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {"labels": labels}})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "labels": labels}
 
 
@@ -210,7 +210,7 @@ def add_labels(params):
     data = {"update": {"labels": [{"add": lbl} for lbl in labels]}}
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body=data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "labels_added": labels}
 
 
@@ -226,7 +226,7 @@ def remove_labels(params):
     data = {"update": {"labels": [{"remove": lbl} for lbl in labels]}}
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body=data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "labels_removed": labels}
 
 
@@ -252,7 +252,7 @@ def set_text_field(params):
 
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_name: value}})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "field_name": field_name}
 
 
@@ -321,7 +321,7 @@ def set_story_points(params):
 
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {field_id: float(points)}})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "story_points": points, "field_id": field_id}
 
 
@@ -338,7 +338,7 @@ def set_components(params):
 
     status, body, _ = handler.http("PUT", f"/rest/api/2/issue/{issue_key}", body={"fields": {"components": comp_list}})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "components": comp_list}
 
 
@@ -363,7 +363,7 @@ def add_issue_link(params):
 
     status, body, _ = handler.http("POST", "/rest/api/2/issueLink", body=payload)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "link_type": link_type, "inward": inward_key, "outward": outward_key}
 
 
@@ -373,7 +373,7 @@ def delete_issue_link(params):
 
     status, body, _ = handler.http("DELETE", f"/rest/api/2/issueLink/{link_id}")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "link_id": link_id}
 
 
@@ -399,7 +399,7 @@ def issue_worklog(params):
 
     status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/worklog", body=body_data)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_key": issue_key, "time_spent": time_spent}
 
 
@@ -422,7 +422,7 @@ def add_issues_to_sprint(params):
 
     status, body, _ = handler.http("POST", f"/rest/agile/1.0/sprint/{sprint_id}/issue", body={"issues": issue_keys})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "sprint_id": sprint_id, "issue_keys": issue_keys}
 
 
@@ -439,7 +439,7 @@ def add_issues_to_backlog(params):
 
     status, body, _ = handler.http("POST", "/rest/agile/1.0/backlog/issue", body={"issues": issue_keys})
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "issue_keys": issue_keys}
 
 

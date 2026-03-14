@@ -15,6 +15,7 @@ from helpers import (
     calculate_sprint_metrics,
     extract_brief_issue,
     extract_nested_field,
+    http_error,
     validate_issue_key,
 )
 
@@ -42,7 +43,7 @@ def export_sprint_data(params):
     # Fetch sprint info
     status, sprint_info, _ = handler.http("GET", f"/rest/agile/1.0/sprint/{sprint_id}")
     if status < 200 or status >= 300:
-        return sprint_info
+        return http_error(status, sprint_info)
 
     # Fetch issues
     status, issues_resp, _ = handler.http(
@@ -51,7 +52,7 @@ def export_sprint_data(params):
         query={"maxResults": "1000", "fields": "*all"},
     )
     if status < 200 or status >= 300:
-        return issues_resp
+        return http_error(status, issues_resp)
 
     issues = issues_resp.get("issues", [])
     export_data = {
@@ -95,7 +96,7 @@ def export_board_sprints(params):
             query["state"] = state
         status, body, _ = handler.http("GET", f"/rest/agile/1.0/board/{board_id}/sprint", query=query)
         if status < 200 or status >= 300:
-            return body
+            return http_error(status, body)
         values = body.get("values", [])
         all_sprints.extend(values)
         if body.get("isLast", True) or len(values) < 50:
@@ -137,7 +138,7 @@ def export_sprint_report(params):
         query={"rapidViewId": str(board_id), "sprintId": str(sprint_id)},
     )
     if status < 200 or status >= 300:
-        return report
+        return http_error(status, report)
 
     export_data = {
         "export_metadata": {
@@ -358,7 +359,7 @@ def debug_fields(params):
 
     status, body, _ = handler.http("GET", "/rest/api/2/field")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     fields_list = body if isinstance(body, list) else []
     custom_fields = []
@@ -488,7 +489,7 @@ def add_attachment(params):
         headers={"X-Atlassian-Token": "no-check"},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     if isinstance(body, list) and body:
         att = body[0]
@@ -516,7 +517,7 @@ def delete_attachment(params):
 
     status, body, _ = handler.http("DELETE", f"/rest/api/2/attachment/{attachment_id}")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return {"success": True, "attachment_id": attachment_id}
 
 

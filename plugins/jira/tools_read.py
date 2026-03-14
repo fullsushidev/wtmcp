@@ -6,6 +6,7 @@ import handler
 from helpers import (
     extract_brief_issue,
     extract_user_fields,
+    http_error,
     is_user_alias,
     validate_issue_key,
 )
@@ -20,7 +21,9 @@ def get_myself(_params):
 
     status, body, _ = handler.http("GET", "/rest/api/2/myself")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
+    if not isinstance(body, dict):
+        return http_error(status, body)
 
     result = extract_user_fields(body)
     handler.cache_set("myself", result, ttl=3600)
@@ -49,8 +52,8 @@ def search(params):
             "fields": fields,
         },
     )
-    if status < 200 or status >= 300:
-        return body
+    if status < 200 or status >= 300 or not isinstance(body, dict):
+        return http_error(status, body)
 
     issues = body.get("issues", [])
     total = body.get("total", len(issues))
@@ -93,8 +96,8 @@ def get_issues(params):
             "fields": fields,
         },
     )
-    if status < 200 or status >= 300:
-        return body
+    if status < 200 or status >= 300 or not isinstance(body, dict):
+        return http_error(status, body)
 
     # Build lookup for ordering and missing-key detection.
     fetched = {}
@@ -123,7 +126,7 @@ def get_user(params):
         status, body, _ = handler.http("GET", "/rest/api/2/myself")
         if 200 <= status < 300 and isinstance(body, dict):
             return extract_user_fields(body)
-        return body
+        return http_error(status, body)
 
     # Cloud uses query=, Server uses username=.
     if handler.is_cloud:
@@ -133,7 +136,7 @@ def get_user(params):
 
     status, body, _ = handler.http("GET", "/rest/api/2/user/search", query=query)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     users = body if isinstance(body, list) else []
     if not users:
@@ -147,7 +150,7 @@ def get_transitions(params):
     issue_key = validate_issue_key(params.get("issue_key", ""))
     status, body, _ = handler.http("GET", f"/rest/api/2/issue/{issue_key}/transitions")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return body
 
 
@@ -155,7 +158,7 @@ def get_resolutions(_params):
     """Get all available resolution values."""
     status, body, _ = handler.http("GET", "/rest/api/2/resolution")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     if isinstance(body, list):
         return {"resolutions": [{"id": r.get("id"), "name": r.get("name")} for r in body]}
     return body
@@ -165,7 +168,7 @@ def get_link_types(_params):
     """List available issue link types."""
     status, body, _ = handler.http("GET", "/rest/api/2/issueLinkType")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return body
 
 

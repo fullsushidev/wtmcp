@@ -5,6 +5,7 @@ from helpers import (
     escape_jql,
     extract_brief_issue,
     extract_sprint_summary,
+    http_error,
     natural_sort_key,
     parse_sprint_field,
 )
@@ -46,7 +47,7 @@ def _get_board_sprints(board_id, state, limit):
             query["state"] = state
         status, body, _ = handler.http("GET", f"/rest/agile/1.0/board/{board_id}/sprint", query=query)
         if status < 200 or status >= 300:
-            return body
+            return http_error(status, body)
         values = body.get("values", [])
         all_sprints.extend(extract_sprint_summary(s) for s in values)
         if body.get("isLast", True) or len(values) < page_size:
@@ -66,7 +67,7 @@ def _get_sprints_from_tickets(state, limit):
         query={"jql": jql, "maxResults": "100", "fields": sf},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     seen = set()
     sprints = []
@@ -102,7 +103,7 @@ def get_sprint_issues(params):
         query={"jql": jql, "maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     issues = body.get("issues", [])
     total = body.get("total", len(issues))
@@ -143,7 +144,7 @@ def search_by_sprint(params):
         query={"jql": jql, "maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     issues = body.get("issues", [])
     total = body.get("total", len(issues))
@@ -186,7 +187,7 @@ def get_sprint_details(params):
     sprint_id = params.get("sprint_id", "")
     status, body, _ = handler.http("GET", f"/rest/agile/1.0/sprint/{sprint_id}")
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return body
 
 
@@ -208,7 +209,7 @@ def get_sprint_report(params):
         query={"rapidViewId": str(board_id), "sprintId": str(sprint_id)},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
     return body
 
 
@@ -225,7 +226,7 @@ def get_all_agile_boards(params):
 
     status, body, _ = handler.http("GET", "/rest/agile/1.0/board", query=query or None)
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     boards = []
     for b in body.get("values", []):
@@ -250,7 +251,7 @@ def get_issues_for_board(params):
         query={"maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     issues = body.get("issues", [])
     total = body.get("total", len(issues))
@@ -276,7 +277,7 @@ def get_all_issues_for_sprint_in_board(params):
         query={"maxResults": str(max_results), "fields": "summary,status,assignee,priority"},
     )
     if status < 200 or status >= 300:
-        return body
+        return http_error(status, body)
 
     issues = body.get("issues", [])
     total = body.get("total", len(issues))
