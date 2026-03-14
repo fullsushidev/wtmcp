@@ -739,3 +739,106 @@ func TestAllowPrivateIPsWithPerPluginClient(t *testing.T) {
 		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
 	}
 }
+
+func TestNoAuthSkipsAuthInjection(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			t.Error("expected no Authorization header with no_auth")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	p := newTestProxy(srv.Client())
+	pa := testPluginAuth(srv.URL)
+	pa.Provider = auth.NewBearerProvider("secret-token", "", "")
+	p.RegisterPlugin("test", pa)
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-noauth",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "GET",
+		Path:   "/public",
+		NoAuth: true,
+	})
+
+	if resp.Status != 200 {
+		t.Errorf("status = %d, error = %v", resp.Status, resp.Error)
+	}
+}
+
+func TestNoAuthAllowsHTTPWithHeaderAuth(t *testing.T) {
+	p := newTestProxy(nil)
+	pa := testPluginAuth("https://api.example.com")
+	pa.Provider = auth.NewBearerProvider("token", "", "")
+	p.RegisterPlugin("test", pa)
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-http-noauth",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "GET",
+		URL:    "http://api.example.com/public",
+		NoAuth: true,
+	})
+
+	// Should not get "HTTPS required" — transport error expected (no server)
+	if resp.Error != nil && strings.Contains(resp.Error.Message, "HTTPS required") {
+		t.Error("no_auth should bypass HTTPS enforcement for header auth")
+	}
+}
+
+func TestHTTPSRequiredWithClientCert(t *testing.T) {
+	p := newTestProxy(nil)
+	pa := testPluginAuth("https://service.example.com")
+	pa.TLS = TLSConfig{ClientCert: "/tmp/cert.pem", ClientKey: "/tmp/key.pem"}
+	p.RegisterPlugin("test", pa)
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-mtls-http",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "GET",
+		URL:    "http://service.example.com/api",
+	})
+
+	if resp.Error == nil || !strings.Contains(resp.Error.Message, "HTTPS required when client certificates") {
+		t.Errorf("expected HTTPS required error for mTLS, got %v", resp.Error)
+	}
+}
+
+func TestHTTPSRequiredWithClientCertNoAuth(t *testing.T) {
+	// mTLS HTTPS enforcement should NOT be bypassable by no_auth
+	p := newTestProxy(nil)
+	pa := testPluginAuth("https://service.example.com")
+	pa.TLS = TLSConfig{ClientCert: "/tmp/cert.pem", ClientKey: "/tmp/key.pem"}
+	p.RegisterPlugin("test", pa)
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-mtls-noauth",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "GET",
+		URL:    "http://service.example.com/api",
+		NoAuth: true,
+	})
+
+	if resp.Error == nil || !strings.Contains(resp.Error.Message, "HTTPS required when client certificates") {
+		t.Errorf("no_auth should NOT bypass mTLS HTTPS, got %v", resp.Error)
+	}
+}
+
+func TestSchemeValidation(t *testing.T) {
+	p := newTestProxy(nil)
+	pa := testPluginAuth("https://example.com")
+	p.RegisterPlugin("test", pa)
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-ftp",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "GET",
+		URL:    "ftp://example.com/file",
+	})
+
+	if resp.Error == nil || !strings.Contains(resp.Error.Message, "unsupported scheme") {
+		t.Errorf("expected scheme validation error, got %v", resp.Error)
+	}
+}
