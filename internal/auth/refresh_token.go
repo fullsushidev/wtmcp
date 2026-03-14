@@ -114,7 +114,12 @@ func (r *RefreshTokenProvider) refresh(ctx context.Context) error {
 	}
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("refresh_token: HTTP %d from token endpoint", resp.StatusCode)
+		// Include truncated response body for debugging (no credentials).
+		detail := string(body)
+		if len(detail) > 200 {
+			detail = detail[:200]
+		}
+		return fmt.Errorf("refresh_token: HTTP %d from token endpoint: %s", resp.StatusCode, detail)
 	}
 
 	var tok refreshTokenResponse
