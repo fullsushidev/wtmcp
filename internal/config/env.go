@@ -83,6 +83,12 @@ func LoadEnvGroups(workdir string) (EnvGroups, error) {
 	for _, name := range files {
 		path := filepath.Join(envDir, name)
 
+		// Reject symlinks to prevent credential injection via
+		// env.d/name.env -> /tmp/attacker-controlled.env
+		if err := rejectSymlink(path); err != nil {
+			return nil, err
+		}
+
 		// Check file permissions before reading
 		info, err := os.Stat(path)
 		if err != nil {
@@ -102,6 +108,20 @@ func LoadEnvGroups(workdir string) (EnvGroups, error) {
 	}
 
 	return groups, nil
+}
+
+// rejectSymlink returns an error if path is a symbolic link.
+// Prevents credential injection via symlinks to attacker-controlled
+// files outside the env.d directory.
+func rejectSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("lstat %s: %w", path, err)
+	}
+	if info.Mode().Type()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s is a symlink — env.d files must be regular files", path)
+	}
+	return nil
 }
 
 // checkPermissions refuses to proceed if a file or directory has

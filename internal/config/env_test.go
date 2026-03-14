@@ -184,6 +184,31 @@ func TestLoadEnvGroupsRejectsLooseDirPerms(t *testing.T) {
 	}
 }
 
+func TestLoadEnvGroupsRejectsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	envDir := filepath.Join(dir, "env.d")
+	if err := os.MkdirAll(envDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create a regular file and a symlink to it
+	target := filepath.Join(dir, "real.env")
+	if err := os.WriteFile(target, []byte("SECRET=value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(envDir, "linked.env")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := LoadEnvGroups(dir)
+	if err == nil {
+		t.Fatal("expected error for symlinked env file")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("error = %q, want symlink error", err)
+	}
+}
+
 func TestPaths(t *testing.T) {
 	p := Paths("/opt/wtmcp")
 
