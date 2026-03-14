@@ -10,6 +10,7 @@
 package kerberos
 
 import (
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -76,13 +77,37 @@ func (s *SPNEGORoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	retryReq := req.Clone(req.Context())
+	// Reset the body for the retry — Clone only shallow-copies Body,
+	// so the original reader is already consumed by the first attempt.
+	if err := resetBody(retryReq, req); err != nil {
+		return nil, err
+	}
+
 	if err := SetSPNEGOHeader(retryReq, spn); err != nil {
 		log.Printf("kerberos: SPNEGO failed for %s after 401 challenge: %v",
 			req.URL.Hostname(), err)
 		// Return a fresh unauthenticated response rather than the drained 401
-		return s.next.RoundTrip(req.Clone(req.Context()))
+		fallbackReq := req.Clone(req.Context())
+		_ = resetBody(fallbackReq, req) // best effort
+		return s.next.RoundTrip(fallbackReq)
 	}
 
 	log.Printf("kerberos: responding to 401 challenge from %s with Negotiate", req.URL.Hostname())
 	return s.next.RoundTrip(retryReq)
+}
+
+// resetBody obtains a fresh body reader for a cloned request.
+// After the first RoundTrip consumes the body's io.Reader, Clone()
+// inherits the exhausted reader. GetBody() provides a fresh copy,
+// matching what http.Client does for redirect replays.
+func resetBody(cloned, orig *http.Request) error {
+	if orig.GetBody == nil {
+		return nil // no body or body doesn't support replay
+	}
+	body, err := orig.GetBody()
+	if err != nil {
+		return fmt.Errorf("kerberos: reset body for retry: %w", err)
+	}
+	cloned.Body = body
+	return nil
 }
