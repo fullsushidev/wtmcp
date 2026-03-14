@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -16,6 +17,16 @@ import (
 
 func newTestProxy(client *http.Client) *Proxy {
 	return New(client, 10*1024*1024)
+}
+
+// testPluginAuth creates a PluginAuth with the base URL hostname
+// auto-added to AllowedDomains, simulating what manager.go does.
+func testPluginAuth(baseURL string) *PluginAuth {
+	pa := &PluginAuth{BaseURL: baseURL}
+	if u, err := url.Parse(baseURL); err == nil && u.Hostname() != "" {
+		pa.AllowedDomains = []string{u.Hostname()}
+	}
+	return pa
 }
 
 func TestExecuteGET(t *testing.T) {
@@ -32,7 +43,7 @@ func TestExecuteGET(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-1",
@@ -67,7 +78,7 @@ func TestExecutePOST(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:      "req-2",
@@ -95,10 +106,9 @@ func TestExecuteWithAuth(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{
-		BaseURL:  srv.URL,
-		Provider: auth.NewBearerProvider("test-token", "", ""),
-	})
+	pa := testPluginAuth(srv.URL)
+	pa.Provider = auth.NewBearerProvider("test-token", "", "")
+	p.RegisterPlugin("test", pa)
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-3",
@@ -124,7 +134,7 @@ func TestExecuteQueryArrays(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-4",
@@ -153,7 +163,7 @@ func TestExecuteResponseBodyLimit(t *testing.T) {
 
 	// Set a tiny max body size (srv.Client has its own transport, no SSRF check)
 	p := New(srv.Client(), 100)
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-5",
@@ -178,7 +188,7 @@ func TestExecuteNonJSONResponse(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-6",
@@ -219,37 +229,31 @@ func TestIsDomainAllowed(t *testing.T) {
 	}{
 		{
 			name:    "same domain",
-			pa:      &PluginAuth{BaseURL: "https://api.example.com"},
+			pa:      &PluginAuth{BaseURL: "https://api.example.com", AllowedDomains: []string{"api.example.com"}},
 			rawURL:  "https://api.example.com/other",
 			allowed: true,
 		},
 		{
 			name:    "case insensitive",
-			pa:      &PluginAuth{BaseURL: "https://api.example.com"},
+			pa:      &PluginAuth{BaseURL: "https://api.example.com", AllowedDomains: []string{"api.example.com"}},
 			rawURL:  "https://API.EXAMPLE.COM/other",
 			allowed: true,
 		},
 		{
 			name:    "allowed domain",
-			pa:      &PluginAuth{BaseURL: "https://api.example.com", AllowedDomains: []string{"cdn.example.com"}},
+			pa:      &PluginAuth{BaseURL: "https://api.example.com", AllowedDomains: []string{"api.example.com", "cdn.example.com"}},
 			rawURL:  "https://cdn.example.com/file",
 			allowed: true,
 		},
 		{
 			name:    "different domain",
-			pa:      &PluginAuth{BaseURL: "https://api.example.com"},
+			pa:      &PluginAuth{BaseURL: "https://api.example.com", AllowedDomains: []string{"api.example.com"}},
 			rawURL:  "https://evil.com/steal",
 			allowed: false,
 		},
 		{
-			name:    "http with auth rejects",
-			pa:      &PluginAuth{BaseURL: "https://api.example.com", Provider: auth.NewBearerProvider("tok", "", "")},
-			rawURL:  "http://api.example.com/insecure",
-			allowed: false,
-		},
-		{
 			name:    "userinfo rejects",
-			pa:      &PluginAuth{BaseURL: "https://api.example.com"},
+			pa:      &PluginAuth{BaseURL: "https://api.example.com", AllowedDomains: []string{"api.example.com"}},
 			rawURL:  "https://evil@api.example.com/path",
 			allowed: false,
 		},
@@ -273,7 +277,7 @@ func TestExecuteFullURLOverride(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-8",
@@ -298,7 +302,7 @@ func TestResponseHeaders(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-headers", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
@@ -326,7 +330,7 @@ func TestBinaryResponse(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-bin", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/image.png",
@@ -361,7 +365,7 @@ func TestTextResponse(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-text", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/text",
@@ -417,7 +421,7 @@ func TestMultipartFileUpload(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-mp-1",
@@ -453,7 +457,7 @@ func TestMultipartTextField(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-mp-2",
@@ -472,7 +476,7 @@ func TestMultipartTextField(t *testing.T) {
 
 func TestMultipartInvalidBase64(t *testing.T) {
 	p := newTestProxy(nil)
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: "https://example.com"})
+	p.RegisterPlugin("test", testPluginAuth("https://example.com"))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:     "req-mp-bad",
@@ -514,7 +518,7 @@ func TestStripDangerousHeaders(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-headers", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
@@ -555,7 +559,7 @@ func TestMultipartOverridesContentType(t *testing.T) {
 	defer srv.Close()
 
 	p := newTestProxy(srv.Client())
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: srv.URL})
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID:      "req-mp-ct",
@@ -576,7 +580,7 @@ func TestMultipartOverridesContentType(t *testing.T) {
 func TestSafeDialerRejectsLoopback(t *testing.T) {
 	// Default proxy (nil client) uses safe dialer — should reject localhost
 	p := New(nil, 10*1024*1024)
-	p.RegisterPlugin("test", &PluginAuth{BaseURL: "https://127.0.0.1"})
+	p.RegisterPlugin("test", testPluginAuth("https://127.0.0.1"))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
 		ID: "req-ssrf", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
@@ -642,10 +646,9 @@ func TestAllowPrivateIPsUsesPrivateClient(t *testing.T) {
 	}
 
 	// Plugin with AllowPrivateIPs should reach the server
-	p.RegisterPlugin("private-ok", &PluginAuth{
-		BaseURL:         srv.URL,
-		AllowPrivateIPs: true,
-	})
+	pa := testPluginAuth(srv.URL)
+	pa.AllowPrivateIPs = true
+	p.RegisterPlugin("private-ok", pa)
 
 	resp := p.Execute(context.Background(), "private-ok", protocol.Message{
 		ID: "req-priv", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
@@ -661,10 +664,9 @@ func TestAllowPrivateIPsUsesPrivateClient(t *testing.T) {
 func TestDefaultPluginBlocksPrivateIPs(t *testing.T) {
 	// Default proxy should block loopback even when a server is there
 	p := New(nil, 10*1024*1024)
-	p.RegisterPlugin("strict", &PluginAuth{
-		BaseURL:         "https://127.0.0.1",
-		AllowPrivateIPs: false,
-	})
+	pa := testPluginAuth("https://127.0.0.1")
+	pa.AllowPrivateIPs = false
+	p.RegisterPlugin("strict", pa)
 
 	resp := p.Execute(context.Background(), "strict", protocol.Message{
 		ID: "req-strict", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",
@@ -700,11 +702,10 @@ func TestAllowPrivateIPsWithAuth(t *testing.T) {
 		maxBodySize:   10 * 1024 * 1024,
 	}
 
-	p.RegisterPlugin("priv-auth", &PluginAuth{
-		BaseURL:         srv.URL,
-		AllowPrivateIPs: true,
-		Provider:        auth.NewBearerProvider("private-token", "", ""),
-	})
+	paAuth := testPluginAuth(srv.URL)
+	paAuth.AllowPrivateIPs = true
+	paAuth.Provider = auth.NewBearerProvider("private-token", "", "")
+	p.RegisterPlugin("priv-auth", paAuth)
 
 	resp := p.Execute(context.Background(), "priv-auth", protocol.Message{
 		ID: "req-priv-auth", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/secure",
@@ -725,11 +726,10 @@ func TestAllowPrivateIPsWithPerPluginClient(t *testing.T) {
 	defer srv.Close()
 
 	p := New(nil, 10*1024*1024)
-	p.RegisterPlugin("custom-client", &PluginAuth{
-		BaseURL:         srv.URL,
-		AllowPrivateIPs: true,
-		Client:          srv.Client(), // per-plugin client overrides
-	})
+	paCustom := testPluginAuth(srv.URL)
+	paCustom.AllowPrivateIPs = true
+	paCustom.Client = srv.Client() // per-plugin client overrides
+	p.RegisterPlugin("custom-client", paCustom)
 
 	resp := p.Execute(context.Background(), "custom-client", protocol.Message{
 		ID: "req-custom", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/",

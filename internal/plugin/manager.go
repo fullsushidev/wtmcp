@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/LeGambiArt/wtmcp/internal/auth"
@@ -194,9 +196,35 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 
 	// Register with proxy
 	vars := m.pluginVars(manifest)
+	resolve := func(s string) string { return config.ResolveVars(s, vars) }
+
+	// Resolve allowed_domains from env.d, then extract hostnames
+	// from any entries that resolved to full URLs.
+	domains := make([]string, 0, len(manifest.Services.HTTP.AllowedDomains)+1)
+	for _, d := range manifest.Services.HTTP.AllowedDomains {
+		resolved := resolve(d)
+		// Extract hostname from full URLs (e.g., https://host:8891 → host)
+		if strings.Contains(resolved, "://") {
+			if u, err := url.Parse(resolved); err == nil && u.Hostname() != "" {
+				resolved = u.Hostname()
+			}
+		}
+		domains = append(domains, resolved)
+	}
+
+	// Auto-add base_url hostname to allowed_domains. This bypasses
+	// validateDomain() since it is derived from the already-configured
+	// base_url, not user-declared (allows localhost from defaults).
+	resolvedBaseURL := resolve(manifest.Services.HTTP.BaseURL)
+	if resolvedBaseURL != "" {
+		if u, err := url.Parse(resolvedBaseURL); err == nil && u.Hostname() != "" {
+			domains = append(domains, u.Hostname())
+		}
+	}
+
 	pa := &proxy.PluginAuth{
-		BaseURL:         config.ResolveVars(manifest.Services.HTTP.BaseURL, vars),
-		AllowedDomains:  manifest.Services.HTTP.AllowedDomains,
+		BaseURL:         resolvedBaseURL,
+		AllowedDomains:  domains,
 		AllowPrivateIPs: manifest.Services.HTTP.AllowPrivateIPs,
 	}
 

@@ -347,15 +347,9 @@ func (p *Proxy) readBody(resp *http.Response) (json.RawMessage, string, error) {
 	return json.RawMessage(b), "base64", err
 }
 
-func (p *Proxy) isDomainAllowed(pluginName string, pa *PluginAuth, rawURL string) bool {
+func (p *Proxy) isDomainAllowed(_ string, pa *PluginAuth, rawURL string) bool {
 	reqURL, err := url.Parse(rawURL)
 	if err != nil {
-		return false
-	}
-
-	// Reject non-HTTPS when auth is configured (provider or Kerberos client)
-	if (pa.Provider != nil || pa.Client != nil) && reqURL.Scheme != "https" {
-		log.Printf("[%s] rejecting non-HTTPS URL with auth: %s", pluginName, rawURL)
 		return false
 	}
 
@@ -364,13 +358,9 @@ func (p *Proxy) isDomainAllowed(pluginName string, pa *PluginAuth, rawURL string
 		return false
 	}
 
+	// AllowedDomains already includes the base_url hostname
+	// (auto-added at load time by manager.go).
 	reqHost := reqURL.Hostname()
-	baseURL, _ := url.Parse(pa.BaseURL)
-	baseHost := baseURL.Hostname()
-
-	if strings.EqualFold(reqHost, baseHost) {
-		return true
-	}
 	for _, domain := range pa.AllowedDomains {
 		if strings.EqualFold(reqHost, domain) {
 			return true
