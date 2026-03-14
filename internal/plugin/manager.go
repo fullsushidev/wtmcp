@@ -325,22 +325,32 @@ func (m *Manager) Unload(ctx context.Context, name string) error {
 	return nil
 }
 
-// Reload stops and restarts a plugin. If the plugin was disabled
-// due to an env.d error, re-reads the env.d file and enables the
-// plugin if the issue is resolved.
+// Reload stops and restarts a plugin. Re-reads the env.d file
+// to pick up any changes (e.g., new IPA_CA_CERT added by
+// create_config). If the plugin was disabled due to an env.d
+// error, enables it if the issue is resolved.
 func (m *Manager) Reload(ctx context.Context, name string) error {
-	// If disabled, try re-reading the env.d file
+	// Re-read the env.d file for this plugin's credential group.
+	// This picks up vars added/changed since startup (e.g., by
+	// create_config writing IPA_CA_CERT to the env.d file).
+	var group string
 	if dp, ok := m.disabled[name]; ok {
-		group := dp.Manifest.CredentialGroup
-		if group != "" && m.workdir != "" {
-			vars, err := config.LoadSingleEnvGroup(m.workdir, group)
-			if err != nil {
+		group = dp.Manifest.CredentialGroup
+	} else if manifest, ok := m.manifests[name]; ok {
+		group = manifest.CredentialGroup
+	}
+	if group != "" && m.workdir != "" {
+		vars, err := config.LoadSingleEnvGroup(m.workdir, group)
+		if err != nil {
+			if _, wasDisabled := m.disabled[name]; wasDisabled {
 				return fmt.Errorf("env group %s still has issues: %w", group, err)
 			}
+			log.Printf("[%s] warning: env group %s re-read failed: %v", name, group, err)
+		} else {
 			m.envGroups[group] = vars
 			delete(m.envErrors, group)
 			delete(m.disabled, name)
-			log.Printf("env group %s re-read successfully, enabling plugin %s", group, name)
+			log.Printf("[%s] env group %s re-read (%d vars)", name, group, len(vars))
 		}
 	}
 
