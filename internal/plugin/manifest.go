@@ -63,7 +63,9 @@ type ServiceConfig struct {
 
 // AuthServiceConfig declares auth requirements.
 type AuthServiceConfig struct {
-	Type            string                       `yaml:"type"`
+	Type string `yaml:"type"`
+	// Token holds a bearer token (type=bearer) or refresh/offline
+	// token (type=refresh_token). Typically set via env var: "${MY_TOKEN}".
 	Token           string                       `yaml:"token"`
 	Header          string                       `yaml:"header"`
 	Prefix          string                       `yaml:"prefix"`
@@ -73,6 +75,8 @@ type AuthServiceConfig struct {
 	Scopes          []string                     `yaml:"scopes"`
 	CredentialsFile string                       `yaml:"credentials_file"`
 	TokenFile       string                       `yaml:"token_file"`
+	TokenURL        string                       `yaml:"token_url"`
+	ClientID        string                       `yaml:"client_id"`
 	Select          string                       `yaml:"select"`
 	Variants        map[string]AuthServiceConfig `yaml:"variants"`
 	VariantOrder    []string                     `yaml:"-"` // populated from YAML key order
@@ -302,6 +306,21 @@ func (m *Manifest) Validate() error {
 		}
 		if u.RawQuery != "" || u.Fragment != "" {
 			return fmt.Errorf("base_url must not contain query or fragment: %s", m.Services.HTTP.BaseURL)
+		}
+	}
+
+	// Validate token_url for refresh_token auth (must be HTTPS).
+	// Skips template strings (${VAR}) — those are validated by the
+	// provider constructor after env var resolution.
+	authCfg := m.Services.Auth
+	if authCfg.Type == "refresh_token" && authCfg.TokenURL != "" &&
+		!strings.Contains(authCfg.TokenURL, "${") {
+		u, err := url.Parse(authCfg.TokenURL)
+		if err != nil {
+			return fmt.Errorf("invalid token_url: %w", err)
+		}
+		if u.Scheme != "https" {
+			return fmt.Errorf("token_url must use https: %s", authCfg.TokenURL)
 		}
 	}
 

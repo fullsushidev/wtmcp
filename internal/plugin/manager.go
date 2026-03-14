@@ -321,6 +321,8 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 				CredentialsFile: resolve(v.CredentialsFile),
 				TokenFile:       resolve(v.TokenFile),
 				CredentialsDir:  m.cfg.CredentialsDir,
+				TokenURL:        resolve(v.TokenURL),
+				ClientID:        resolve(v.ClientID),
 			}
 		}
 	} else {
@@ -341,6 +343,8 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 				CredentialsFile: resolve(authCfg.CredentialsFile),
 				TokenFile:       resolve(authCfg.TokenFile),
 				CredentialsDir:  m.cfg.CredentialsDir,
+				TokenURL:        resolve(authCfg.TokenURL),
+				ClientID:        resolve(authCfg.ClientID),
 			},
 		}
 	}

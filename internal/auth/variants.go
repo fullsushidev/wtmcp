@@ -31,6 +31,8 @@ type SingleAuthConfig struct {
 	CredentialsFile string
 	TokenFile       string
 	CredentialsDir  string
+	TokenURL        string
+	ClientID        string
 }
 
 // ResolveVariant selects the appropriate auth provider from a variant config.
@@ -82,6 +84,8 @@ func providerFromConfig(typeName string, cfg SingleAuthConfig) (Provider, error)
 		return NewKerberosProvider(cfg.SPN), nil
 	case "oauth2":
 		return NewOAuth2Provider(cfg.TokenFile, cfg.CredentialsFile, cfg.Scopes, cfg.CredentialsDir), nil
+	case "refresh_token":
+		return NewRefreshTokenProvider(cfg.TokenURL, cfg.ClientID, cfg.Token)
 	default:
 		return nil, fmt.Errorf("unknown auth type: %s", typeName)
 	}

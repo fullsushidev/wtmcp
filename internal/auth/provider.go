@@ -1,6 +1,6 @@
 // Package auth provides authentication providers for the HTTP proxy.
 //
-// Built-in providers: bearer, basic, kerberos/spnego, oauth2.
+// Built-in providers: bearer, basic, kerberos/spnego, oauth2, refresh_token.
 // Plugins can register additional providers via the auth_request/response
 // protocol.
 package auth
