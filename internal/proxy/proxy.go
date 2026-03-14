@@ -125,21 +125,15 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 		return errResponse(req.ID, "build_request", err.Error())
 	}
 
-	// Use per-plugin client (Kerberos with cookie jar + round tripper)
-	// or fall back to the shared client with header-based auth injection.
-	// Plugins with allow_private_ips use the privateClient which has a
-	// relaxed SSRF dialer (domain allowlist still enforced above).
-	client := p.client
-	if pa.Client != nil {
-		client = pa.Client
-	} else {
-		if pa.AllowPrivateIPs {
-			client = p.privateClient
-		}
-		if pa.Provider != nil {
-			if err := p.injectAuth(ctx, pa.Provider, httpReq); err != nil {
-				return errResponse(req.ID, "auth_failed", err.Error())
-			}
+	// Select HTTP client and inject auth.
+	//
+	// no_auth bypasses Kerberos client and auth injection but keeps
+	// the TLS-aware client for HTTPS (custom CA / client certs).
+	// mTLS plugins cannot downgrade to HTTP via no_auth.
+	client := p.selectClient(pa, req.NoAuth)
+	if !req.NoAuth && pa.Provider != nil && pa.Client == nil {
+		if err := p.injectAuth(ctx, pa.Provider, httpReq); err != nil {
+			return errResponse(req.ID, "auth_failed", err.Error())
 		}
 	}
 
@@ -173,23 +167,68 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 	}
 }
 
+// selectClient picks the HTTP client for a request.
+//
+// no_auth bypasses the Kerberos client but keeps the TLS-aware
+// client for HTTPS (preserves custom CA / client certs).
+func (p *Proxy) selectClient(pa *PluginAuth, noAuth bool) *http.Client {
+	switch {
+	case noAuth && pa.Client != nil && !pa.IsKerberos:
+		return pa.Client // mTLS client — keeps custom CA + client certs
+	case noAuth && pa.AllowPrivateIPs:
+		return p.privateClient
+	case noAuth:
+		return p.client
+	case pa.Client != nil:
+		return pa.Client // Kerberos or mTLS client
+	case pa.AllowPrivateIPs:
+		return p.privateClient
+	default:
+		return p.client
+	}
+}
+
 func (p *Proxy) resolveURL(pluginName string, pa *PluginAuth, req protocol.Message) (string, error) {
+	var fullURL string
+
 	if req.URL != "" {
 		if !p.isDomainAllowed(pluginName, pa, req.URL) {
 			return "", fmt.Errorf("domain not allowed: %s", req.URL)
 		}
-		return req.URL, nil
+		fullURL = req.URL
+	} else {
+		if pa.BaseURL == "" {
+			return "", fmt.Errorf("no base_url configured and no full url provided")
+		}
+		joined, err := url.JoinPath(pa.BaseURL, req.Path)
+		if err != nil {
+			return "", fmt.Errorf("join path: %w", err)
+		}
+		fullURL = joined
 	}
 
-	if pa.BaseURL == "" {
-		return "", fmt.Errorf("no base_url configured and no full url provided")
-	}
-
-	joined, err := url.JoinPath(pa.BaseURL, req.Path)
+	parsed, err := url.Parse(fullURL)
 	if err != nil {
-		return "", fmt.Errorf("join path: %w", err)
+		return "", fmt.Errorf("parse URL: %w", err)
 	}
-	return joined, nil
+
+	// Scheme validation — only http and https allowed
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("unsupported scheme %q, only http/https allowed", parsed.Scheme)
+	}
+
+	// mTLS always requires HTTPS — no_auth cannot bypass this
+	if pa.TLS.ClientCert != "" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("HTTPS required when client certificates are configured")
+	}
+
+	// Header-based auth requires HTTPS unless no_auth
+	hasHeaderAuth := pa.Provider != nil || pa.IsKerberos
+	if hasHeaderAuth && !req.NoAuth && parsed.Scheme != "https" {
+		return "", fmt.Errorf("HTTPS required when auth is configured")
+	}
+
+	return fullURL, nil
 }
 
 func (p *Proxy) buildRequest(ctx context.Context, fullURL string, req protocol.Message) (*http.Request, error) {

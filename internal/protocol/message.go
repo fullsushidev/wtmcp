@@ -25,6 +25,7 @@ type Message struct {
 	Error  *Error          `json:"error,omitempty"`
 
 	// http_request / http_response fields
+	NoAuth       bool              `json:"no_auth,omitempty"`
 	Method       string            `json:"method,omitempty"`
 	Path         string            `json:"path,omitempty"`
 	URL          string            `json:"url,omitempty"`
