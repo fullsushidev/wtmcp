@@ -223,15 +223,23 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string, index *ToolIndex) error {
 	progressive := cfg.Tools.Discovery == "progressive"
 
-	// Collect old tool names and context URIs before reload
+	// Collect old tool names, context URIs, and provided resource URIs
 	var oldToolNames []string
 	var oldContextURIs []string
+	var oldResourceURIs []string
 	if manifest, ok := mgr.Manifests()[name]; ok {
 		for _, t := range manifest.Tools {
 			oldToolNames = append(oldToolNames, t.Name)
 		}
 		for _, f := range manifest.ContextFiles {
 			oldContextURIs = append(oldContextURIs, pluginctx.ResourceURI(name, f))
+		}
+		if manifest.ProvidesResources() {
+			if handle := mgr.Handle(name); handle != nil {
+				for _, r := range handle.InitialResources() {
+					oldResourceURIs = append(oldResourceURIs, r.URI)
+				}
+			}
 		}
 	}
 
@@ -240,12 +248,15 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 		return err
 	}
 
-	// Remove old tools and context resources
+	// Remove old tools, context resources, and provided resources
 	if len(oldToolNames) > 0 {
 		srv.DeleteTools(oldToolNames...)
 	}
 	if len(oldContextURIs) > 0 {
 		srv.DeleteResources(oldContextURIs...)
+	}
+	if len(oldResourceURIs) > 0 {
+		srv.DeleteResources(oldResourceURIs...)
 	}
 
 	// Re-register from refreshed manifest
@@ -256,6 +267,11 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 		}
 		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback, progressive)
 		registerPluginContextResources(srv, manifest)
+		if manifest.ProvidesResources() {
+			if handle := mgr.Handle(name); handle != nil {
+				registerHandleResources(srv, name, handle)
+			}
+		}
 	}
 
 	// Rebuild tool index and re-register tool_search so the
