@@ -27,7 +27,7 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 		"wtmcp",
 		version,
 		mcpserver.WithToolCapabilities(true),
-		mcpserver.WithResourceCapabilities(true, false),
+		mcpserver.WithResourceCapabilities(true, true),
 	)
 
 	progressive := cfg.Tools.Discovery == "progressive"
