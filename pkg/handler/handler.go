@@ -14,17 +14,41 @@ import (
 // ToolFunc is a function that handles a tool call.
 // It receives the raw JSON params and the plugin config,
 // and returns a result to be sent back to the core.
+// Return a *ToolResult to include post-call actions.
 type ToolFunc func(params, config json.RawMessage) (any, error)
+
+// ResourceListFunc returns the list of resources this plugin provides.
+type ResourceListFunc func() ([]ResourceDef, error)
+
+// ResourceReadFunc reads a specific resource by URI.
+type ResourceReadFunc func(uri string) (content string, mimeType string, err error)
+
+// ToolResult wraps a tool result with optional post-call actions.
+type ToolResult struct {
+	Value   any
+	Actions []Action
+}
+
+// InvalidateResources wraps a tool result with an invalidate_resources
+// action, causing the core to re-query this handler's resource list.
+func InvalidateResources(value any) *ToolResult {
+	return &ToolResult{
+		Value:   value,
+		Actions: []Action{{Type: "invalidate_resources"}},
+	}
+}
 
 // Plugin implements a persistent plugin handler.
 // Register tool functions with Handle, then call Run.
 type Plugin struct {
-	tools  map[string]ToolFunc
-	in     *bufio.Scanner
-	out    io.Writer
-	nextID atomic.Int64
-	initFn func(config json.RawMessage) error
-	logger *log.Logger
+	tools        map[string]ToolFunc
+	in           *bufio.Scanner
+	out          io.Writer
+	nextID       atomic.Int64
+	initFn       func(config json.RawMessage) error
+	resourceList ResourceListFunc
+	resourceRead ResourceReadFunc
+	logger       *log.Logger
 }
 
 // New creates a new Plugin that reads from stdin and writes to stdout.
@@ -51,6 +75,16 @@ func (p *Plugin) OnInit(fn func(config json.RawMessage) error) {
 	p.initFn = fn
 }
 
+// OnListResources registers a function that returns the plugin's resources.
+func (p *Plugin) OnListResources(fn ResourceListFunc) {
+	p.resourceList = fn
+}
+
+// OnReadResource registers a function that reads a resource by URI.
+func (p *Plugin) OnReadResource(fn ResourceReadFunc) {
+	p.resourceRead = fn
+}
+
 // Log writes a message to stderr (captured by the core).
 func (p *Plugin) Log(format string, args ...any) {
 	p.logger.Printf(format, args...)
@@ -73,6 +107,10 @@ func (p *Plugin) Run() error {
 			p.handleInit(msg)
 		case TypeToolCall:
 			p.handleToolCall(msg)
+		case TypeListResources:
+			p.handleListResources(msg)
+		case TypeReadResource:
+			p.handleReadResource(msg)
 		case TypeShutdown:
 			p.send(Message{ID: msg.ID, Type: TypeShutdownOK})
 			return nil
@@ -125,6 +163,13 @@ func (p *Plugin) handleToolCall(msg Message) {
 		return
 	}
 
+	// Extract actions from ToolResult wrapper
+	var actions []Action
+	if tr, ok := result.(*ToolResult); ok {
+		result = tr.Value
+		actions = tr.Actions
+	}
+
 	data, err := json.Marshal(result)
 	if err != nil {
 		p.send(Message{
@@ -139,9 +184,66 @@ func (p *Plugin) handleToolCall(msg Message) {
 	}
 
 	p.send(Message{
-		ID:     msg.ID,
-		Type:   TypeToolResult,
-		Result: data,
+		ID:      msg.ID,
+		Type:    TypeToolResult,
+		Result:  data,
+		Actions: actions,
+	})
+}
+
+func (p *Plugin) handleListResources(msg Message) {
+	if p.resourceList == nil {
+		p.send(Message{ID: msg.ID, Type: TypeListResourcesOK})
+		return
+	}
+	resources, err := p.resourceList()
+	if err != nil {
+		p.send(Message{
+			ID:   msg.ID,
+			Type: TypeListResourcesOK,
+			Error: &Error{
+				Code:    "list_failed",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+	p.send(Message{
+		ID:        msg.ID,
+		Type:      TypeListResourcesOK,
+		Resources: resources,
+	})
+}
+
+func (p *Plugin) handleReadResource(msg Message) {
+	if p.resourceRead == nil {
+		p.send(Message{
+			ID:   msg.ID,
+			Type: TypeReadResourceOK,
+			Error: &Error{
+				Code:    "not_supported",
+				Message: "resource reading not supported",
+			},
+		})
+		return
+	}
+	content, mimeType, err := p.resourceRead(msg.URI)
+	if err != nil {
+		p.send(Message{
+			ID:   msg.ID,
+			Type: TypeReadResourceOK,
+			Error: &Error{
+				Code:    "read_failed",
+				Message: err.Error(),
+			},
+		})
+		return
+	}
+	p.send(Message{
+		ID:       msg.ID,
+		Type:     TypeReadResourceOK,
+		Content:  content,
+		MIMEType: mimeType,
 	})
 }
 
