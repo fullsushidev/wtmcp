@@ -432,7 +432,16 @@ func (m *Manager) resolveConfig(manifest *Manifest) map[string]string {
 		resolved["_credentials_dir"] = filepath.Join(
 			m.cfg.CredentialsDir, manifest.CredentialGroup)
 	}
+	// Inject work_dir so plugins can access the working directory
+	if m.workdir != "" {
+		resolved["_work_dir"] = m.workdir
+	}
 	return resolved
+}
+
+// Handle returns the handle for a loaded plugin, or nil if not loaded.
+func (m *Manager) Handle(name string) *Handle {
+	return m.handles[name]
 }
 
 // isKerberosAuth checks if a plugin uses Kerberos auth (without variants).

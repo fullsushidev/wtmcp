@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -53,6 +54,9 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 	// Register context files as MCP resources
 	registerContextResources(srv, manager)
 
+	// Register resources from resource provider plugins
+	registerPluginProvidedResources(srv, manager)
+
 	// Built-in management tools
 	registerManagementTools(srv, manager, cfg, index)
 
@@ -80,7 +84,7 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 				return mcp.NewToolResultError("invalid parameters: " + err.Error()), nil //nolint:nilerr // MCP convention: tool errors returned as result, not Go error
 			}
 
-			result, err := handle.CallTool(ctx, toolName, params)
+			callResult, err := handle.CallTool(ctx, toolName, params)
 			if err != nil {
 				var pluginErr *protocol.Error
 				if isPluginError(err, &pluginErr) {
@@ -91,8 +95,13 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 
+			// Process post-tool actions in background
+			if len(callResult.Actions) > 0 {
+				go processToolActions(srv, mgr, manifest.Name, callResult.Actions)
+			}
+
 			// Apply output encoding (JSON passthrough or TOON)
-			encoded := encoding.FormatResult(result, format, fallback)
+			encoded := encoding.FormatResult(callResult.Result, format, fallback)
 			return mcp.NewToolResultText(encoded), nil
 		})
 	}
@@ -284,6 +293,107 @@ func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.M
 					mcp.TextResourceContents{
 						URI:      uri,
 						MIMEType: "text/markdown",
+						Text:     content,
+					},
+				}, nil
+			},
+		)
+	}
+}
+
+// processToolActions handles side effects declared in tool results.
+func processToolActions(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginName string, actions []protocol.Action) {
+	for _, action := range actions {
+		switch action.Type {
+		case "invalidate_resources":
+			invalidatePluginResources(srv, mgr, pluginName)
+		default:
+			log.Printf("[%s] unknown tool action: %s", pluginName, action.Type)
+		}
+	}
+}
+
+// invalidatePluginResources re-queries a resource provider and updates
+// MCP registrations by diffing old vs new resource URIs.
+func invalidatePluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginName string) {
+	manifest, ok := mgr.Manifests()[pluginName]
+	if !ok || !manifest.ProvidesResources() {
+		return
+	}
+	handle := mgr.Handle(pluginName)
+	if handle == nil {
+		return
+	}
+
+	oldResources := handle.InitialResources()
+	oldURIs := make(map[string]bool, len(oldResources))
+	for _, r := range oldResources {
+		oldURIs[r.URI] = true
+	}
+
+	newResources, err := handle.ListResources(context.Background())
+	if err != nil {
+		log.Printf("[%s] invalidate_resources failed: %v", pluginName, err)
+		return
+	}
+	handle.SetResources(newResources)
+
+	newURIs := make(map[string]bool, len(newResources))
+	for _, r := range newResources {
+		newURIs[r.URI] = true
+	}
+	var toRemove []string
+	for uri := range oldURIs {
+		if !newURIs[uri] {
+			toRemove = append(toRemove, uri)
+		}
+	}
+	if len(toRemove) > 0 {
+		srv.DeleteResources(toRemove...)
+	}
+
+	registerHandleResources(srv, pluginName, handle)
+
+	log.Printf("[%s] invalidate_resources: %d resources (%d removed)",
+		pluginName, len(newResources), len(toRemove))
+}
+
+// registerPluginProvidedResources registers resources from plugins that
+// declare provides.resources: true.
+func registerPluginProvidedResources(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
+	for name, manifest := range mgr.Manifests() {
+		if !manifest.ProvidesResources() {
+			continue
+		}
+		handle := mgr.Handle(name)
+		if handle == nil {
+			continue
+		}
+		registerHandleResources(srv, name, handle)
+	}
+}
+
+func registerHandleResources(srv *mcpserver.MCPServer, _ string, handle *plugin.Handle) {
+	for _, res := range handle.InitialResources() {
+		uri := res.URI
+		mimeType := res.MIMEType
+		if mimeType == "" {
+			mimeType = "text/plain"
+		}
+		srv.AddResource(
+			mcp.NewResource(uri, res.Name,
+				mcp.WithResourceDescription(res.Description),
+				mcp.WithMIMEType(mimeType),
+			),
+			func(ctx context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+				content, actualMIME, err := handle.ReadResource(ctx, uri)
+				if err != nil {
+					return nil, fmt.Errorf("read resource %s: %w", uri, err)
+				}
+				return []mcp.ResourceContents{
+					mcp.TextResourceContents{
+						URI:      uri,
+						MIMEType: actualMIME,
 						Text:     content,
 					},
 				}, nil

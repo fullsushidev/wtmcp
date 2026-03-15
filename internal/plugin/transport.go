@@ -134,7 +134,8 @@ func (t *Transport) ReadLoop(pluginName string, concurrency int, serviceHandler 
 				}(msg)
 			}
 
-		case protocol.TypeToolResult, protocol.TypeInitOK, protocol.TypeInitError, protocol.TypeShutdownOK, protocol.TypeAuthResponse:
+		case protocol.TypeToolResult, protocol.TypeInitOK, protocol.TypeInitError, protocol.TypeShutdownOK, protocol.TypeAuthResponse,
+			protocol.TypeListResourcesOK, protocol.TypeReadResourceOK:
 			if ch, ok := t.pending.LoadAndDelete(msg.ID); ok {
 				ch.(chan protocol.Message) <- msg
 			}

@@ -123,13 +123,13 @@ func TestManagerLoadAndCallTool(t *testing.T) {
 	}
 
 	// Call the tool
-	result, err := handle.CallTool(ctx, "echo_test", json.RawMessage(`{}`))
+	callResult, err := handle.CallTool(ctx, "echo_test", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 
 	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(callResult.Result, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if parsed["tool"] != "echo_test" {

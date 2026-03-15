@@ -31,6 +31,7 @@ type Process struct {
 	handler           ServiceHandler
 	groupVars         map[string]string
 	state             State
+	Resources         []protocol.ResourceDef // resources discovered at init
 	initTimeout       time.Duration
 	shutdownTimeout   time.Duration
 	shutdownKillAfter time.Duration
@@ -127,6 +128,26 @@ func (p *Process) Start(ctx context.Context) error {
 			}
 			return fmt.Errorf("plugin %s init failed: %s", p.manifest.Name, errMsg)
 		}
+	}
+
+	// Query resources from resource provider plugins
+	if p.manifest.ProvidesResources() {
+		id := p.Transport.GenerateID("res")
+		resp, err := p.Transport.SendAndWait(id, protocol.Message{
+			Type: protocol.TypeListResources,
+		})
+		if err != nil {
+			p.kill()
+			p.state = StateFailed
+			return fmt.Errorf("plugin %s list_resources: %w", p.manifest.Name, err)
+		}
+		if resp.Error != nil {
+			p.kill()
+			p.state = StateFailed
+			return fmt.Errorf("plugin %s list_resources failed: %s", p.manifest.Name, resp.Error.Message)
+		}
+		p.Resources = resp.Resources
+		log.Printf("[%s] discovered %d resources", p.manifest.Name, len(p.Resources))
 	}
 
 	p.state = StateRunning

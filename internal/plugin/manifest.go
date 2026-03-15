@@ -111,7 +111,8 @@ type CacheServiceConfig struct {
 
 // ProvidesConfig declares what services a plugin provides.
 type ProvidesConfig struct {
-	Auth *ProvidesAuthConfig `yaml:"auth"`
+	Auth      *ProvidesAuthConfig `yaml:"auth"`
+	Resources bool                `yaml:"resources"`
 }
 
 // ProvidesAuthConfig describes a plugin-provided auth type.
@@ -220,6 +221,11 @@ func (m *Manifest) ProvidesAuth() bool {
 	return m.Provides.Auth != nil && m.Provides.Auth.Type != ""
 }
 
+// ProvidesResources returns true if the plugin provides dynamic resources.
+func (m *Manifest) ProvidesResources() bool {
+	return m.Provides.Resources
+}
+
 // HandlerPath returns the absolute path to the handler executable.
 func (m *Manifest) HandlerPath() string {
 	return filepath.Join(m.Dir, m.Handler)
@@ -278,6 +284,10 @@ func (m *Manifest) Validate() error {
 
 	if m.EnvPassthrough != "" && m.EnvPassthrough != "all" {
 		return fmt.Errorf("env_passthrough must be 'all' or empty, got %q", m.EnvPassthrough)
+	}
+
+	if m.ProvidesResources() && m.Execution == "oneshot" {
+		return fmt.Errorf("provides.resources requires execution: persistent")
 	}
 
 	if m.Handler == "" {

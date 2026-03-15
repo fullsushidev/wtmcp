@@ -69,13 +69,13 @@ done
 	}
 	defer h.Stop(ctx) //nolint:errcheck // test cleanup
 
-	result, err := h.CallTool(ctx, "test_tool", json.RawMessage(`{"key":"value"}`))
+	callResult, err := h.CallTool(ctx, "test_tool", json.RawMessage(`{"key":"value"}`))
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 
 	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(callResult.Result, &parsed); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
 	if parsed["tool"] != "test_tool" {
@@ -108,13 +108,13 @@ echo "{}" | jq -c --arg id "$ID" --arg tool "$TOOL" \
 
 	h := NewHandle(m, &mockServiceHandler{}, testProcessConfig(), 5*time.Second, nil)
 
-	result, err := h.CallTool(context.Background(), "greet", json.RawMessage(`{}`))
+	callResult, err := h.CallTool(context.Background(), "greet", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 
 	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(callResult.Result, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	if parsed["oneshot"] != true {
@@ -159,13 +159,13 @@ echo "{}" | jq -c --arg id "$ID" --arg status "$STATUS" \
 
 	h := NewHandle(m, handler, testProcessConfig(), 5*time.Second, nil)
 
-	result, err := h.CallTool(context.Background(), "fetch", json.RawMessage(`{}`))
+	callResult, err := h.CallTool(context.Background(), "fetch", json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
 
 	var parsed map[string]any
-	if err := json.Unmarshal(result, &parsed); err != nil {
+	if err := json.Unmarshal(callResult.Result, &parsed); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
 	// status comes back as float64 from JSON
@@ -268,12 +268,12 @@ done
 	defer h.Stop(ctx) //nolint:errcheck // test cleanup
 
 	for i := 1; i <= 3; i++ {
-		result, err := h.CallTool(ctx, "count", json.RawMessage(`{}`))
+		callResult, err := h.CallTool(ctx, "count", json.RawMessage(`{}`))
 		if err != nil {
 			t.Fatalf("call %d: %v", i, err)
 		}
 		var parsed map[string]any
-		if err := json.Unmarshal(result, &parsed); err != nil {
+		if err := json.Unmarshal(callResult.Result, &parsed); err != nil {
 			t.Fatalf("unmarshal call %d: %v", i, err)
 		}
 		if int(parsed["call"].(float64)) != i {

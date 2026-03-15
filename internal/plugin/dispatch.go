@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+// CallToolResult holds the result of a tool call along with any actions.
+type CallToolResult struct {
+	Result  json.RawMessage
+	Actions []protocol.Action
+}
+
 // Handle wraps a plugin process and serializes tool calls based on
 // the plugin's concurrency setting.
 type Handle struct {
@@ -20,7 +26,9 @@ type Handle struct {
 	handler     ServiceHandler
 	groupVars   map[string]string
 	processCfg  ProcessConfig
-	mu          sync.Mutex // serialize tool calls for concurrency:1
+	mu          sync.Mutex   // serialize tool calls for concurrency:1
+	resMu       sync.RWMutex // protects resources
+	resources   []protocol.ResourceDef
 	toolTimeout time.Duration
 }
 
@@ -38,7 +46,14 @@ func NewHandle(manifest *Manifest, handler ServiceHandler, cfg ProcessConfig, to
 // Start launches the plugin process.
 func (h *Handle) Start(ctx context.Context) error {
 	h.process = NewProcess(h.manifest, h.handler, h.processCfg, h.groupVars)
-	return h.process.Start(ctx)
+	if err := h.process.Start(ctx); err != nil {
+		return err
+	}
+	// Copy initial resources from process
+	if h.manifest.ProvidesResources() {
+		h.SetResources(h.process.Resources)
+	}
+	return nil
 }
 
 // Stop gracefully shuts down the plugin process.
@@ -52,7 +67,7 @@ func (h *Handle) Stop(ctx context.Context) error {
 // CallTool dispatches a tool call to the plugin.
 // For persistent plugins, sends via the transport.
 // For oneshot plugins, spawns a fresh process per call.
-func (h *Handle) CallTool(ctx context.Context, toolName string, params json.RawMessage) (json.RawMessage, error) {
+func (h *Handle) CallTool(ctx context.Context, toolName string, params json.RawMessage) (*CallToolResult, error) {
 	if h.manifest.Concurrency <= 1 {
 		h.mu.Lock()
 		defer h.mu.Unlock()
@@ -75,7 +90,7 @@ func (h *Handle) CallTool(ctx context.Context, toolName string, params json.RawM
 	return h.callPersistent(ctx, toolName, params)
 }
 
-func (h *Handle) callPersistent(ctx context.Context, toolName string, params json.RawMessage) (json.RawMessage, error) {
+func (h *Handle) callPersistent(ctx context.Context, toolName string, params json.RawMessage) (*CallToolResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, h.toolTimeout)
 	defer cancel()
 
@@ -107,7 +122,7 @@ func (h *Handle) callPersistent(ctx context.Context, toolName string, params jso
 		if resp.Error != nil {
 			return nil, resp.Error
 		}
-		return resp.Result, nil
+		return &CallToolResult{Result: resp.Result, Actions: resp.Actions}, nil
 	case <-ctx.Done():
 		return nil, &protocol.Error{
 			Code:    "timeout",
@@ -116,7 +131,7 @@ func (h *Handle) callPersistent(ctx context.Context, toolName string, params jso
 	}
 }
 
-func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.RawMessage) (json.RawMessage, error) {
+func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.RawMessage) (*CallToolResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, h.toolTimeout)
 	defer cancel()
 
@@ -186,13 +201,62 @@ func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.R
 			if msg.Error != nil {
 				return nil, msg.Error
 			}
-			return msg.Result, nil
+			return &CallToolResult{Result: msg.Result, Actions: msg.Actions}, nil
 		default:
 			log.Printf("[%s] unexpected oneshot message type: %q", h.manifest.Name, msg.Type)
 		}
 	}
 
 	return nil, &protocol.Error{Code: "no_response", Message: "oneshot handler exited without tool_result"}
+}
+
+// ListResources queries the handler for its current resource list.
+// Uses transport directly (not h.mu) to avoid deadlock with tool calls.
+func (h *Handle) ListResources(_ context.Context) ([]protocol.ResourceDef, error) {
+	transport := h.process.Transport
+	id := transport.GenerateID("res")
+	resp, err := transport.SendAndWait(id, protocol.Message{
+		Type: protocol.TypeListResources,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if resp.Error != nil {
+		return nil, resp.Error
+	}
+	return resp.Resources, nil
+}
+
+// ReadResource requests the content of a specific resource URI.
+// Uses transport directly (not h.mu) to avoid deadlock with tool calls.
+func (h *Handle) ReadResource(_ context.Context, uri string) (string, string, error) {
+	transport := h.process.Transport
+	id := transport.GenerateID("res")
+	resp, err := transport.SendAndWait(id, protocol.Message{
+		Type: protocol.TypeReadResource,
+		URI:  uri,
+	})
+	if err != nil {
+		return "", "", err
+	}
+	if resp.Error != nil {
+		return "", "", resp.Error
+	}
+	return resp.Content, resp.MIMEType, nil
+}
+
+// InitialResources returns the cached resource list (thread-safe).
+func (h *Handle) InitialResources() []protocol.ResourceDef {
+	h.resMu.RLock()
+	defer h.resMu.RUnlock()
+	return h.resources
+}
+
+// SetResources updates the cached resource list (thread-safe).
+func (h *Handle) SetResources(resources []protocol.ResourceDef) {
+	h.resMu.Lock()
+	defer h.resMu.Unlock()
+	h.resources = resources
 }
 
 func forwardStderr(r interface{ Read([]byte) (int, error) }, pluginName string) {
