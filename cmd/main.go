@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -58,6 +59,16 @@ func run() error {
 	workdir := config.WorkDir()
 	if workdirOverride != "" {
 		workdir = workdirOverride
+	}
+
+	// Set up file logging in workdir/logs/
+	logsDir := filepath.Join(workdir, "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err == nil {
+		logPath := filepath.Join(logsDir, "server.log")
+		if logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { //nolint:gosec // log file in user's config dir
+			log.SetOutput(logFile)
+			log.SetFlags(log.LstdFlags | log.Lshortfile)
+		}
 	}
 
 	// Load scoped env.d groups (not into process env)
