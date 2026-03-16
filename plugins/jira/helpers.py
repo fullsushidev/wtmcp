@@ -91,6 +91,37 @@ def text_to_adf(text):
     return {"version": 1, "type": "doc", "content": content}
 
 
+def adf_to_text(value):
+    """Extract plain text from an ADF document, or return value unchanged.
+
+    Jira Cloud v3 returns description and comment bodies as ADF objects.
+    This extracts the text content for display. Handles nested content
+    nodes recursively.
+
+    Args:
+        value: ADF document dict or plain text string
+
+    Returns:
+        Plain text string
+    """
+    if not isinstance(value, dict) or value.get("type") != "doc":
+        return value  # Not ADF, return as-is
+
+    parts = []
+
+    def _walk(nodes):
+        for node in nodes:
+            if node.get("type") == "text":
+                parts.append(node.get("text", ""))
+            elif "content" in node:
+                _walk(node["content"])
+            if node.get("type") == "paragraph":
+                parts.append("\n")
+
+    _walk(value.get("content", []))
+    return "".join(parts).strip()
+
+
 def normalize_components(components):
     """Normalize a list of component names or dicts to [{name: ...}]."""
     return [c if isinstance(c, dict) else {"name": str(c)} for c in components]

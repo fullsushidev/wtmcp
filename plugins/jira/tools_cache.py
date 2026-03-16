@@ -12,6 +12,7 @@ from pathlib import Path
 
 import handler
 from helpers import (
+    adf_to_text,
     calculate_sprint_metrics,
     extract_brief_issue,
     extract_nested_field,
@@ -347,7 +348,11 @@ def get_issue_from_cache(params):
                 ("updated", "updated"),
                 ("labels", "labels"),
             ]:
-                result[field] = extract_nested_field(fields_data, path_str)
+                value = extract_nested_field(fields_data, path_str)
+                # Convert ADF to plain text for description field
+                if field == "description":
+                    value = adf_to_text(value)
+                result[field] = value
             return result
 
     return {"error": f"Issue {issue_key} not found in {file_path}"}

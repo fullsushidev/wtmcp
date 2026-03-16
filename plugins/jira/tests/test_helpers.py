@@ -2,6 +2,7 @@
 
 import pytest
 from helpers import (
+    adf_to_text,
     calculate_sprint_metrics,
     escape_jql,
     extract_brief_issue,
@@ -466,3 +467,116 @@ class TestResolveFieldValue:
         val, ft = resolve_field_value({"custom": True}, "unknown")
         assert val == {"custom": True}
         assert ft == "unknown"
+
+
+class TestAdfToText:
+    """Test adf_to_text() ADF-to-plain-text conversion."""
+
+    def test_plain_string_passthrough(self):
+        """Non-ADF strings pass through unchanged."""
+        assert adf_to_text("Hello world") == "Hello world"
+        assert adf_to_text("") == ""
+
+    def test_none_passthrough(self):
+        """None and non-dict values pass through."""
+        assert adf_to_text(None) is None
+        assert adf_to_text(123) == 123
+        assert adf_to_text([1, 2, 3]) == [1, 2, 3]
+
+    def test_single_paragraph(self):
+        """Simple ADF with one paragraph."""
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Hello world"}],
+                }
+            ],
+        }
+        assert adf_to_text(adf) == "Hello world"
+
+    def test_multiple_paragraphs(self):
+        """ADF with multiple paragraphs separated by newlines."""
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "First paragraph"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "Second paragraph"}]},
+            ],
+        }
+        assert adf_to_text(adf) == "First paragraph\nSecond paragraph"
+
+    def test_empty_paragraphs(self):
+        """Empty paragraphs are handled correctly."""
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "Before"}]},
+                {"type": "paragraph", "content": []},  # Empty paragraph
+                {"type": "paragraph", "content": [{"type": "text", "text": "After"}]},
+            ],
+        }
+        result = adf_to_text(adf)
+        assert "Before" in result
+        assert "After" in result
+
+    def test_nested_content_bold_and_links(self):
+        """Nested content (bold, links) - extract text without markup."""
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [
+                        {"type": "text", "text": "Normal "},
+                        {"type": "text", "text": "bold", "marks": [{"type": "strong"}]},
+                        {"type": "text", "text": " and "},
+                        {
+                            "type": "text",
+                            "text": "link",
+                            "marks": [{"type": "link", "attrs": {"href": "http://example.com"}}],
+                        },
+                    ],
+                }
+            ],
+        }
+        assert adf_to_text(adf) == "Normal bold and link"
+
+    def test_complex_nested_structure(self):
+        """Complex ADF with lists, headings, etc."""
+        adf = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {"type": "heading", "content": [{"type": "text", "text": "Title"}]},
+                {"type": "paragraph", "content": [{"type": "text", "text": "Paragraph"}]},
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {
+                            "type": "listItem",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Item 1"}]}],
+                        },
+                        {
+                            "type": "listItem",
+                            "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Item 2"}]}],
+                        },
+                    ],
+                },
+            ],
+        }
+        result = adf_to_text(adf)
+        assert "Title" in result
+        assert "Paragraph" in result
+        assert "Item 1" in result
+        assert "Item 2" in result
+
+    def test_non_doc_dict_passthrough(self):
+        """Dict without type=doc passes through unchanged."""
+        not_adf = {"key": "value", "foo": "bar"}
+        assert adf_to_text(not_adf) == not_adf
