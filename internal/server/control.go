@@ -121,7 +121,8 @@ func (w *ControlWatcher) processCommand(filename string) {
 
 	switch action {
 	case "reload":
-		if pluginName == "all" || pluginName == "" {
+		switch pluginName {
+		case "all", "":
 			result["status"] = "success"
 			var reloaded []string
 			for name := range w.mgr.Manifests() {
@@ -133,7 +134,7 @@ func (w *ControlWatcher) processCommand(filename string) {
 				}
 			}
 			result["reloaded"] = reloaded
-		} else {
+		default:
 			if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, pluginName, w.index); err != nil {
 				result["status"] = "error"
 				result["error"] = err.Error()
