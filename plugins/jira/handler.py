@@ -38,6 +38,33 @@ def _recv():
     return json.loads(line.strip())
 
 
+_api_path_logged = False
+
+
+def _api_path(path):
+    """Rewrite REST API paths for Jira Cloud (v2 → v3).
+
+    Jira Cloud has removed /rest/api/2/ endpoints in favor of v3.
+    The search endpoint also changed path structure. Server/DC
+    instances continue using v2.
+
+    Note: v3 search path changed from /rest/api/2/search to
+    /rest/api/3/search/jql but the query parameter name "jql"
+    remains the same.
+    """
+    global _api_path_logged
+    if not is_cloud or "/rest/api/2/" not in path:
+        return path
+    if path == "/rest/api/2/search":
+        rewritten = "/rest/api/3/search/jql"
+    else:
+        rewritten = path.replace("/rest/api/2/", "/rest/api/3/", 1)
+    if not _api_path_logged:
+        log(f"rewriting API paths: v2 -> v3 (cloud={is_cloud})")
+        _api_path_logged = True
+    return rewritten
+
+
 def http(method, path, query=None, body=None, headers=None, url=None):
     """Make an HTTP request via the core proxy.
 
@@ -49,7 +76,7 @@ def http(method, path, query=None, body=None, headers=None, url=None):
         "id": _gen_id("http"),
         "type": "http_request",
         "method": method,
-        "path": path,
+        "path": _api_path(path),
     }
     if url:
         msg["url"] = url
@@ -106,7 +133,7 @@ def http_upload(method, path, field, filename, content, content_type=None, extra
         for k, v in extra_fields.items():
             parts.append({"field": k, "body": str(v)})
 
-    msg = {"id": _gen_id("http"), "type": "http_request", "method": method, "path": path, "multipart": parts}
+    msg = {"id": _gen_id("http"), "type": "http_request", "method": method, "path": _api_path(path), "multipart": parts}
     if query:
         msg["query"] = query
     if headers:
