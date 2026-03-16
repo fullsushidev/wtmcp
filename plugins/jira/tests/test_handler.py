@@ -100,3 +100,26 @@ class TestDetectCloud:
             is_cloud, auth_ok = handler._detect_cloud()
             assert is_cloud is False
             assert auth_ok is False
+
+    def test_410_triggers_v3_fallback_success(self):
+        """HTTP 410 on v2 triggers v3 fallback, v3 success confirms Cloud."""
+        responses = [
+            (410, {"message": "API removed"}, {}),  # v2 serverInfo
+            (200, {"deploymentType": "Cloud", "version": "1001.0.0"}, {}),  # v3 serverInfo
+        ]
+        with patch.object(handler, "http", side_effect=responses):
+            is_cloud, auth_ok = handler._detect_cloud()
+            assert is_cloud is True
+            assert auth_ok is True
+
+    def test_410_triggers_v3_fallback_failure(self):
+        """HTTP 410 on v2, v3 also fails - still assume Cloud."""
+        responses = [
+            (410, {"message": "API removed"}, {}),  # v2 serverInfo
+            (500, {"error": "Internal error"}, {}),  # v3 serverInfo fails
+        ]
+        with patch.object(handler, "http", side_effect=responses):
+            is_cloud, auth_ok = handler._detect_cloud()
+            # 410 on v2 is strong signal of Cloud, even if v3 fails
+            assert is_cloud is True
+            assert auth_ok is True

@@ -182,12 +182,28 @@ def _detect_cloud():
     auth variant is likely wrong for this instance type.
     """
     status, body, _ = http("GET", "/rest/api/2/serverInfo")
+
+    # Auth failure - cannot determine deployment type
     if status in (401, 403):
         return False, False
+
+    # 410 Gone - v2 API removed, this is Cloud. Try v3 to confirm.
+    if status == 410:
+        log("v2 serverInfo returned 410, attempting v3 fallback")
+        status, body, _ = http("GET", "/rest/api/3/serverInfo")
+        if 200 <= status < 300 and isinstance(body, dict):
+            log("v3 serverInfo succeeded - confirmed Cloud")
+            return True, True
+        # v3 also failed, but 410 on v2 is a Cloud signal
+        log("v3 serverInfo also failed, assuming Cloud (v2 removal indicates Cloud)")
+        return True, True
+
+    # Success - check deploymentType
     if 200 <= status < 300 and isinstance(body, dict):
         deployment = body.get("deploymentType", "")
         if deployment.lower() == "cloud":
             return True, True
+
     return False, True
 
 
