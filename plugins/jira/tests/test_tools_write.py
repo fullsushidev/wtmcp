@@ -517,6 +517,37 @@ class TestIssueWorklog:
             result = tools_write.issue_worklog({"issue_key": "PROJ-1", "time_spent": "1h", "dry_run": False})
             assert result["success"] is True
 
+    def test_worklog_comment_uses_adf_on_cloud(self):
+        """Cloud mode: worklog comment is converted to ADF."""
+        with patch.object(handler, "is_cloud", True), _mock_http(201, {"id": "w1"}) as mock_http:
+            tools_write.issue_worklog(
+                {
+                    "issue_key": "PROJ-1",
+                    "time_spent": "2h",
+                    "comment": "Fixed the bug",
+                    "dry_run": False,
+                }
+            )
+            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
+            # Verify comment is ADF
+            assert call_body["comment"]["type"] == "doc"
+            assert call_body["comment"]["version"] == 1
+
+    def test_worklog_comment_plain_text_on_server(self):
+        """Server mode: worklog comment is plain text."""
+        with patch.object(handler, "is_cloud", False), _mock_http(201, {"id": "w1"}) as mock_http:
+            tools_write.issue_worklog(
+                {
+                    "issue_key": "PROJ-1",
+                    "time_spent": "2h",
+                    "comment": "Fixed the bug",
+                    "dry_run": False,
+                }
+            )
+            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
+            # Verify comment is plain string
+            assert call_body["comment"] == "Fixed the bug"
+
 
 # --- jira_add_issues_to_sprint / jira_add_issues_to_backlog ---
 

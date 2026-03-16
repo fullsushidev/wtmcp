@@ -395,7 +395,7 @@ def issue_worklog(params):
 
     body_data = {"timeSpent": time_spent}
     if comment:
-        body_data["comment"] = comment
+        body_data["comment"] = text_to_adf(comment) if handler.is_cloud else comment
 
     status, body, _ = handler.http("POST", f"/rest/api/2/issue/{issue_key}/worklog", body=body_data)
     if status < 200 or status >= 300:
