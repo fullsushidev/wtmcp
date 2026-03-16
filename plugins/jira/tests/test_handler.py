@@ -1,0 +1,102 @@
+"""Unit tests for handler.py — _api_path() and _detect_cloud()."""
+
+from unittest.mock import patch
+
+import handler
+
+
+class TestApiPath:
+    """Test _api_path() path rewriting logic."""
+
+    def test_server_mode_no_rewriting(self):
+        """Server mode: all paths pass through unchanged."""
+        with patch.object(handler, "is_cloud", False):
+            assert handler._api_path("/rest/api/2/myself") == "/rest/api/2/myself"
+            assert handler._api_path("/rest/api/2/search") == "/rest/api/2/search"
+            assert handler._api_path("/rest/agile/1.0/board") == "/rest/agile/1.0/board"
+
+    def test_cloud_mode_basic_rewriting(self):
+        """Cloud mode: /rest/api/2/ -> /rest/api/3/."""
+        with patch.object(handler, "is_cloud", True):
+            assert handler._api_path("/rest/api/2/myself") == "/rest/api/3/myself"
+            assert handler._api_path("/rest/api/2/field") == "/rest/api/3/field"
+            assert handler._api_path("/rest/api/2/issue/PROJ-1") == "/rest/api/3/issue/PROJ-1"
+
+    def test_cloud_mode_search_special_case(self):
+        """Cloud mode: search endpoint gets special path."""
+        with patch.object(handler, "is_cloud", True):
+            assert handler._api_path("/rest/api/2/search") == "/rest/api/3/search/jql"
+
+    def test_search_trailing_slash_not_special_case(self):
+        """Trailing slash should NOT match search special case."""
+        with patch.object(handler, "is_cloud", True):
+            # This is important - /rest/api/3/search/ may not exist or behave differently
+            assert handler._api_path("/rest/api/2/search/") == "/rest/api/3/search/"
+
+    def test_non_api_paths_unchanged(self):
+        """Agile and other non-/rest/api/2/ paths unchanged."""
+        with patch.object(handler, "is_cloud", True):
+            assert handler._api_path("/rest/agile/1.0/board") == "/rest/agile/1.0/board"
+            assert handler._api_path("/rest/greenhopper/1.0/sprint") == "/rest/greenhopper/1.0/sprint"
+            assert handler._api_path("/some/other/path") == "/some/other/path"
+
+    def test_path_with_2_substring(self):
+        """Path containing /2/ as substring should only replace first /rest/api/2/."""
+        with patch.object(handler, "is_cloud", True):
+            # PROJ-2 contains "/2/" but should not cause double replacement
+            result = handler._api_path("/rest/api/2/issue/PROJ-2/comment")
+            assert result == "/rest/api/3/issue/PROJ-2/comment"
+            assert result.count("/rest/api/3/") == 1
+
+    def test_idempotency(self):
+        """Calling _api_path twice should not double-rewrite."""
+        with patch.object(handler, "is_cloud", True):
+            path = "/rest/api/2/myself"
+            once = handler._api_path(path)
+            twice = handler._api_path(once)
+            assert once == "/rest/api/3/myself"
+            assert twice == "/rest/api/3/myself"  # Not /rest/api/4/myself
+
+
+class TestDetectCloud:
+    """Test _detect_cloud() deployment detection logic."""
+
+    def test_cloud_deployment_type(self):
+        """deploymentType=Cloud returns (True, True)."""
+        response = (200, {"deploymentType": "Cloud", "version": "1001.0.0"}, {})
+        with patch.object(handler, "http", return_value=response):
+            is_cloud, auth_ok = handler._detect_cloud()
+            assert is_cloud is True
+            assert auth_ok is True
+
+    def test_server_deployment_type(self):
+        """deploymentType=Server returns (False, True)."""
+        response = (200, {"deploymentType": "Server", "version": "9.12.0"}, {})
+        with patch.object(handler, "http", return_value=response):
+            is_cloud, auth_ok = handler._detect_cloud()
+            assert is_cloud is False
+            assert auth_ok is True
+
+    def test_missing_deployment_type(self):
+        """No deploymentType field returns (False, True)."""
+        response = (200, {"version": "8.0.0"}, {})
+        with patch.object(handler, "http", return_value=response):
+            is_cloud, auth_ok = handler._detect_cloud()
+            assert is_cloud is False
+            assert auth_ok is True
+
+    def test_auth_failure_401(self):
+        """HTTP 401 returns (False, False)."""
+        response = (401, {"message": "Unauthorized"}, {})
+        with patch.object(handler, "http", return_value=response):
+            is_cloud, auth_ok = handler._detect_cloud()
+            assert is_cloud is False
+            assert auth_ok is False
+
+    def test_auth_failure_403(self):
+        """HTTP 403 returns (False, False)."""
+        response = (403, {"message": "Forbidden"}, {})
+        with patch.object(handler, "http", return_value=response):
+            is_cloud, auth_ok = handler._detect_cloud()
+            assert is_cloud is False
+            assert auth_ok is False
