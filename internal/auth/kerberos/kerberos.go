@@ -15,19 +15,34 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 )
 
-// SPNEGORoundTripper wraps an http.RoundTripper to add SPNEGO authentication
-// headers to all outgoing requests, including redirect hops.
+const skipHostTTL = 5 * time.Minute
+
+// SPNEGORoundTripper wraps an http.RoundTripper to add SPNEGO
+// authentication. Uses proactive-first strategy: sends the Negotiate
+// header on the first request. Falls back to reactive 401
+// challenge-response if proactive token generation fails.
 //
-// If spn is empty, the SPN is derived dynamically as "HTTP@<hostname>" from
-// each request's URL. If the GSSAPI call fails (e.g., no SPN registered in
-// the KDC for that hostname), the request proceeds without a Negotiate
-// header — this allows redirect-based flows (like OIDC) where the initial
-// host has no SPN but the SSO server does.
+// Proactive auth avoids mod_auth_gssapi CSRF protection issues on
+// POST requests (e.g., FreeIPA). Reactive fallback handles SSO
+// redirect flows where the initial host has no SPN.
+//
+// Mutual authentication is OPTIONAL — the server's proof token in
+// 200 responses is not verified. TLS provides server authentication.
+//
+// If spn is empty, the SPN is derived dynamically as "HTTP@<hostname>"
+// from each request's URL. If the GSSAPI call fails (e.g., no SPN
+// registered in the KDC for that hostname), the request proceeds
+// without a Negotiate header — this allows redirect-based flows
+// (like OIDC) where the initial host has no SPN but the SSO server
+// does.
 type SPNEGORoundTripper struct {
-	spn  string
-	next http.RoundTripper
+	spn       string
+	next      http.RoundTripper
+	skipHosts sync.Map // hostname -> time.Time (expiry after skipHostTTL)
 }
 
 // NewSPNEGORoundTripper creates a new round tripper that adds SPNEGO headers.
@@ -42,57 +57,79 @@ func NewSPNEGORoundTripper(spn string, next http.RoundTripper) http.RoundTripper
 	}
 }
 
-// RoundTrip implements http.RoundTripper with reactive 401 challenge
-// handling, matching the behavior of Python's requests-kerberos.
+// RoundTrip implements http.RoundTripper with proactive-first SPNEGO.
 //
 // Flow:
-//  1. Send the request WITHOUT a Negotiate header
-//  2. If the server returns 401 + WWW-Authenticate: Negotiate,
-//     generate a SPNEGO token and retry (challenge-response)
-//  3. This matches how SSO servers like auth.redhat.com expect
-//     SPNEGO authentication to work
+//  1. Try to generate a SPNEGO token and send it on the FIRST request
+//  2. If token generation fails (no SPN, no ticket, wrong realm),
+//     send without auth — hostname is cached to skip future attempts
+//  3. If the server returns 401 + WWW-Authenticate: Negotiate,
+//     generate a fresh token and retry (reactive fallback)
 func (s *SPNEGORoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	// First attempt: send without Negotiate
-	resp, err := s.next.RoundTrip(req.Clone(req.Context()))
-	if err != nil {
-		return nil, err
-	}
-
-	// Check for 401 + WWW-Authenticate: Negotiate challenge
-	if resp.StatusCode != http.StatusUnauthorized {
-		return resp, nil
-	}
-	authHeader := resp.Header.Get("WWW-Authenticate")
-	if !strings.Contains(authHeader, "Negotiate") {
-		return resp, nil
-	}
-
-	// Server challenged — drain the 401 body and retry with SPNEGO
-	_, _ = io.Copy(io.Discard, resp.Body)
-	_ = resp.Body.Close()
-
 	spn := s.spn
 	if spn == "" {
 		spn = "HTTP@" + req.URL.Hostname()
 	}
 
+	// Proactive: try to attach Negotiate token on first request.
+	// Skip if this host previously failed (cached with TTL).
+	authReq := req.Clone(req.Context())
+	hostname := req.URL.Hostname()
+
+	skip := false
+	if t, ok := s.skipHosts.Load(hostname); ok {
+		if time.Since(t.(time.Time)) < skipHostTTL {
+			skip = true
+		} else {
+			s.skipHosts.Delete(hostname)
+		}
+	}
+	if !skip {
+		if err := SetSPNEGOHeader(authReq, spn); err != nil {
+			// No ticket / wrong realm / GSSAPI error — send without
+			// auth. SetSPNEGOHeader does not modify headers on error,
+			// so authReq is still clean (no redundant clone needed).
+			log.Printf("kerberos: proactive SPNEGO skipped for %s: %v",
+				hostname, err)
+			s.skipHosts.Store(hostname, time.Now())
+		}
+	}
+
+	resp, err := s.next.RoundTrip(authReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// If not 401, we're done (auth succeeded or not needed)
+	if resp.StatusCode != http.StatusUnauthorized {
+		return resp, nil
+	}
+
+	// 401 received — check for Negotiate challenge
+	authHeader := resp.Header.Get("WWW-Authenticate")
+	if !strings.Contains(authHeader, "Negotiate") {
+		return resp, nil
+	}
+
+	// Reactive fallback: server wants challenge-response.
+	// Creates a fresh GSSAPI context (standard for HTTP SPNEGO).
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
 	retryReq := req.Clone(req.Context())
-	// Reset the body for the retry — Clone only shallow-copies Body,
-	// so the original reader is already consumed by the first attempt.
 	if err := resetBody(retryReq, req); err != nil {
 		return nil, err
 	}
 
 	if err := SetSPNEGOHeader(retryReq, spn); err != nil {
-		log.Printf("kerberos: SPNEGO failed for %s after 401 challenge: %v",
-			req.URL.Hostname(), err)
-		// Return a fresh unauthenticated response rather than the drained 401
+		log.Printf("kerberos: SPNEGO failed for %s after 401: %v",
+			hostname, err)
 		fallbackReq := req.Clone(req.Context())
-		_ = resetBody(fallbackReq, req) // best effort
+		_ = resetBody(fallbackReq, req)
 		return s.next.RoundTrip(fallbackReq)
 	}
 
-	log.Printf("kerberos: responding to 401 challenge from %s with Negotiate", req.URL.Hostname())
+	log.Printf("kerberos: reactive auth for %s after 401", hostname)
 	return s.next.RoundTrip(retryReq)
 }
 
