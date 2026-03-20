@@ -256,20 +256,17 @@ func agentDisable(agentName, dir string) error {
 
 	// Decide whether to remove file or write it back
 	if len(config) == 0 && spec.canRemoveFile {
-		// Remove empty config file
 		if err := os.Remove(configPath); err != nil {
 			return fmt.Errorf("failed to remove config file %s: %w", configPath, err)
 		}
-		fmt.Printf("✓ Disabled wtmcp for %s (removed config file)\n", agentName)
+		fmt.Printf("✓ Disabled wtmcp for %s (removed %s)\n", agentName, configPath)
 	} else {
-		// Write config back
 		if err := writeJSONConfig(configPath, config); err != nil {
 			return fmt.Errorf("failed to write config file %s: %w", configPath, err)
 		}
 		fmt.Printf("✓ Disabled wtmcp for %s\n", agentName)
+		fmt.Printf("Config file: %s\n", configPath)
 	}
-
-	fmt.Printf("Config file: %s\n", configPath)
 	return nil
 }
 
