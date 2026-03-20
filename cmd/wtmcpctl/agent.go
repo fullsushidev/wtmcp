@@ -284,7 +284,7 @@ func resolveWtmcpBinary() (string, error) {
 		if err == nil {
 			// Look for wtmcp in the same directory
 			candidate := filepath.Join(filepath.Dir(resolved), "wtmcp")
-			if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			if info, err := os.Stat(candidate); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
 				// Convert to absolute path
 				absPath, err := filepath.Abs(candidate)
 				if err == nil {
