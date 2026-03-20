@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/LeGambiArt/wtmcp/internal/config"
 )
@@ -14,11 +15,12 @@ type DiscoveryOptions struct {
 
 // DiscoveryResult contains the results of plugin discovery.
 type DiscoveryResult struct {
-	Workdir   string
-	Config    *config.Config
-	EnvGroups map[string]map[string]string
-	EnvErrors map[string]string
-	Manager   *Manager
+	Workdir    string
+	ConfigPath string // Resolved config file path (for write-back)
+	Config     *config.Config
+	EnvGroups  map[string]map[string]string
+	EnvErrors  map[string]string
+	Manager    *Manager
 }
 
 // Discover performs plugin discovery without loading plugins.
@@ -37,6 +39,12 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 		return nil, fmt.Errorf("load env: %w", err)
 	}
 
+	// Resolve config path (same defaulting logic as config.Load)
+	cfgPath := opts.ConfigPath
+	if cfgPath == "" {
+		cfgPath = filepath.Join(workdir, "config.yaml")
+	}
+
 	// Load config (uses workdir for defaults)
 	cfg, err := config.Load(opts.ConfigPath, workdir)
 	if err != nil {
@@ -52,10 +60,11 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 	}
 
 	return &DiscoveryResult{
-		Workdir:   workdir,
-		Config:    cfg,
-		EnvGroups: envResult.Groups,
-		EnvErrors: envResult.Errors,
-		Manager:   mgr,
+		Workdir:    workdir,
+		ConfigPath: cfgPath,
+		Config:     cfg,
+		EnvGroups:  envResult.Groups,
+		EnvErrors:  envResult.Errors,
+		Manager:    mgr,
 	}, nil
 }

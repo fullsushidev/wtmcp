@@ -32,17 +32,18 @@ type DisabledPlugin struct {
 
 // Manager discovers, loads, and manages plugin lifecycles.
 type Manager struct {
-	handles    map[string]*Handle
-	manifests  map[string]*Manifest
-	disabled   map[string]DisabledPlugin
-	envGroups  config.EnvGroups
-	envErrors  map[string]string // credential group → error message
-	workdir    string
-	authReg    *auth.Registry
-	proxy      *proxy.Proxy
-	cache      cache.Store
-	cfg        *config.Config
-	svcHandler *serviceHandlerImpl
+	handles        map[string]*Handle
+	manifests      map[string]*Manifest
+	disabled       map[string]DisabledPlugin
+	configDisabled map[string]*Manifest // plugins skipped via plugins.disabled config
+	envGroups      config.EnvGroups
+	envErrors      map[string]string // credential group → error message
+	workdir        string
+	authReg        *auth.Registry
+	proxy          *proxy.Proxy
+	cache          cache.Store
+	cfg            *config.Config
+	svcHandler     *serviceHandlerImpl
 }
 
 // NewManager creates a plugin manager. envErrors maps credential
@@ -55,17 +56,18 @@ func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *conf
 		envErrors = make(map[string]string)
 	}
 	return &Manager{
-		handles:    make(map[string]*Handle),
-		manifests:  make(map[string]*Manifest),
-		disabled:   make(map[string]DisabledPlugin),
-		envGroups:  envGroups,
-		envErrors:  envErrors,
-		workdir:    workdir,
-		authReg:    authReg,
-		proxy:      p,
-		cache:      c,
-		cfg:        cfg,
-		svcHandler: &serviceHandlerImpl{proxy: p, cache: c},
+		handles:        make(map[string]*Handle),
+		manifests:      make(map[string]*Manifest),
+		disabled:       make(map[string]DisabledPlugin),
+		configDisabled: make(map[string]*Manifest),
+		envGroups:      envGroups,
+		envErrors:      envErrors,
+		workdir:        workdir,
+		authReg:        authReg,
+		proxy:          p,
+		cache:          c,
+		cfg:            cfg,
+		svcHandler:     &serviceHandlerImpl{proxy: p, cache: c},
 	}
 }
 
@@ -113,6 +115,7 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 			}
 			if slices.Contains(m.cfg.Plugins.Disabled, manifest.Name) {
 				log.Printf("plugin %s is disabled via config", manifest.Name)
+				m.configDisabled[manifest.Name] = manifest
 				continue
 			}
 			if existing, ok := m.manifests[manifest.Name]; ok {
@@ -415,6 +418,12 @@ func (m *Manager) Manifests() map[string]*Manifest {
 // permissions on credential files).
 func (m *Manager) EnvDisabledPlugins() map[string]DisabledPlugin {
 	return m.disabled
+}
+
+// ConfigDisabledPlugins returns plugins that were skipped during
+// discovery because they are listed in plugins.disabled config.
+func (m *Manager) ConfigDisabledPlugins() map[string]*Manifest {
+	return m.configDisabled
 }
 
 // LoadedPlugins returns the names of successfully loaded plugins.

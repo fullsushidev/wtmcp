@@ -261,6 +261,42 @@ tools:
 	}
 }
 
+func TestManagerConfigDisabledPlugins(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "enabled-one", echoScript)
+	createPluginInDir(t, dir, "disabled-one", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Disabled = []string{"disabled-one"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// enabled-one should be in Manifests
+	if _, ok := m.Manifests()["enabled-one"]; !ok {
+		t.Error("expected 'enabled-one' in Manifests()")
+	}
+
+	// disabled-one should be in ConfigDisabledPlugins
+	configDisabled := m.ConfigDisabledPlugins()
+	if len(configDisabled) != 1 {
+		t.Fatalf("got %d config-disabled, want 1", len(configDisabled))
+	}
+	if _, ok := configDisabled["disabled-one"]; !ok {
+		t.Error("expected 'disabled-one' in ConfigDisabledPlugins()")
+	}
+
+	// disabled-one should NOT be in Manifests
+	if _, ok := m.Manifests()["disabled-one"]; ok {
+		t.Error("'disabled-one' should not be in Manifests()")
+	}
+}
+
 func TestManagerDiscoverSkipsNonexistentDir(t *testing.T) {
 	m := newTestManager(t)
 	if err := m.Discover([]string{"/nonexistent/path"}, ""); err != nil {
