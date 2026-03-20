@@ -112,6 +112,77 @@ func TestManagerDiscoverSkipsConfigDisabled(t *testing.T) {
 	}
 }
 
+func TestManagerDiscoverPartialDisable(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "keep-me", echoScript)
+	createPluginInDir(t, dir, "skip-me", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Disabled = []string{"skip-me"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if len(manifests) != 1 {
+		t.Fatalf("got %d manifests, want 1", len(manifests))
+	}
+	if _, ok := manifests["keep-me"]; !ok {
+		t.Error("expected 'keep-me' manifest to be discovered")
+	}
+	if _, ok := manifests["skip-me"]; ok {
+		t.Error("'skip-me' should have been disabled via config")
+	}
+}
+
+func TestManagerDiscoverDoubleDisabled(t *testing.T) {
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "both-disabled")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil { //nolint:gosec // test dir
+		t.Fatal(err)
+	}
+	handlerPath := filepath.Join(pluginDir, "handler.sh")
+	if err := os.WriteFile(handlerPath, []byte(echoScript), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+	manifest := `
+name: both-disabled
+version: "1.0.0"
+description: "Test plugin"
+execution: persistent
+handler: ./handler.sh
+enabled: false
+tools:
+  - name: both-disabled_test
+    description: "A test tool"
+    params: {}
+`
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.yaml"), []byte(manifest), 0o644); err != nil { //nolint:gosec // test config
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Disabled = []string{"both-disabled"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if len(manifests) != 0 {
+		t.Errorf("got %d manifests, want 0 (plugin is disabled in both manifest and config)", len(manifests))
+	}
+}
+
 func TestManagerDiscoverSkipsNonexistentDir(t *testing.T) {
 	m := newTestManager(t)
 	if err := m.Discover([]string{"/nonexistent/path"}, ""); err != nil {
