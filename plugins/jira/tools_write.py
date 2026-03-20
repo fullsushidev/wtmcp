@@ -472,7 +472,8 @@ def set_parent(params):
     rest_failed = []
     for key in issue_keys:
         status, body, _ = handler.http(
-            "PUT", f"/rest/api/2/issue/{key}",
+            "PUT",
+            f"/rest/api/2/issue/{key}",
             body={"fields": {"parent": {"key": parent_key}}},
         )
         if status < 200 or status >= 300:
@@ -483,7 +484,8 @@ def set_parent(params):
 
     # Fallback: Agile API for issues that failed (handles epic screen restrictions)
     status, body, _ = handler.http(
-        "POST", f"/rest/agile/1.0/epic/{parent_key}/issue",
+        "POST",
+        f"/rest/agile/1.0/epic/{parent_key}/issue",
         body={"issues": rest_failed},
     )
     if status < 200 or status >= 300:
@@ -517,7 +519,8 @@ def clear_parent(params):
     rest_failed = []
     for key in issue_keys:
         status, body, _ = handler.http(
-            "PUT", f"/rest/api/2/issue/{key}",
+            "PUT",
+            f"/rest/api/2/issue/{key}",
             body={"fields": {"parent": {"key": None}}},
         )
         if status < 200 or status >= 300:
@@ -528,7 +531,8 @@ def clear_parent(params):
 
     # Fallback: Agile API moves issues out of any epic
     status, body, _ = handler.http(
-        "POST", "/rest/agile/1.0/epic/none/issue",
+        "POST",
+        "/rest/agile/1.0/epic/none/issue",
         body={"issues": rest_failed},
     )
     if status < 200 or status >= 300:
