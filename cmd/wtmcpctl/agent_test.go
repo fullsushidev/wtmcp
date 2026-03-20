@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,16 +38,12 @@ func TestReadJSONConfig_NonExistent(t *testing.T) {
 	path := filepath.Join(tmpDir, "nonexistent.json")
 
 	config, err := readJSONConfig(path)
-	if err != nil {
-		t.Fatalf("readJSONConfig() returned error for non-existent file: %v", err)
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("readJSONConfig() should return os.ErrNotExist, got: %v", err)
 	}
 
-	if config == nil {
-		t.Fatal("readJSONConfig() returned nil map")
-	}
-
-	if len(config) != 0 {
-		t.Errorf("readJSONConfig() returned non-empty map: %v", config)
+	if config != nil {
+		t.Errorf("readJSONConfig() should return nil map, got: %v", config)
 	}
 }
 

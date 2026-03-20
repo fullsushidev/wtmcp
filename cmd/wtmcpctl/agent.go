@@ -172,10 +172,14 @@ func agentEnable(agentName, dir string) error {
 		}
 	}
 
-	// Read existing config
+	// Read existing config (create empty if file doesn't exist yet)
 	config, err := readJSONConfig(configPath)
 	if err != nil {
-		return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		if errors.Is(err, os.ErrNotExist) {
+			config = make(map[string]any)
+		} else {
+			return fmt.Errorf("failed to read config file %s: %w", configPath, err)
+		}
 	}
 
 	// Get or create mcpServers map
@@ -321,23 +325,14 @@ func resolveDir(dirFlag string) (string, error) {
 }
 
 // readJSONConfig reads a JSON config file into a map.
-// Returns an empty map if the file doesn't exist.
+// Returns os.ErrNotExist if the file doesn't exist; callers decide how
+// to handle that case.
 func readJSONConfig(path string) (map[string]any, error) {
-	// Check if file exists
-	if _, err := os.Stat(path); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return make(map[string]any), nil
-		}
-		return nil, err
-	}
-
-	// Read file
 	data, err := os.ReadFile(path) // #nosec G304 -- path is from trusted command-line argument
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse JSON
 	var config map[string]any
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("invalid JSON: %w", err)
