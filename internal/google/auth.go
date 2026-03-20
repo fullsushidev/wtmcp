@@ -102,6 +102,7 @@ func (s *savingTokenSource) Token() (*oauth2.Token, error) {
 	return tok, nil
 }
 
+// LoadToken reads an OAuth2 token from the given JSON file path.
 func LoadToken(path string) (*oauth2.Token, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // known token path
 	if err != nil {

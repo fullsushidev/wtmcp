@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/spf13/cobra"
 
 	"github.com/LeGambiArt/oauth2flow"
 
@@ -20,159 +21,79 @@ type OAuthPlugin struct {
 	Scopes          []string
 }
 
-// handleOAuthCommand processes the oauth command and its subcommands.
-func handleOAuthCommand(args []string) {
-	// Create flagset for oauth command
-	fs := flag.NewFlagSet("oauth", flag.ExitOnError)
-	showHelp := fs.Bool("help", false, "Show help information")
-	fs.BoolVar(showHelp, "h", false, "Show help information (short)")
-
-	// Custom usage function
-	fs.Usage = func() {
-		printOAuthUsage()
-	}
-
-	// Parse oauth flags
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
-
-	// Handle help flag
-	if *showHelp {
-		printOAuthUsage()
-		os.Exit(0)
-	}
-
-	// Get subcommand arguments
-	subArgs := fs.Args()
-	if len(subArgs) < 1 {
-		printOAuthUsage()
-		os.Exit(1)
-	}
-
-	subcommand := subArgs[0]
-
-	// Handle subcommands
-	switch subcommand {
-	case "help":
-		printOAuthUsage()
-		os.Exit(0)
-	case "list":
-		handleOAuthList(subArgs[1:])
-	case "auth":
-		handleOAuthAuth(subArgs[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown oauth subcommand: %s\n", subcommand)
-		printOAuthUsage()
-		os.Exit(1)
-	}
+var oauthCmd = &cobra.Command{
+	Use:   "oauth",
+	Short: "Manage OAuth authentication for plugins",
 }
 
-// handleOAuthList handles the 'oauth list' subcommand.
-func handleOAuthList(args []string) {
-	// Create flagset for list subcommand
-	fs := flag.NewFlagSet("oauth list", flag.ExitOnError)
-	showHelp := fs.Bool("help", false, "Show help information")
-	fs.BoolVar(showHelp, "h", false, "Show help information (short)")
-
-	// Custom usage function
-	fs.Usage = func() {
-		fmt.Println("List OAuth plugins and their authentication status")
-		fmt.Println()
-		fmt.Println("Usage:")
-		fmt.Println("  wtmcpctl oauth list [options]")
-		fmt.Println()
-		fmt.Println("Options:")
-		fmt.Println("  -h, --help    Show this help message")
-	}
-
-	// Parse list flags
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
-	}
-
-	// Handle help flag
-	if *showHelp {
-		fs.Usage()
-		os.Exit(0)
-	}
-
-	if err := oauthList(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
+var oauthListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List OAuth plugins and their authentication status",
+	Args:  cobra.NoArgs,
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return oauthList()
+	},
 }
 
-// handleOAuthAuth handles the 'oauth auth' subcommand.
-func handleOAuthAuth(args []string) {
-	// Create flagset for auth subcommand
-	fs := flag.NewFlagSet("oauth auth", flag.ExitOnError)
-	authAll := fs.Bool("all", false, "Authenticate all non-authenticated plugins")
-	fs.BoolVar(authAll, "a", false, "Authenticate all non-authenticated plugins (short)")
-	showHelp := fs.Bool("help", false, "Show help information")
-	fs.BoolVar(showHelp, "h", false, "Show help information (short)")
+var oauthAuthCmd = &cobra.Command{
+	Use:               "auth [plugin-name...]",
+	Short:             "Authenticate one or more plugins using OAuth",
+	ValidArgsFunction: completeOAuthPlugins,
+	RunE:              runOAuthAuth,
+}
 
-	// Custom usage function
-	fs.Usage = func() {
-		fmt.Println("Authenticate one or more plugins using OAuth")
-		fmt.Println()
-		fmt.Println("Usage:")
-		fmt.Println("  wtmcpctl oauth auth [options] <plugin-name> [<plugin-name>...]")
-		fmt.Println("  wtmcpctl oauth auth --all")
-		fmt.Println()
-		fmt.Println("Options:")
-		fmt.Println("  -a, --all     Authenticate all non-authenticated plugins")
-		fmt.Println("  -h, --help    Show this help message")
-		fmt.Println()
-		fmt.Println("Examples:")
-		fmt.Println("  wtmcpctl oauth auth google-drive")
-		fmt.Println("  wtmcpctl oauth auth google-drive google-calendar")
-		fmt.Println("  wtmcpctl oauth auth --all")
+func init() {
+	oauthAuthCmd.Flags().BoolP("all", "a", false,
+		"Authenticate all non-authenticated plugins")
+
+	oauthCmd.AddCommand(oauthListCmd, oauthAuthCmd)
+}
+
+// completeOAuthPlugins returns discovered OAuth plugin names for completion,
+// filtering out names already specified on the command line.
+func completeOAuthPlugins(
+	_ *cobra.Command, args []string, _ string,
+) ([]string, cobra.ShellCompDirective) {
+	plugins, err := discoverOAuthPlugins()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
 	}
 
-	// Parse auth flags
-	if err := fs.Parse(args); err != nil {
-		os.Exit(1)
+	already := make(map[string]bool, len(args))
+	for _, a := range args {
+		already[a] = true
 	}
 
-	// Handle help flag
-	if *showHelp {
-		fs.Usage()
-		os.Exit(0)
+	var names []string
+	for _, p := range plugins {
+		if !already[p.Name] {
+			names = append(names, p.Name)
+		}
+	}
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+func runOAuthAuth(cmd *cobra.Command, args []string) error {
+	authAll, _ := cmd.Flags().GetBool("all")
+
+	if !authAll && len(args) == 0 {
+		return fmt.Errorf("requires plugin name(s) or --all flag")
+	}
+	if authAll && len(args) > 0 {
+		return fmt.Errorf("cannot specify both --all flag and plugin names")
 	}
 
-	// Get plugin names from remaining arguments
-	pluginNames := fs.Args()
-
-	// Validate arguments
-	if !*authAll && len(pluginNames) == 0 {
-		fmt.Fprintf(os.Stderr, "oauth auth requires plugin name(s) or --all flag\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	if *authAll && len(pluginNames) > 0 {
-		fmt.Fprintf(os.Stderr, "cannot specify both --all flag and plugin names\n")
-		fs.Usage()
-		os.Exit(1)
-	}
-
-	// Discover OAuth plugins
 	oauthPlugins, err := discoverOAuthPlugins()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error discovering plugins: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("discover plugins: %w", err)
 	}
 
 	var pluginsToAuth []string
 
-	// Determine which plugins to authenticate
-	if *authAll {
-		// Get all non-authenticated plugins
+	if authAll {
 		credDir, err := getCredentialsDir()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: cannot determine credentials directory: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("cannot determine credentials directory: %w", err)
 		}
 
 		for _, plugin := range oauthPlugins {
@@ -183,14 +104,12 @@ func handleOAuthAuth(args []string) {
 
 		if len(pluginsToAuth) == 0 {
 			fmt.Println("All plugins are already authenticated.")
-			os.Exit(0)
+			return nil
 		}
 	} else {
-		// Use provided plugin names
-		pluginsToAuth = pluginNames
+		pluginsToAuth = args
 	}
 
-	// Authenticate each plugin
 	var failed []string
 	for i, pluginName := range pluginsToAuth {
 		if i > 0 {
@@ -205,7 +124,6 @@ func handleOAuthAuth(args []string) {
 		}
 	}
 
-	// Print summary if multiple plugins
 	if len(pluginsToAuth) > 1 {
 		fmt.Println()
 		fmt.Println("---")
@@ -217,30 +135,13 @@ func handleOAuthAuth(args []string) {
 			for _, name := range failed {
 				fmt.Printf("    - %s\n", name)
 			}
-			os.Exit(1)
 		}
-	} else if len(failed) > 0 {
-		os.Exit(1)
 	}
-}
 
-// printOAuthUsage displays help for the oauth command.
-func printOAuthUsage() {
-	fmt.Println("Manage OAuth authentication for plugins")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  wtmcpctl oauth <subcommand> [options]")
-	fmt.Println()
-	fmt.Println("Subcommands:")
-	fmt.Println("  list                         List OAuth plugins and their authentication status")
-	fmt.Println("  auth <plugin-name>...        Authenticate one or more plugins using OAuth")
-	fmt.Println("  auth --all                   Authenticate all non-authenticated plugins")
-	fmt.Println()
-	fmt.Println("Examples:")
-	fmt.Println("  wtmcpctl oauth list")
-	fmt.Println("  wtmcpctl oauth auth google-drive")
-	fmt.Println("  wtmcpctl oauth auth google-drive google-calendar")
-	fmt.Println("  wtmcpctl oauth auth --all")
+	if len(failed) > 0 {
+		return fmt.Errorf("%d plugin(s) failed to authenticate", len(failed))
+	}
+	return nil
 }
 
 // discoverOAuthPlugins scans the plugins directory and builds a list of OAuth plugins.
@@ -311,20 +212,20 @@ func oauthList() error {
 
 		if _, err := os.Stat(tokenPath); err == nil {
 			// Token file exists, check if it's valid
-			if tok, err := googleauth.LoadToken(tokenPath); err == nil {
-				if tok.Valid() {
-					status = "✓"
-					statusText = "authenticated (valid)"
-				} else if tok.RefreshToken != "" {
-					status = "✓"
-					statusText = "authenticated (needs refresh)"
-				} else {
-					status = "!"
-					statusText = "expired (no refresh token)"
-				}
-			} else {
+			tok, loadErr := googleauth.LoadToken(tokenPath)
+			switch {
+			case loadErr != nil:
 				status = "!"
 				statusText = "invalid token file"
+			case tok.Valid():
+				status = "✓"
+				statusText = "authenticated (valid)"
+			case tok.RefreshToken != "":
+				status = "✓"
+				statusText = "authenticated (needs refresh)"
+			default:
+				status = "!"
+				statusText = "expired (no refresh token)"
 			}
 		}
 
