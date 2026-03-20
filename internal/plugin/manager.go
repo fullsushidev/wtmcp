@@ -410,9 +410,10 @@ func (m *Manager) Manifests() map[string]*Manifest {
 	return m.manifests
 }
 
-// DisabledPlugins returns plugins that were discovered but could
-// not be loaded due to configuration issues.
-func (m *Manager) DisabledPlugins() map[string]DisabledPlugin {
+// EnvDisabledPlugins returns plugins that were discovered but could
+// not be loaded due to env.d configuration issues (e.g., bad
+// permissions on credential files).
+func (m *Manager) EnvDisabledPlugins() map[string]DisabledPlugin {
 	return m.disabled
 }
 

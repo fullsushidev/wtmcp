@@ -32,7 +32,7 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 
 	progressive := cfg.Tools.Discovery == "progressive"
 
-	disabled := manager.DisabledPlugins()
+	disabled := manager.EnvDisabledPlugins()
 
 	// Register tools from all plugin manifests. In progressive
 	// mode, non-primary tools get the defer_loading flag.
@@ -158,7 +158,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var plugins []map[string]any
 
-			disabled := mgr.DisabledPlugins()
+			disabled := mgr.EnvDisabledPlugins()
 			for name, manifest := range mgr.Manifests() {
 				if dp, ok := disabled[name]; ok {
 					plugins = append(plugins, map[string]any{

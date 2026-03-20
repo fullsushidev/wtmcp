@@ -230,7 +230,7 @@ func buildEntries(mgr *plugin.Manager) []ToolEntry {
 		loadedSet[name] = true
 	}
 
-	disabled := mgr.DisabledPlugins()
+	disabled := mgr.EnvDisabledPlugins()
 
 	var entries []ToolEntry
 	for _, manifest := range mgr.Manifests() {
