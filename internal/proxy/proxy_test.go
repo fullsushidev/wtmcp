@@ -843,3 +843,80 @@ func TestSchemeValidation(t *testing.T) {
 		t.Errorf("expected scheme validation error, got %v", resp.Error)
 	}
 }
+
+func TestExecuteClientTimeout(t *testing.T) {
+	// Server that accepts connections but responds slowly
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		// Block until request context is done (server shuts down or client disconnects)
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	// Create proxy with a very short timeout
+	client := srv.Client()
+	p := &Proxy{
+		plugins: make(map[string]*PluginAuth),
+		client: &http.Client{
+			Transport: client.Transport,
+			Timeout:   200 * time.Millisecond,
+		},
+		privateClient: &http.Client{
+			Timeout: 200 * time.Millisecond,
+		},
+		maxBodySize: 10 * 1024 * 1024,
+	}
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
+
+	resp := p.Execute(context.Background(), "test", protocol.Message{
+		ID:     "req-timeout",
+		Type:   protocol.TypeHTTPRequest,
+		Method: "GET",
+		Path:   "/slow",
+	})
+
+	if resp.Error == nil {
+		t.Fatal("expected timeout error")
+	}
+	if resp.Status != 0 {
+		t.Errorf("status = %d, want 0 for timeout", resp.Status)
+	}
+}
+
+func TestExecuteContextCancellation(t *testing.T) {
+	// Server that blocks until request context is done
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer srv.Close()
+
+	p := newTestProxy(srv.Client())
+	p.RegisterPlugin("test", testPluginAuth(srv.URL))
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan protocol.Message, 1)
+	go func() {
+		done <- p.Execute(ctx, "test", protocol.Message{
+			ID:     "req-cancel",
+			Type:   protocol.TypeHTTPRequest,
+			Method: "GET",
+			Path:   "/blocked",
+		})
+	}()
+
+	// Cancel the context after a short delay
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case resp := <-done:
+		if resp.Error == nil {
+			t.Fatal("expected error from cancelled request")
+		}
+		if resp.Error.Code != "request_cancelled" {
+			t.Errorf("error code = %q, want request_cancelled", resp.Error.Code)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Execute did not return after context cancellation")
+	}
+}

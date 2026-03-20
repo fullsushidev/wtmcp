@@ -171,6 +171,108 @@ func TestReadLoopDrainsPendingOnExit(t *testing.T) {
 	}
 }
 
+func TestToolContextDefault(t *testing.T) {
+	tr := NewTransport(io.Discard, strings.NewReader(""), strings.NewReader(""), 1024)
+
+	// With no tool context set, ToolContext returns context.Background()
+	ctx := tr.ToolContext()
+	if ctx == nil {
+		t.Fatal("ToolContext should not return nil")
+	}
+	if ctx.Err() != nil {
+		t.Error("default context should not be cancelled")
+	}
+}
+
+func TestToolContextSetAndClear(t *testing.T) {
+	tr := NewTransport(io.Discard, strings.NewReader(""), strings.NewReader(""), 1024)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tr.SetToolContext(&ctx)
+	got := tr.ToolContext()
+	if got != ctx {
+		t.Error("ToolContext should return the set context")
+	}
+
+	tr.SetToolContext(nil)
+	got = tr.ToolContext()
+	if got.Err() != nil {
+		t.Error("after clearing, ToolContext should return a non-cancelled context")
+	}
+}
+
+func TestReadLoopPassesContextToHTTPHandler(t *testing.T) {
+	// Plugin sends an http_request. Verify that ReadLoop passes the
+	// tool context to HandleHTTP and that cancelling it unblocks the
+	// handler.
+	httpReq := protocol.Message{ID: "http-1", Type: protocol.TypeHTTPRequest, Method: "GET", Path: "/slow"}
+	data, _ := json.Marshal(httpReq)
+	pluginStdout := strings.NewReader(string(data) + "\n")
+
+	var pluginStdin bytes.Buffer
+	tr := NewTransport(&pluginStdin, pluginStdout, strings.NewReader(""), 1024*1024)
+
+	// Set a cancellable tool context
+	toolCtx, toolCancel := context.WithCancel(context.Background())
+	tr.SetToolContext(&toolCtx)
+
+	handlerDone := make(chan struct{})
+	var receivedCtx context.Context
+
+	handler := &mockServiceHandler{
+		httpHandler: func(ctx context.Context, _ string, req protocol.Message) protocol.Message {
+			receivedCtx = ctx
+			// Block until context is cancelled (simulates hung upstream)
+			<-ctx.Done()
+			close(handlerDone)
+			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 0,
+				Error: &protocol.Error{Code: "cancelled", Message: "cancelled"}}
+		},
+	}
+
+	go tr.ReadLoop("test-plugin", 1, handler)
+
+	// Give ReadLoop time to call HandleHTTP
+	time.Sleep(50 * time.Millisecond)
+
+	// Cancel the tool context — this should unblock HandleHTTP
+	toolCancel()
+
+	select {
+	case <-handlerDone:
+		// HandleHTTP unblocked
+	case <-time.After(2 * time.Second):
+		t.Fatal("HandleHTTP was not unblocked by context cancellation")
+	}
+
+	if receivedCtx == nil {
+		t.Fatal("HandleHTTP should have received a context")
+	}
+	if receivedCtx.Err() == nil {
+		t.Error("received context should be cancelled")
+	}
+}
+
+func TestReadLoopOrphanedToolResult(t *testing.T) {
+	// Send a tool_result with no matching pending entry.
+	// Should not panic and should not log "unknown message type".
+	toolResult := protocol.Message{ID: "orphan-1", Type: protocol.TypeToolResult, Result: json.RawMessage(`{}`)}
+	data, err := json.Marshal(toolResult)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	pluginStdout := strings.NewReader(string(data) + "\n")
+
+	tr := NewTransport(io.Discard, pluginStdout, strings.NewReader(""), 1024*1024)
+
+	handler := &mockServiceHandler{}
+	// ReadLoop should handle this gracefully (log orphan, not panic)
+	tr.ReadLoop("test-plugin", 1, handler)
+	// If we get here without panic, the test passes
+}
+
 func TestError(t *testing.T) {
 	err := &protocol.Error{Code: "api_error", Message: "not found"}
 	expected := "[api_error] not found"

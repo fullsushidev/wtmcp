@@ -281,3 +281,150 @@ done
 		}
 	}
 }
+
+func TestCallToolRecoveryAfterTimeout(t *testing.T) {
+	// Core user-visible behavior: after a tool call times out due to
+	// a hung HTTP request, the next call should succeed (proving
+	// ReadLoop recovered via context cancellation).
+	dir := t.TempDir()
+
+	// Persistent handler that makes an HTTP request for each tool call.
+	// Uses pure bash regex (no jq) to avoid slow process forks under
+	// race detector / CPU contention.
+	script := `#!/bin/bash
+while IFS= read -r line; do
+  [[ "$line" =~ \"type\":\"([^\"]+)\" ]] && type="${BASH_REMATCH[1]}"
+  [[ "$line" =~ \"id\":\"([^\"]+)\" ]] && id="${BASH_REMATCH[1]}"
+  case "$type" in
+    init)
+      printf '{"id":"%s","type":"init_ok"}\n' "$id"
+      ;;
+    tool_call)
+      printf '{"id":"http-%s","type":"http_request","method":"GET","path":"/api"}\n' "$id"
+      read -r HTTP_RESP
+      [[ "$HTTP_RESP" =~ \"status\":([0-9]+) ]] && status="${BASH_REMATCH[1]}" || status=0
+      printf '{"id":"%s","type":"tool_result","result":{"status":%s}}\n' "$id" "$status"
+      ;;
+    shutdown)
+      printf '{"id":"%s","type":"shutdown_ok"}\n' "$id"
+      exit 0
+      ;;
+  esac
+done
+`
+	writeTestHandler(t, dir, script)
+
+	m := &Manifest{
+		Name:        "recovery-plugin",
+		Execution:   "persistent",
+		Handler:     "./handler.sh",
+		Concurrency: 1,
+		Dir:         dir,
+	}
+
+	callCount := 0
+	handler := &mockServiceHandler{
+		httpHandler: func(ctx context.Context, _ string, req protocol.Message) protocol.Message {
+			callCount++
+			if callCount == 1 {
+				// First call: block until context cancelled (simulate hung upstream)
+				<-ctx.Done()
+				return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 0,
+					Error: &protocol.Error{Code: "request_cancelled", Message: "cancelled"}}
+			}
+			// Subsequent calls: respond immediately
+			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
+		},
+	}
+
+	// Use a short timeout for the first call (we want it to time out
+	// quickly), then switch to a generous timeout for the second call
+	// (the recovery chain through bash pipes needs headroom under
+	// -race / CPU contention).
+	h := NewHandle(m, handler, testProcessConfig(), 500*time.Millisecond, nil)
+	ctx := context.Background()
+	if err := h.Start(ctx); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer h.Stop(ctx) //nolint:errcheck // test cleanup
+
+	// Call 1: should timeout (HTTP handler blocks)
+	_, err := h.CallTool(ctx, "fetch", json.RawMessage(`{}`))
+	if err == nil {
+		t.Fatal("call 1: expected timeout error")
+	}
+	var pluginErr *protocol.Error
+	if !errors.As(err, &pluginErr) {
+		t.Fatalf("call 1: expected *protocol.Error, got %T: %v", err, err)
+	}
+	if pluginErr.Code != "timeout" {
+		t.Errorf("call 1: code = %q, want timeout", pluginErr.Code)
+	}
+
+	// Call 2: generous timeout — recovery chain + bash processing
+	// can be slow under contention.
+	h.toolTimeout = 10 * time.Second
+	callResult, err := h.CallTool(ctx, "fetch", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("call 2: expected success, got %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(callResult.Result, &parsed); err != nil {
+		t.Fatalf("call 2: unmarshal: %v", err)
+	}
+	if parsed["status"] != float64(200) {
+		t.Errorf("call 2: status = %v, want 200", parsed["status"])
+	}
+
+	if callCount != 2 {
+		t.Errorf("HTTP handler called %d times, want 2", callCount)
+	}
+}
+
+func TestCallToolOneshotPassesContext(t *testing.T) {
+	dir := t.TempDir()
+
+	// Oneshot handler that makes an HTTP request
+	script := `#!/bin/bash
+read -r INPUT
+ID=$(echo "$INPUT" | jq -r '.id')
+echo '{"id":"http-1","type":"http_request","method":"GET","path":"/test"}'
+read -r HTTP_RESP
+STATUS=$(echo "$HTTP_RESP" | jq -r '.status')
+echo "{}" | jq -c --arg id "$ID" --arg status "$STATUS" \
+  '{id: $id, type: "tool_result", result: {status: ($status | tonumber)}}'
+`
+	writeTestHandler(t, dir, script)
+
+	m := &Manifest{
+		Name:        "ctx-oneshot",
+		Execution:   "oneshot",
+		Handler:     "./handler.sh",
+		Concurrency: 1,
+		Dir:         dir,
+	}
+
+	var receivedCtx context.Context
+	handler := &mockServiceHandler{
+		httpHandler: func(ctx context.Context, _ string, req protocol.Message) protocol.Message {
+			receivedCtx = ctx
+			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
+		},
+	}
+
+	h := NewHandle(m, handler, testProcessConfig(), 5*time.Second, nil)
+
+	_, err := h.CallTool(context.Background(), "test", json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+
+	if receivedCtx == nil {
+		t.Fatal("HandleHTTP should have received a context")
+	}
+	// The context should have a deadline (from the tool timeout)
+	if _, ok := receivedCtx.Deadline(); !ok {
+		t.Error("oneshot HandleHTTP context should have a deadline")
+	}
+}

@@ -1,9 +1,13 @@
 package config
 
 import (
+	"bytes"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestResolveEnvVars(t *testing.T) {
@@ -252,6 +256,42 @@ func TestLoadConfigDisabledPluginsDefault(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Plugins.Disabled != nil {
 		t.Errorf("Disabled should default to nil, got %v", cfg.Plugins.Disabled)
+	}
+}
+
+func TestLoadConfigTimeoutOrderingWarning(t *testing.T) {
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "config.yaml")
+
+	// http.timeout (90s) >= plugins.tool_call_timeout (60s) — should warn
+	cfgYAML := `
+http:
+  timeout: 90s
+plugins:
+  tool_call_timeout: 60s
+`
+	if err := os.WriteFile(cfgFile, []byte(cfgYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Capture log output
+	var logBuf bytes.Buffer
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(os.Stderr)
+
+	cfg, err := Load(cfgFile, dir)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Config should still load successfully
+	if cfg.HTTP.Timeout != 90*time.Second {
+		t.Errorf("HTTP.Timeout = %v, want 90s", cfg.HTTP.Timeout)
+	}
+
+	// Warning should have been logged
+	if !strings.Contains(logBuf.String(), "http.timeout") {
+		t.Error("expected warning about http.timeout >= tool_call_timeout")
 	}
 }
 
