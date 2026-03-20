@@ -32,7 +32,7 @@ repos:
 
       - id: ty
         name: ty
-        entry: bash -c 'for d in plugins/*/; do [ -f "$d/handler.py" ] && .venv/bin/ty check --extra-search-path "$d" "$d" || true; done'
+        entry: bash -c 'fail=0; for d in plugins/*/; do [ -f "$d/handler.py" ] && { .venv/bin/ty check --extra-search-path "$d" "$d" || fail=1; }; done; exit $fail'
         language: system
         types: [python]
         pass_filenames: false
