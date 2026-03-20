@@ -321,6 +321,14 @@ func resolveDir(dirFlag string) (string, error) {
 		return "", fmt.Errorf("failed to resolve directory path: %w", err)
 	}
 
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", fmt.Errorf("directory does not exist: %s", absPath)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("not a directory: %s", absPath)
+	}
+
 	return absPath, nil
 }
 

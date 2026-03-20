@@ -33,6 +33,26 @@ func TestResolveDir_Relative(t *testing.T) {
 	}
 }
 
+func TestResolveDir_NonExistent(t *testing.T) {
+	_, err := resolveDir("/nonexistent/path/that/does/not/exist")
+	if err == nil {
+		t.Error("resolveDir() should return error for nonexistent path")
+	}
+}
+
+func TestResolveDir_NotADirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "afile")
+	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
+		t.Fatalf("failed to create test file: %v", err)
+	}
+
+	_, err := resolveDir(filePath)
+	if err == nil {
+		t.Error("resolveDir() should return error when path is a file")
+	}
+}
+
 func TestReadJSONConfig_NonExistent(t *testing.T) {
 	tmpDir := t.TempDir()
 	path := filepath.Join(tmpDir, "nonexistent.json")
