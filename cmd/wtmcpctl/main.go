@@ -46,7 +46,7 @@ func init() {
 		return nil
 	}
 
-	rootCmd.AddCommand(versionCmd, oauthCmd)
+	rootCmd.AddCommand(versionCmd, oauthCmd, pluginsCmd)
 }
 
 func main() {

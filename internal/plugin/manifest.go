@@ -19,6 +19,15 @@ import (
 // lowercase alphanumeric, hyphens, underscores, 2-64 chars.
 var pluginNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}[a-z0-9]$`)
 
+// ValidatePluginName checks whether name matches the plugin name
+// pattern. Returns an error if the name is invalid.
+func ValidatePluginName(name string) error {
+	if !pluginNamePattern.MatchString(name) {
+		return fmt.Errorf("must be 2-64 lowercase alphanumeric chars, hyphens, or underscores")
+	}
+	return nil
+}
+
 // Manifest holds plugin metadata loaded from plugin.yaml.
 type Manifest struct {
 	Name        string `yaml:"name"`
