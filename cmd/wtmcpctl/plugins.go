@@ -31,7 +31,7 @@ type pluginEntry struct {
 }
 
 var pluginsCmd = &cobra.Command{
-	Use:   "plugins",
+	Use:   "plugin",
 	Short: "Manage plugin enable/disable state",
 	Long: `Manage which plugins are enabled or disabled.
 
