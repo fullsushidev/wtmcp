@@ -3,6 +3,7 @@ package plugin
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -180,6 +181,83 @@ tools:
 	manifests := m.Manifests()
 	if len(manifests) != 0 {
 		t.Errorf("got %d manifests, want 0 (plugin is disabled in both manifest and config)", len(manifests))
+	}
+}
+
+func TestManagerDiscoverWarnsUnknownDisabled(t *testing.T) {
+	dir := setupTestPlugin(t, "hello", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Disabled = []string{"typo-name"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	// Capture log output
+	var buf strings.Builder
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// hello should still be discovered
+	if _, ok := m.Manifests()["hello"]; !ok {
+		t.Error("expected 'hello' manifest")
+	}
+
+	// Should warn about the typo
+	if !strings.Contains(buf.String(), `"typo-name"`) {
+		t.Errorf("expected warning about unknown disabled plugin, got: %s", buf.String())
+	}
+}
+
+func TestManagerDiscoverNoWarningForManifestDisabled(t *testing.T) {
+	// Plugin with enabled: false in manifest, also in plugins.disabled
+	dir := t.TempDir()
+	pluginDir := filepath.Join(dir, "off-plugin")
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil { //nolint:gosec // test dir
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pluginDir, "handler.sh"), []byte(echoScript), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+	manifest := `
+name: off-plugin
+version: "1.0.0"
+description: "Test plugin"
+execution: persistent
+handler: ./handler.sh
+enabled: false
+tools:
+  - name: off-plugin_test
+    description: "A test tool"
+    params: {}
+`
+	if err := os.WriteFile(filepath.Join(pluginDir, "plugin.yaml"), []byte(manifest), 0o644); err != nil { //nolint:gosec // test config
+		t.Fatal(err)
+	}
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Disabled = []string{"off-plugin"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	var buf strings.Builder
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// Should NOT warn about unknown plugin — the plugin exists
+	if strings.Contains(buf.String(), "no such plugin was found") {
+		t.Errorf("should not warn for manifest-disabled plugin in disabled list, got: %s", buf.String())
 	}
 }
 

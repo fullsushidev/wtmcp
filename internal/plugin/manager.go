@@ -79,6 +79,10 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 	// plugins cannot steal credentials by declaring the same group.
 	systemGroups := make(map[string]string) // group → plugin name
 
+	// Track all plugin names seen during discovery (including
+	// manifest-disabled) for post-loop validation of plugins.disabled.
+	seenNames := make(map[string]bool)
+
 	for _, dir := range dirs {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
@@ -102,6 +106,7 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 				log.Printf("skipping plugin %s: %v", entry.Name(), err)
 				continue
 			}
+			seenNames[manifest.Name] = true
 			if !manifest.IsEnabled() {
 				log.Printf("plugin %s is disabled", manifest.Name)
 				continue
@@ -134,6 +139,14 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 			m.manifests[manifest.Name] = manifest
 		}
 	}
+
+	// Warn about disabled entries that don't match any discovered plugin.
+	for _, name := range m.cfg.Plugins.Disabled {
+		if !seenNames[name] {
+			log.Printf("WARNING: config disables plugin %q but no such plugin was found", name)
+		}
+	}
+
 	return nil
 }
 
