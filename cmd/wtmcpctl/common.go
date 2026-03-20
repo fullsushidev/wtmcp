@@ -1,11 +1,49 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/LeGambiArt/wtmcp/internal/plugin"
 )
+
+// atomicWriteFile writes data to path atomically using a temp file and
+// rename. This prevents partial writes from corrupting the target file.
+func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpName := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()        //nolint:errcheck,gosec // closing before cleanup
+		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()        //nolint:errcheck,gosec // closing before cleanup
+		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
+		return fmt.Errorf("sync temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	if err := os.Chmod(tmpName, perm); err != nil {
+		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
+		return fmt.Errorf("chmod temp file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
+		return fmt.Errorf("rename config file: %w", err)
+	}
+
+	return nil
+}
 
 // globalWorkdir is set by the --workdir flag and used for plugin discovery.
 var globalWorkdir string

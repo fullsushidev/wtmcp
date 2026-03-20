@@ -420,39 +420,7 @@ func updateConfigDisabled(configPath string, disabled []string) error {
 		return fmt.Errorf("create config directory: %w", err)
 	}
 
-	// Atomic write: temp file + rename
-	tmp, err := os.CreateTemp(filepath.Dir(configPath), ".config-*.yaml.tmp")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpName := tmp.Name()
-
-	if _, err := tmp.Write(out); err != nil {
-		tmp.Close()        //nolint:errcheck,gosec // closing before cleanup
-		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
-		return fmt.Errorf("write temp file: %w", err)
-	}
-	if err := tmp.Sync(); err != nil {
-		tmp.Close()        //nolint:errcheck,gosec // closing before cleanup
-		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
-		return fmt.Errorf("sync temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
-		return fmt.Errorf("close temp file: %w", err)
-	}
-
-	if err := os.Chmod(tmpName, 0o600); err != nil {
-		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
-		return fmt.Errorf("chmod temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpName, configPath); err != nil {
-		os.Remove(tmpName) //nolint:errcheck,gosec // best-effort cleanup
-		return fmt.Errorf("rename config file: %w", err)
-	}
-
-	return nil
+	return atomicWriteFile(configPath, out, 0o600)
 }
 
 // completeEnabledPlugins returns currently enabled plugin names for

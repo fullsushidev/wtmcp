@@ -343,21 +343,14 @@ func readJSONConfig(path string) (map[string]any, error) {
 
 // writeJSONConfig writes a map to a JSON config file with formatting.
 func writeJSONConfig(path string, data map[string]any) error {
-	// Marshal with indentation
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	// Add trailing newline
 	jsonData = append(jsonData, '\n')
 
-	// Write to file
-	if err := os.WriteFile(path, jsonData, 0o600); err != nil {
-		return err
-	}
-
-	return nil
+	return atomicWriteFile(path, jsonData, 0o644)
 }
 
 // validAgentNames returns a sorted list of supported agent names.
