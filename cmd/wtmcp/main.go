@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
 	"github.com/LeGambiArt/wtmcp/internal/auth"
@@ -26,43 +28,87 @@ var (
 	BuildDate = "unknown"
 )
 
+// Flags shared across root/serve/check commands.
+var (
+	configPath string
+	workdir    string
+)
+
+var rootCmd = &cobra.Command{
+	Use:           "wtmcp",
+	Short:         "MCP server with language-agnostic plugin protocol",
+	Version:       Version,
+	SilenceUsage:  true,
+	SilenceErrors: true,
+	// Default action: run the server (backward compatible with MCP clients).
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return run()
+	},
+}
+
+var serveCmd = &cobra.Command{
+	Use:   "serve",
+	Short: "Start MCP server (default)",
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return run()
+	},
+}
+
+var checkCmd = &cobra.Command{
+	Use:   "check",
+	Short: "Print diagnostic info about config and plugins",
+	RunE: func(_ *cobra.Command, _ []string) error {
+		return runCheck()
+	},
+}
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print version information",
+	Run: func(_ *cobra.Command, _ []string) {
+		// Write to stderr to protect MCP stdio protocol.
+		fmt.Fprintf(os.Stderr, "wtmcp %s (built %s)\n", Version, BuildDate)
+	},
+}
+
+func init() {
+	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path")
+	rootCmd.PersistentFlags().StringVar(&workdir, "workdir", "", "Working directory")
+	if err := rootCmd.MarkPersistentFlagDirname("workdir"); err != nil {
+		panic(err)
+	}
+	if err := rootCmd.MarkPersistentFlagFilename("config", "yaml", "yml"); err != nil {
+		panic(err)
+	}
+
+	// DO NOT use rootCmd.SetOut(os.Stderr) — this would break cobra's
+	// hidden __complete command, which must write to stdout for shell
+	// completion to work. Instead, commands that produce non-protocol
+	// output (version) write to stderr explicitly.
+
+	rootCmd.SetVersionTemplate(
+		fmt.Sprintf("wtmcp %s (built %s)\n", Version, BuildDate))
+	rootCmd.DisableAutoGenTag = true
+
+	rootCmd.AddCommand(serveCmd, checkCmd, versionCmd)
+}
+
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "version" {
-		fmt.Printf("wtmcp %s (built %s)\n", Version, BuildDate)
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "check" {
-		if err := runCheck(); err != nil {
-			log.Fatal(err)
-		}
-		return
-	}
-	if err := run(); err != nil {
-		log.Fatal(err)
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
 func run() error {
-	// Parse flags
-	configPath := ""
-	workdirOverride := ""
-	for i, arg := range os.Args[1:] {
-		if arg == "--config" && i+2 < len(os.Args) {
-			configPath = os.Args[i+2]
-		}
-		if arg == "--workdir" && i+2 < len(os.Args) {
-			workdirOverride = os.Args[i+2]
-		}
-	}
-
 	// Resolve workdir
-	workdir := config.WorkDir()
-	if workdirOverride != "" {
-		workdir = workdirOverride
+	wd := config.WorkDir()
+	if workdir != "" {
+		wd = workdir
 	}
 
 	// Set up file logging in workdir/logs/
-	logsDir := filepath.Join(workdir, "logs")
+	logsDir := filepath.Join(wd, "logs")
 	if err := os.MkdirAll(logsDir, 0o700); err == nil {
 		logPath := filepath.Join(logsDir, "server.log")
 		if logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { //nolint:gosec // log file in user's config dir
@@ -72,7 +118,7 @@ func run() error {
 	}
 
 	// Load scoped env.d groups (not into process env)
-	envResult, err := config.LoadEnvGroups(workdir)
+	envResult, err := config.LoadEnvGroups(wd)
 	if err != nil {
 		return fmt.Errorf("load env: %w", err)
 	}
@@ -81,7 +127,7 @@ func run() error {
 	}
 
 	// Load config (uses workdir for defaults)
-	cfg, err := config.Load(configPath, workdir)
+	cfg, err := config.Load(configPath, wd)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
@@ -102,7 +148,7 @@ func run() error {
 	cacheStore := cache.NewMemoryStore()
 	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize)
 
-	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envResult.Groups, envResult.Errors, workdir)
+	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envResult.Groups, envResult.Errors, wd)
 
 	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return fmt.Errorf("plugin discovery: %w", err)
@@ -116,7 +162,7 @@ func run() error {
 	srv := server.New(Version, mgr, cfg, index)
 
 	// Start control directory watcher for external reload triggers
-	controlWatcher := server.NewControlWatcher(workdir, srv, mgr, cfg, index)
+	controlWatcher := server.NewControlWatcher(wd, srv, mgr, cfg, index)
 	if err := controlWatcher.Start(); err != nil {
 		log.Printf("control watcher disabled: %v", err)
 	}
@@ -128,27 +174,15 @@ func run() error {
 		mgr.ShutdownAll(context.Background())
 	}()
 
-	log.Printf("wtmcp %s starting (workdir: %s)", Version, workdir)
+	log.Printf("wtmcp %s starting (workdir: %s)", Version, wd)
 	return mcpserver.ServeStdio(srv)
 }
 
 // runCheck prints diagnostic info about the config and discovered plugins.
 func runCheck() error {
-	configPath := ""
-	workdirOverride := ""
-	for i, arg := range os.Args[2:] {
-		if arg == "--config" && i+3 < len(os.Args) {
-			configPath = os.Args[i+3]
-		}
-		if arg == "--workdir" && i+3 < len(os.Args) {
-			workdirOverride = os.Args[i+3]
-		}
-	}
-
-	// Discover plugins using shared discovery logic
 	result, err := plugin.Discover(plugin.DiscoveryOptions{
 		ConfigPath:      configPath,
-		WorkdirOverride: workdirOverride,
+		WorkdirOverride: workdir,
 	})
 	if err != nil {
 		return err
