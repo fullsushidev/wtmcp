@@ -9,8 +9,9 @@ import (
 
 // DiscoveryOptions configures plugin discovery behavior.
 type DiscoveryOptions struct {
-	ConfigPath      string // Optional config file path
-	WorkdirOverride string // Optional workdir override
+	ConfigPath         string // Optional config file path
+	WorkdirOverride    string // Optional workdir override
+	SkipConfigDisabled bool   // If true, ignore plugins.disabled during discovery
 }
 
 // DiscoveryResult contains the results of plugin discovery.
@@ -51,12 +52,25 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
+	// When SkipConfigDisabled is set, temporarily clear the disabled
+	// list so all plugins end up in Manifests(). Restore it after
+	// discovery so Config.Plugins.Disabled is available to the caller.
+	var savedDisabled []string
+	if opts.SkipConfigDisabled {
+		savedDisabled = cfg.Plugins.Disabled
+		cfg.Plugins.Disabled = nil
+	}
+
 	// Create manager with nil dependencies (discovery only)
 	mgr := NewManager(nil, nil, nil, cfg, envResult.Groups, envResult.Errors, workdir)
 
 	// Discover plugins (without loading/starting them)
 	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return nil, fmt.Errorf("plugin discovery: %w", err)
+	}
+
+	if opts.SkipConfigDisabled {
+		cfg.Plugins.Disabled = savedDisabled
 	}
 
 	return &DiscoveryResult{

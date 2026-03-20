@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
@@ -44,9 +45,7 @@ var pluginsListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List plugins and their enable/disable status",
 	Args:  cobra.NoArgs,
-	RunE: func(_ *cobra.Command, _ []string) error {
-		return runPluginsList()
-	},
+	RunE:  runPluginsListCmd,
 }
 
 var pluginsEnableCmd = &cobra.Command{
@@ -66,31 +65,47 @@ var pluginsDisableCmd = &cobra.Command{
 }
 
 func init() {
+	pluginsListCmd.Flags().BoolP("plain", "p", false,
+		"Plain text output (no colors or borders)")
+
 	pluginsCmd.AddCommand(pluginsListCmd, pluginsEnableCmd, pluginsDisableCmd)
 }
 
+// getPluginsDiscoveryResult discovers ALL plugins, ignoring the
+// plugins.disabled config filter. The enabled/disabled status is
+// determined from Config.Plugins.Disabled instead.
+func getPluginsDiscoveryResult() (*plugin.DiscoveryResult, error) {
+	return plugin.Discover(plugin.DiscoveryOptions{
+		WorkdirOverride:    globalWorkdir,
+		SkipConfigDisabled: true,
+	})
+}
+
 func buildPluginEntries(result *plugin.DiscoveryResult) []pluginEntry {
+	disabledSet := make(map[string]bool)
+	for _, name := range result.Config.Plugins.Disabled {
+		disabledSet[name] = true
+	}
+
 	var entries []pluginEntry
 	for _, m := range result.Manager.Manifests() {
 		entries = append(entries, pluginEntry{
 			Name: m.Name, Version: m.Version,
-			Description: m.Description, Enabled: true,
+			Description: m.Description, Enabled: !disabledSet[m.Name],
 		})
 	}
-	for _, m := range result.Manager.ConfigDisabledPlugins() {
-		entries = append(entries, pluginEntry{
-			Name: m.Name, Version: m.Version,
-			Description: m.Description, Enabled: false,
-		})
-	}
+	// Sort: disabled first, then alphabetically within each group
 	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].Enabled != entries[j].Enabled {
+			return !entries[i].Enabled // disabled first
+		}
 		return entries[i].Name < entries[j].Name
 	})
 	return entries
 }
 
 func runPluginsInteractive(_ *cobra.Command, _ []string) error {
-	result, err := getDiscoveryResult()
+	result, err := getPluginsDiscoveryResult()
 	if err != nil {
 		return err
 	}
@@ -114,12 +129,14 @@ func runPluginsInteractive(_ *cobra.Command, _ []string) error {
 	fmtStr := fmt.Sprintf("%%-%ds  v%%-%ds  %%s", maxName, maxVer)
 
 	options := make([]huh.Option[string], len(entries))
+	var selected []string
 	for i, e := range entries {
 		label := fmt.Sprintf(fmtStr, e.Name, e.Version, e.Description)
-		options[i] = huh.NewOption(label, e.Name).Selected(e.Enabled)
+		options[i] = huh.NewOption(label, e.Name)
+		if e.Enabled {
+			selected = append(selected, e.Name)
+		}
 	}
-
-	var selected []string
 	if err := huh.NewForm(
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
@@ -159,8 +176,10 @@ func runPluginsInteractive(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runPluginsList() error {
-	result, err := getDiscoveryResult()
+func runPluginsListCmd(cmd *cobra.Command, _ []string) error {
+	plain, _ := cmd.Flags().GetBool("plain")
+
+	result, err := getPluginsDiscoveryResult()
 	if err != nil {
 		return err
 	}
@@ -168,6 +187,17 @@ func runPluginsList() error {
 	entries := buildPluginEntries(result)
 	if len(entries) == 0 {
 		fmt.Println("No plugins found.")
+		return nil
+	}
+
+	if plain {
+		for _, e := range entries {
+			status := "enabled"
+			if !e.Enabled {
+				status = "disabled"
+			}
+			fmt.Printf("%s\t%s\t%s\t%s\n", e.Name, e.Version, status, e.Description)
+		}
 		return nil
 	}
 
@@ -180,7 +210,13 @@ func runPluginsList() error {
 		data[i] = []string{e.Name, "v" + e.Version, status, e.Description}
 	}
 
+	w, _, _ := term.GetSize(os.Stdout.Fd())
+	if w <= 0 {
+		w = 80
+	}
+
 	t := table.New().
+		Width(w).
 		Border(lipgloss.RoundedBorder()).
 		BorderStyle(borderStyle).
 		StyleFunc(func(row, _ int) lipgloss.Style {
@@ -203,7 +239,7 @@ func runPluginsEnable(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	result, err := getDiscoveryResult()
+	result, err := getPluginsDiscoveryResult()
 	if err != nil {
 		return err
 	}
@@ -250,7 +286,7 @@ func runPluginsDisable(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	result, err := getDiscoveryResult()
+	result, err := getPluginsDiscoveryResult()
 	if err != nil {
 		return err
 	}
@@ -293,9 +329,6 @@ func runPluginsDisable(_ *cobra.Command, args []string) error {
 func allPluginNames(result *plugin.DiscoveryResult) map[string]bool {
 	names := make(map[string]bool)
 	for name := range result.Manager.Manifests() {
-		names[name] = true
-	}
-	for name := range result.Manager.ConfigDisabledPlugins() {
 		names[name] = true
 	}
 	return names
@@ -427,9 +460,14 @@ func updateConfigDisabled(configPath string, disabled []string) error {
 func completeEnabledPlugins(
 	_ *cobra.Command, args []string, _ string,
 ) ([]string, cobra.ShellCompDirective) {
-	result, err := getDiscoveryResult()
+	result, err := getPluginsDiscoveryResult()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError
+	}
+
+	disabledSet := make(map[string]bool)
+	for _, name := range result.Config.Plugins.Disabled {
+		disabledSet[name] = true
 	}
 
 	already := make(map[string]bool, len(args))
@@ -439,7 +477,7 @@ func completeEnabledPlugins(
 
 	var names []string
 	for name := range result.Manager.Manifests() {
-		if !already[name] {
+		if !already[name] && !disabledSet[name] {
 			names = append(names, name)
 		}
 	}
@@ -452,9 +490,14 @@ func completeEnabledPlugins(
 func completeDisabledPlugins(
 	_ *cobra.Command, args []string, _ string,
 ) ([]string, cobra.ShellCompDirective) {
-	result, err := getDiscoveryResult()
+	result, err := getPluginsDiscoveryResult()
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveError
+	}
+
+	disabledSet := make(map[string]bool)
+	for _, name := range result.Config.Plugins.Disabled {
+		disabledSet[name] = true
 	}
 
 	already := make(map[string]bool, len(args))
@@ -463,8 +506,8 @@ func completeDisabledPlugins(
 	}
 
 	var names []string
-	for name := range result.Manager.ConfigDisabledPlugins() {
-		if !already[name] {
+	for name := range result.Manager.Manifests() {
+		if !already[name] && disabledSet[name] {
 			names = append(names, name)
 		}
 	}

@@ -6,6 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/lipgloss/table"
+	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 
 	"github.com/LeGambiArt/oauth2flow"
@@ -202,36 +205,49 @@ func oauthList() error {
 		return fmt.Errorf("cannot determine credentials directory: %w", err)
 	}
 
-	fmt.Println("OAuth Plugin Status:")
-	fmt.Println()
+	warnStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 
-	for _, plugin := range plugins {
-		tokenPath := filepath.Join(credDir, plugin.TokenFile)
-		status := "✗"
-		statusText := "not authenticated"
+	data := make([][]string, len(plugins))
+	for i, p := range plugins {
+		tokenPath := filepath.Join(credDir, p.TokenFile)
+		status := disabledStyle.Render("not authenticated")
 
 		if _, err := os.Stat(tokenPath); err == nil {
-			// Token file exists, check if it's valid
 			tok, loadErr := googleauth.LoadToken(tokenPath)
 			switch {
 			case loadErr != nil:
-				status = "!"
-				statusText = "invalid token file"
+				status = warnStyle.Render("invalid token file")
 			case tok.Valid():
-				status = "✓"
-				statusText = "authenticated (valid)"
+				status = enabledStyle.Render("authenticated")
 			case tok.RefreshToken != "":
-				status = "✓"
-				statusText = "authenticated (needs refresh)"
+				status = enabledStyle.Render("needs refresh")
 			default:
-				status = "!"
-				statusText = "expired (no refresh token)"
+				status = warnStyle.Render("expired")
 			}
 		}
 
-		fmt.Printf("  %s  %-20s  %s\n", status, plugin.Name, statusText)
+		data[i] = []string{p.Name, status}
 	}
 
+	w, _, _ := term.GetSize(os.Stdout.Fd())
+	if w <= 0 {
+		w = 80
+	}
+
+	t := table.New().
+		Width(w).
+		Border(lipgloss.RoundedBorder()).
+		BorderStyle(borderStyle).
+		StyleFunc(func(row, _ int) lipgloss.Style {
+			if row == table.HeaderRow {
+				return headerStyle
+			}
+			return lipgloss.NewStyle()
+		}).
+		Headers("Plugin", "Status").
+		Rows(data...)
+
+	fmt.Println(t)
 	fmt.Println()
 	fmt.Printf("Credentials directory: %s\n", credDir)
 	return nil
