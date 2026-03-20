@@ -4,6 +4,7 @@ package config
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -89,7 +90,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		PluginDirs: []string{},
 		HTTP: HTTPConfig{
-			Timeout: 30 * time.Second,
+			Timeout: 45 * time.Second,
 			Retries: RetryConfig{
 				Max:     3,
 				Backoff: "exponential",
@@ -145,6 +146,13 @@ func Load(configPath, workdir string) (*Config, error) {
 
 	if cfg.Tools.Discovery != "full" && cfg.Tools.Discovery != "progressive" {
 		return nil, fmt.Errorf("tools.discovery must be 'full' or 'progressive', got %q", cfg.Tools.Discovery)
+	}
+
+	if cfg.HTTP.Timeout > 0 && cfg.Plugins.ToolCallTimeout > 0 &&
+		cfg.HTTP.Timeout >= cfg.Plugins.ToolCallTimeout {
+		log.Printf("WARNING: http.timeout (%s) >= plugins.tool_call_timeout (%s); "+
+			"HTTP requests may outlive tool calls, reducing cancellation effectiveness",
+			cfg.HTTP.Timeout, cfg.Plugins.ToolCallTimeout)
 	}
 
 	applyWorkdirDefaults(cfg, workdir)

@@ -287,7 +287,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	switch {
 	case m.isKerberosAuth(manifest):
 		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
-		client, err := proxy.NewKerberosClient(spn, pa.AllowPrivateIPs, pa.TLS)
+		client, err := proxy.NewKerberosClient(spn, pa.AllowPrivateIPs, pa.TLS, m.cfg.HTTP.Timeout)
 		if err != nil {
 			return fmt.Errorf("[%s] create kerberos client: %w", name, err)
 		}
@@ -301,6 +301,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		}
 		pa.Client = &http.Client{
 			Transport:     transport,
+			Timeout:       m.cfg.HTTP.Timeout,
 			CheckRedirect: proxy.StripAuthOnCrossDomainRedirect,
 		}
 		log.Printf("[%s] using TLS client (ca=%v, mtls=%v, skip_hostname=%v)",

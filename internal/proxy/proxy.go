@@ -17,6 +17,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/LeGambiArt/wtmcp/internal/auth"
 	"github.com/LeGambiArt/wtmcp/internal/auth/kerberos"
@@ -68,10 +69,12 @@ type Proxy struct {
 // When client is nil, a default client with SSRF-safe dialer is used.
 // A second internal client with relaxed SSRF policy is created for
 // plugins that declare allow_private_ips (with required allowed_domains).
-func New(client *http.Client, maxBodySize int64) *Proxy {
+// The timeout is applied as a hard wall-clock deadline on all HTTP requests.
+func New(client *http.Client, maxBodySize int64, timeout time.Duration) *Proxy {
 	if client == nil {
 		client = &http.Client{
 			Transport:     safeTransport(false),
+			Timeout:       timeout,
 			CheckRedirect: StripAuthOnCrossDomainRedirect,
 		}
 	}
@@ -80,6 +83,7 @@ func New(client *http.Client, maxBodySize int64) *Proxy {
 		client:  client,
 		privateClient: &http.Client{
 			Transport:     safeTransport(true),
+			Timeout:       timeout,
 			CheckRedirect: StripAuthOnCrossDomainRedirect,
 		},
 		maxBodySize: maxBodySize,
@@ -95,7 +99,7 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 // SPNEGORoundTripper for Kerberos-authenticated plugins. If spn is
 // empty, the SPN is derived dynamically from each request's hostname.
 // The TLS config enables custom CA certs alongside Kerberos auth.
-func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig) (*http.Client, error) {
+func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig, timeout time.Duration) (*http.Client, error) {
 	transport, err := SafeTransportWithTLS(allowPrivateIPs, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create TLS transport: %w", err)
@@ -104,6 +108,7 @@ func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig) (*htt
 	return &http.Client{
 		Jar:           jar,
 		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport),
+		Timeout:       timeout,
 		CheckRedirect: StripAuthOnCrossDomainRedirect,
 	}, nil
 }

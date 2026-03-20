@@ -146,7 +146,7 @@ func run() error {
 	}
 
 	cacheStore := cache.NewMemoryStore()
-	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 
 	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envResult.Groups, envResult.Errors, wd)
 

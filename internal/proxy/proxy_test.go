@@ -10,13 +10,14 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/LeGambiArt/wtmcp/internal/auth"
 	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
 func newTestProxy(client *http.Client) *Proxy {
-	return New(client, 10*1024*1024)
+	return New(client, 10*1024*1024, 45*time.Second)
 }
 
 // testPluginAuth creates a PluginAuth with the base URL hostname
@@ -162,7 +163,7 @@ func TestExecuteResponseBodyLimit(t *testing.T) {
 	defer srv.Close()
 
 	// Set a tiny max body size (srv.Client has its own transport, no SSRF check)
-	p := New(srv.Client(), 100)
+	p := New(srv.Client(), 100, 45*time.Second)
 	p.RegisterPlugin("test", testPluginAuth(srv.URL))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -579,7 +580,7 @@ func TestMultipartOverridesContentType(t *testing.T) {
 
 func TestSafeDialerRejectsLoopback(t *testing.T) {
 	// Default proxy (nil client) uses safe dialer — should reject localhost
-	p := New(nil, 10*1024*1024)
+	p := New(nil, 10*1024*1024, 45*time.Second)
 	p.RegisterPlugin("test", testPluginAuth("https://127.0.0.1"))
 
 	resp := p.Execute(context.Background(), "test", protocol.Message{
@@ -663,7 +664,7 @@ func TestAllowPrivateIPsUsesPrivateClient(t *testing.T) {
 
 func TestDefaultPluginBlocksPrivateIPs(t *testing.T) {
 	// Default proxy should block loopback even when a server is there
-	p := New(nil, 10*1024*1024)
+	p := New(nil, 10*1024*1024, 45*time.Second)
 	pa := testPluginAuth("https://127.0.0.1")
 	pa.AllowPrivateIPs = false
 	p.RegisterPlugin("strict", pa)
@@ -725,7 +726,7 @@ func TestAllowPrivateIPsWithPerPluginClient(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := New(nil, 10*1024*1024)
+	p := New(nil, 10*1024*1024, 45*time.Second)
 	paCustom := testPluginAuth(srv.URL)
 	paCustom.AllowPrivateIPs = true
 	paCustom.Client = srv.Client() // per-plugin client overrides

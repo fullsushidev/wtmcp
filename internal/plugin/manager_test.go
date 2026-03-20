@@ -52,7 +52,7 @@ func newTestManager(t *testing.T) *Manager {
 	cfg := config.DefaultConfig()
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	return NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 }
 
@@ -100,7 +100,7 @@ func TestManagerDiscoverSkipsConfigDisabled(t *testing.T) {
 	cfg.Plugins.Disabled = []string{"hello"}
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 
 	if err := m.Discover([]string{dir}, ""); err != nil {
@@ -122,7 +122,7 @@ func TestManagerDiscoverPartialDisable(t *testing.T) {
 	cfg.Plugins.Disabled = []string{"skip-me"}
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 
 	if err := m.Discover([]string{dir}, ""); err != nil {
@@ -171,7 +171,7 @@ tools:
 	cfg.Plugins.Disabled = []string{"both-disabled"}
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 
 	if err := m.Discover([]string{dir}, ""); err != nil {
@@ -191,7 +191,7 @@ func TestManagerDiscoverWarnsUnknownDisabled(t *testing.T) {
 	cfg.Plugins.Disabled = []string{"typo-name"}
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 
 	// Capture log output
@@ -244,7 +244,7 @@ tools:
 	cfg.Plugins.Disabled = []string{"off-plugin"}
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 
 	var buf strings.Builder
@@ -270,7 +270,7 @@ func TestManagerConfigDisabledPlugins(t *testing.T) {
 	cfg.Plugins.Disabled = []string{"disabled-one"}
 	authReg := auth.NewRegistry()
 	cacheStore := cache.NewMemoryStore()
-	p := proxy.New(nil, cfg.Plugins.MaxMessageSize)
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
 
 	if err := m.Discover([]string{dir}, ""); err != nil {
