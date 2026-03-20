@@ -653,12 +653,11 @@ type serviceHandlerImpl struct {
 	cache cache.Store
 }
 
-func (s *serviceHandlerImpl) HandleHTTP(pluginName string, req protocol.Message) protocol.Message {
-	return s.proxy.Execute(context.Background(), pluginName, req)
+func (s *serviceHandlerImpl) HandleHTTP(ctx context.Context, pluginName string, req protocol.Message) protocol.Message {
+	return s.proxy.Execute(ctx, pluginName, req)
 }
 
-func (s *serviceHandlerImpl) HandleCache(pluginName string, req protocol.Message) protocol.Message {
-	ctx := context.Background()
+func (s *serviceHandlerImpl) HandleCache(ctx context.Context, pluginName string, req protocol.Message) protocol.Message {
 	namespace := pluginName // default namespace
 
 	switch req.Type {

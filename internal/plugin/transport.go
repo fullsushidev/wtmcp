@@ -2,13 +2,15 @@ package plugin
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"io"
 	"log"
 	"sync"
 	"sync/atomic"
+
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
 // Transport manages bidirectional JSON-lines communication with a
@@ -21,7 +23,8 @@ type Transport struct {
 	pending sync.Map   // id -> chan protocol.Message
 	maxSize int        // max message size in bytes
 	nextID  atomic.Int64
-	done    chan struct{} // closed when ReadLoop exits
+	done    chan struct{}                   // closed when ReadLoop exits
+	toolCtx atomic.Pointer[context.Context] // current tool call context for ReadLoop
 }
 
 // NewTransport creates a Transport for communicating with a plugin process.
@@ -80,6 +83,24 @@ func (t *Transport) SendAndWait(id string, msg protocol.Message) (protocol.Messa
 	}
 }
 
+// SetToolContext sets the current tool call's context so ReadLoop can
+// use it for service requests (HTTP, cache). Cleared by the caller
+// when the tool call completes or times out. The deferred cancel()
+// from the tool call's context.WithTimeout propagates cancellation to
+// any in-flight HTTP request, unblocking ReadLoop.
+func (t *Transport) SetToolContext(ctx *context.Context) {
+	t.toolCtx.Store(ctx)
+}
+
+// ToolContext returns the current tool call context, or
+// context.Background() if none is set (e.g., during plugin init).
+func (t *Transport) ToolContext() context.Context {
+	if p := t.toolCtx.Load(); p != nil {
+		return *p
+	}
+	return context.Background()
+}
+
 // ReadLoop reads messages from the plugin's stdout and routes them.
 //
 // For concurrency <= 1, service requests (http_request, cache_*) are
@@ -105,39 +126,44 @@ func (t *Transport) ReadLoop(pluginName string, concurrency int, serviceHandler 
 
 		switch msg.Type {
 		case protocol.TypeHTTPRequest:
+			ctx := t.ToolContext()
 			if concurrency <= 1 {
-				resp := serviceHandler.HandleHTTP(pluginName, msg)
+				resp := serviceHandler.HandleHTTP(ctx, pluginName, msg)
 				if err := t.Send(resp); err != nil {
 					log.Printf("[%s] failed to send http_response: %v", pluginName, err)
 				}
 			} else {
-				go func(m protocol.Message) {
-					resp := serviceHandler.HandleHTTP(pluginName, m)
+				go func(c context.Context, m protocol.Message) {
+					resp := serviceHandler.HandleHTTP(c, pluginName, m)
 					if err := t.Send(resp); err != nil {
 						log.Printf("[%s] failed to send http_response: %v", pluginName, err)
 					}
-				}(msg)
+				}(ctx, msg)
 			}
 
 		case protocol.TypeCacheGet, protocol.TypeCacheSet, protocol.TypeCacheDel, protocol.TypeCacheList, protocol.TypeCacheFlush:
+			ctx := t.ToolContext()
 			if concurrency <= 1 {
-				resp := serviceHandler.HandleCache(pluginName, msg)
+				resp := serviceHandler.HandleCache(ctx, pluginName, msg)
 				if err := t.Send(resp); err != nil {
 					log.Printf("[%s] failed to send cache response: %v", pluginName, err)
 				}
 			} else {
-				go func(m protocol.Message) {
-					resp := serviceHandler.HandleCache(pluginName, m)
+				go func(c context.Context, m protocol.Message) {
+					resp := serviceHandler.HandleCache(c, pluginName, m)
 					if err := t.Send(resp); err != nil {
 						log.Printf("[%s] failed to send cache response: %v", pluginName, err)
 					}
-				}(msg)
+				}(ctx, msg)
 			}
 
 		case protocol.TypeToolResult, protocol.TypeInitOK, protocol.TypeInitError, protocol.TypeShutdownOK, protocol.TypeAuthResponse,
 			protocol.TypeListResourcesOK, protocol.TypeReadResourceOK:
 			if ch, ok := t.pending.LoadAndDelete(msg.ID); ok {
 				ch.(chan protocol.Message) <- msg
+			} else {
+				log.Printf("[%s] orphaned %s (id: %s) — likely from a timed-out call",
+					pluginName, msg.Type, msg.ID)
 			}
 
 		default:
@@ -168,6 +194,6 @@ func (t *Transport) ForwardStderr(pluginName string) {
 // ServiceHandler handles service requests from plugins.
 // Implemented by the proxy and cache subsystems.
 type ServiceHandler interface {
-	HandleHTTP(pluginName string, req protocol.Message) protocol.Message
-	HandleCache(pluginName string, req protocol.Message) protocol.Message
+	HandleHTTP(ctx context.Context, pluginName string, req protocol.Message) protocol.Message
+	HandleCache(ctx context.Context, pluginName string, req protocol.Message) protocol.Message
 }

@@ -139,11 +139,15 @@ func (p *Proxy) Execute(ctx context.Context, pluginName string, req protocol.Mes
 
 	resp, err := client.Do(httpReq)
 	if err != nil {
+		code := "transport_error"
+		if ctx.Err() != nil {
+			code = "request_cancelled"
+		}
 		return protocol.Message{
 			ID:     req.ID,
 			Type:   protocol.TypeHTTPResponse,
 			Status: 0,
-			Error:  &protocol.Error{Code: "transport_error", Message: err.Error()},
+			Error:  &protocol.Error{Code: code, Message: err.Error()},
 		}
 	}
 	defer func() {

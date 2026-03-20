@@ -152,7 +152,7 @@ echo "{}" | jq -c --arg id "$ID" --arg status "$STATUS" \
 	}
 
 	handler := &mockServiceHandler{
-		httpHandler: func(_ string, req protocol.Message) protocol.Message {
+		httpHandler: func(_ context.Context, _ string, req protocol.Message) protocol.Message {
 			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
 		},
 	}

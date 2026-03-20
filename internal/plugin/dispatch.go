@@ -95,6 +95,14 @@ func (h *Handle) callPersistent(ctx context.Context, toolName string, params jso
 	defer cancel()
 
 	transport := h.process.Transport
+
+	// Set the tool call context so ReadLoop can pass it to service
+	// handlers (HTTP, cache). When this call returns (timeout or
+	// success), cancel() fires, cancelling any in-flight HTTP
+	// request and unblocking ReadLoop.
+	transport.SetToolContext(&ctx)
+	defer transport.SetToolContext(nil)
+
 	id := transport.GenerateID("req")
 
 	ch := make(chan protocol.Message, 1)
@@ -188,12 +196,12 @@ func (h *Handle) callOneshot(ctx context.Context, toolName string, params json.R
 
 		switch msg.Type {
 		case protocol.TypeHTTPRequest:
-			resp := h.handler.HandleHTTP(h.manifest.Name, msg)
+			resp := h.handler.HandleHTTP(ctx, h.manifest.Name, msg)
 			if err := enc.Encode(resp); err != nil {
 				return nil, fmt.Errorf("send http_response: %w", err)
 			}
 		case protocol.TypeCacheGet, protocol.TypeCacheSet, protocol.TypeCacheDel, protocol.TypeCacheList, protocol.TypeCacheFlush:
-			resp := h.handler.HandleCache(h.manifest.Name, msg)
+			resp := h.handler.HandleCache(ctx, h.manifest.Name, msg)
 			if err := enc.Encode(resp); err != nil {
 				return nil, fmt.Errorf("send cache response: %w", err)
 			}

@@ -2,30 +2,32 @@ package plugin
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"github.com/LeGambiArt/wtmcp/internal/protocol"
 	"io"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LeGambiArt/wtmcp/internal/protocol"
 )
 
 // mockServiceHandler implements ServiceHandler for testing.
 type mockServiceHandler struct {
-	httpHandler  func(pluginName string, req protocol.Message) protocol.Message
-	cacheHandler func(pluginName string, req protocol.Message) protocol.Message
+	httpHandler  func(ctx context.Context, pluginName string, req protocol.Message) protocol.Message
+	cacheHandler func(ctx context.Context, pluginName string, req protocol.Message) protocol.Message
 }
 
-func (m *mockServiceHandler) HandleHTTP(pluginName string, req protocol.Message) protocol.Message {
+func (m *mockServiceHandler) HandleHTTP(ctx context.Context, pluginName string, req protocol.Message) protocol.Message {
 	if m.httpHandler != nil {
-		return m.httpHandler(pluginName, req)
+		return m.httpHandler(ctx, pluginName, req)
 	}
 	return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
 }
 
-func (m *mockServiceHandler) HandleCache(pluginName string, req protocol.Message) protocol.Message {
+func (m *mockServiceHandler) HandleCache(ctx context.Context, pluginName string, req protocol.Message) protocol.Message {
 	if m.cacheHandler != nil {
-		return m.cacheHandler(pluginName, req)
+		return m.cacheHandler(ctx, pluginName, req)
 	}
 	hit := true
 	return protocol.Message{ID: req.ID, Type: protocol.TypeCacheGet, Hit: &hit}
@@ -118,7 +120,7 @@ func TestReadLoopHandlesHTTPSync(t *testing.T) {
 
 	httpCalled := false
 	handler := &mockServiceHandler{
-		httpHandler: func(_ string, req protocol.Message) protocol.Message {
+		httpHandler: func(_ context.Context, _ string, req protocol.Message) protocol.Message {
 			httpCalled = true
 			return protocol.Message{ID: req.ID, Type: protocol.TypeHTTPResponse, Status: 200}
 		},
