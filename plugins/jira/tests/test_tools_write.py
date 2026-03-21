@@ -3,7 +3,15 @@
 from unittest.mock import patch
 
 import handler
+import pytest
 import tools_write
+
+
+@pytest.fixture(autouse=True)
+def _mock_invalidate():
+    """Mock invalidate_cache for all tests — it uses protocol I/O."""
+    with patch.object(handler, "invalidate_cache") as mock:
+        yield mock
 
 
 def _mock_http(status, body):
@@ -725,3 +733,47 @@ class TestClearParent:
             assert result["success"] is True
             agile_call = mock_http.call_args_list[1]
             assert "/rest/agile/1.0/epic/none/issue" in agile_call[0][1]
+
+
+# --- Cache invalidation ---
+
+
+class TestCacheInvalidation:
+    """Verify write tools call invalidate_cache on success."""
+
+    def test_transition_invalidates(self, _mock_invalidate):
+        with _mock_http(204, {}):
+            tools_write.transition_issue({"issue_key": "PROJ-1", "transition_id": 5, "dry_run": False})
+            _mock_invalidate.assert_called_once_with("PROJ-1")
+
+    def test_dry_run_does_not_invalidate(self, _mock_invalidate):
+        tools_write.transition_issue({"issue_key": "PROJ-1", "transition_id": 5, "dry_run": True})
+        _mock_invalidate.assert_not_called()
+
+    def test_error_does_not_invalidate(self, _mock_invalidate):
+        with _mock_http(500, {"error": "fail"}):
+            tools_write.transition_issue({"issue_key": "PROJ-1", "transition_id": 5, "dry_run": False})
+            _mock_invalidate.assert_not_called()
+
+    def test_create_issue_invalidates(self, _mock_invalidate):
+        resp = {"key": "PROJ-123", "id": "10001", "self": "https://jira/10001"}
+        with _mock_http(201, resp):
+            tools_write.create_issue({"project": "PROJ", "issue_type": "Bug", "summary": "T", "dry_run": False})
+            _mock_invalidate.assert_called_once_with()
+
+    def test_add_issue_link_invalidates_both_keys(self, _mock_invalidate):
+        with _mock_http(201, {}):
+            tools_write.add_issue_link(
+                {"link_type": "Blocks", "inward_issue_key": "PROJ-1", "outward_issue_key": "PROJ-2", "dry_run": False}
+            )
+            _mock_invalidate.assert_called_once_with("PROJ-1", "PROJ-2")
+
+    def test_delete_issue_link_invalidates(self, _mock_invalidate):
+        with _mock_http(204, {}):
+            tools_write.delete_issue_link({"link_id": "123"})
+            _mock_invalidate.assert_called_once_with()
+
+    def test_sprint_invalidates_all_keys(self, _mock_invalidate):
+        with _mock_http(204, {}):
+            tools_write.add_issues_to_sprint({"sprint_id": 42, "issue_keys": "PROJ-1,PROJ-2", "dry_run": False})
+            _mock_invalidate.assert_called_once_with("PROJ-1", "PROJ-2")

@@ -3,9 +3,17 @@
 from unittest.mock import patch
 
 import handler
+import pytest
 import tools_cache
 import tools_read
 import tools_write
+
+
+@pytest.fixture(autouse=True)
+def _mock_invalidate():
+    """Mock invalidate_cache for all tests — it uses protocol I/O."""
+    with patch.object(handler, "invalidate_cache"):
+        yield
 
 
 class TestSearchPaths:

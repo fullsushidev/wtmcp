@@ -496,6 +496,8 @@ def add_attachment(params):
     if status < 200 or status >= 300:
         return http_error(status, body)
 
+    handler.invalidate_cache(issue_key)
+
     if isinstance(body, list) and body:
         att = body[0]
         return {
@@ -523,6 +525,7 @@ def delete_attachment(params):
     status, body, _ = handler.http("DELETE", f"/rest/api/2/attachment/{attachment_id}")
     if status < 200 or status >= 300:
         return http_error(status, body)
+    handler.invalidate_cache()
     return {"success": True, "attachment_id": attachment_id}
 
 
