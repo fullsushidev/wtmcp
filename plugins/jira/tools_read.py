@@ -195,6 +195,12 @@ def get_link_types(_params):
     return body
 
 
+def flush_cache(_params):
+    """Flush all Jira plugin cache entries."""
+    handler.cache_flush()
+    return {"success": True, "message": "Jira cache flushed"}
+
+
 TOOLS = {
     "jira_get_myself": get_myself,
     "jira_search": search,
@@ -203,4 +209,5 @@ TOOLS = {
     "jira_get_transitions": get_transitions,
     "jira_get_resolutions": get_resolutions,
     "jira_get_link_types": get_link_types,
+    "jira_flush_cache": flush_cache,
 }

@@ -127,6 +127,14 @@ tools:
       link type names.
     params: {}
 
+  - name: jira_flush_cache
+    access: read
+    description: >
+      Flush all Jira plugin cache entries. Use when you suspect
+      stale data after external changes. Does not modify Jira
+      data, only clears the local in-memory cache.
+    params: {}
+
   # --- Phase 2: Write Tools ---
 
   - name: jira_create_issue

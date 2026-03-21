@@ -361,3 +361,14 @@ class TestGetLinkTypes:
         with _mock_cache_get(None), _mock_http(403, {"error": "Forbidden"}):
             result = tools_read.get_link_types({})
             assert result["error"] == "HTTP 403"
+
+
+# --- jira_flush_cache ---
+
+
+class TestFlushCache:
+    def test_flush_calls_cache_flush(self):
+        with patch.object(handler, "cache_flush") as mock_flush:
+            result = tools_read.flush_cache({})
+            mock_flush.assert_called_once()
+            assert result["success"] is True
