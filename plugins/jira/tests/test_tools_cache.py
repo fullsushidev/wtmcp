@@ -5,7 +5,15 @@ import os
 from unittest.mock import patch
 
 import handler
+import pytest
 import tools_cache
+
+
+@pytest.fixture(autouse=True)
+def _mock_invalidate():
+    """Mock invalidate_cache for all tests — it uses protocol I/O."""
+    with patch.object(handler, "invalidate_cache") as mock:
+        yield mock
 
 
 def _mock_http(status, body):
@@ -450,3 +458,37 @@ class TestDeleteAttachment:
 
         with pytest.raises(ValueError, match="Invalid attachment_id"):
             tools_cache.delete_attachment({"attachment_id": "abc"})
+
+
+# --- Cache invalidation ---
+
+
+class TestAttachmentCacheInvalidation:
+    """Verify attachment tools call invalidate_cache on success."""
+
+    def test_add_attachment_invalidates(self, _mock_invalidate):
+        import base64
+
+        content = base64.b64encode(b"data").decode()
+        resp = [{"id": "att-1", "filename": "f.txt", "size": 4, "mimeType": "text/plain"}]
+        with patch.object(handler, "http_upload", return_value=(200, resp, {})):
+            tools_cache.add_attachment(
+                {"issue_key": "PROJ-1", "filename": "f.txt", "content": content, "dry_run": False}
+            )
+            _mock_invalidate.assert_called_once_with("PROJ-1")
+
+    def test_add_attachment_dry_run_does_not_invalidate(self, _mock_invalidate):
+        import base64
+
+        content = base64.b64encode(b"data").decode()
+        tools_cache.add_attachment({"issue_key": "PROJ-1", "filename": "f.txt", "content": content, "dry_run": True})
+        _mock_invalidate.assert_not_called()
+
+    def test_delete_attachment_invalidates(self, _mock_invalidate):
+        with _mock_http(204, {}):
+            tools_cache.delete_attachment({"attachment_id": "123", "dry_run": False})
+            _mock_invalidate.assert_called_once_with()
+
+    def test_delete_attachment_dry_run_does_not_invalidate(self, _mock_invalidate):
+        tools_cache.delete_attachment({"attachment_id": "123", "dry_run": True})
+        _mock_invalidate.assert_not_called()
