@@ -37,7 +37,8 @@ def search(params):
     fields = params.get("fields", "summary,status,assignee,priority")
     brief = params.get("brief", True)
 
-    cache_key = f"search:{hashlib.sha256(jql.encode()).hexdigest()[:12]}"
+    key_input = f"{jql}|{max_results}|{fields}|{brief}"
+    cache_key = f"search:{hashlib.sha256(key_input.encode()).hexdigest()[:12]}"
     cached = handler.cache_get(cache_key)
     if cached:
         handler.log(f"returning cached search: {jql[:60]}")

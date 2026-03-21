@@ -128,6 +128,23 @@ class TestSearch:
             result = tools_read.search({"jql": "project = PROJ"})
             assert result == cached
 
+    def test_cache_key_varies_with_params(self):
+        """Different max_results/fields/brief must produce different cache keys."""
+        keys = set()
+        base = {"jql": "project = PROJ"}
+        combos = [
+            base,
+            {**base, "max_results": 10},
+            {**base, "fields": "summary"},
+            {**base, "brief": False},
+        ]
+        for params in combos:
+            with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE), _mock_cache_set() as mock_set:
+                tools_read.search(params)
+                cache_key = mock_set.call_args[0][0]
+                keys.add(cache_key)
+        assert len(keys) == len(combos), f"Expected {len(combos)} unique keys, got {len(keys)}"
+
     def test_http_error(self):
         with _mock_cache_get(None), _mock_http(500, {"error": "Server Error"}):
             result = tools_read.search({"jql": "bad"})
