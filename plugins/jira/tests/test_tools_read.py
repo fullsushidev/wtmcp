@@ -157,20 +157,20 @@ class TestSearch:
 class TestGetIssues:
     def test_single_key_brief(self):
         response = {"issues": [SAMPLE_ISSUES[0]]}
-        with _mock_http(200, response):
+        with _mock_cache_get(None), _mock_http(200, response), _mock_cache_set():
             result = tools_read.get_issues({"issue_keys": "PROJ-1"})
             assert result["count"] == 1
             assert result["issues"][0]["key"] == "PROJ-1"
             assert result["issues"][0]["status"] == "Open"
 
     def test_multiple_keys(self):
-        with _mock_http(200, SEARCH_RESPONSE):
+        with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE), _mock_cache_set():
             result = tools_read.get_issues({"issue_keys": "PROJ-1,PROJ-2"})
             assert result["count"] == 2
 
     def test_missing_key(self):
         response = {"issues": [SAMPLE_ISSUES[0]]}
-        with _mock_http(200, response):
+        with _mock_cache_get(None), _mock_http(200, response), _mock_cache_set():
             result = tools_read.get_issues({"issue_keys": "PROJ-1,PROJ-999"})
             assert result["count"] == 2
             assert result["issues"][0]["key"] == "PROJ-1"
@@ -178,7 +178,7 @@ class TestGetIssues:
 
     def test_full_mode(self):
         response = {"issues": [SAMPLE_ISSUES[0]]}
-        with _mock_http(200, response):
+        with _mock_cache_get(None), _mock_http(200, response), _mock_cache_set():
             result = tools_read.get_issues({"issue_keys": "PROJ-1", "brief": False})
             # Full mode returns raw issue data
             assert "fields" in result["issues"][0]
@@ -194,9 +194,43 @@ class TestGetIssues:
             tools_read.get_issues({"issue_keys": "bad-key"})
 
     def test_http_error(self):
-        with _mock_http(403, {"error": "Forbidden"}):
+        with _mock_cache_get(None), _mock_http(403, {"error": "Forbidden"}):
             result = tools_read.get_issues({"issue_keys": "PROJ-1"})
             assert result["error"] == "HTTP 403"
+
+    def test_cache_hit(self):
+        cached = {"issues": [{"key": "PROJ-1", "summary": "cached"}], "count": 1}
+        with _mock_cache_get(cached):
+            result = tools_read.get_issues({"issue_keys": "PROJ-1"})
+            assert result == cached
+
+    def test_cache_key_varies_with_params(self):
+        """Different fields/brief must produce different cache keys."""
+        keys = set()
+        base = {"issue_keys": "PROJ-1"}
+        combos = [
+            base,
+            {**base, "fields": "summary"},
+            {**base, "brief": False},
+        ]
+        response = {"issues": [SAMPLE_ISSUES[0]]}
+        for params in combos:
+            with _mock_cache_get(None), _mock_http(200, response), _mock_cache_set() as mock_set:
+                tools_read.get_issues(params)
+                cache_key = mock_set.call_args[0][0]
+                keys.add(cache_key)
+        assert len(keys) == len(combos)
+
+    def test_cache_key_order_independent(self):
+        """PROJ-1,PROJ-2 and PROJ-2,PROJ-1 should produce same cache key."""
+        keys_seen = set()
+        response = {"issues": SAMPLE_ISSUES}
+        for key_order in ["PROJ-1,PROJ-2", "PROJ-2,PROJ-1"]:
+            with _mock_cache_get(None), _mock_http(200, response), _mock_cache_set() as mock_set:
+                tools_read.get_issues({"issue_keys": key_order})
+                cache_key = mock_set.call_args[0][0]
+                keys_seen.add(cache_key)
+        assert len(keys_seen) == 1
 
 
 # --- jira_get_user ---
@@ -277,15 +311,24 @@ class TestGetResolutions:
             {"id": "1", "name": "Done", "description": "Work is complete"},
             {"id": "2", "name": "Won't Do", "description": "Not going to do this"},
         ]
-        with _mock_http(200, raw):
+        with _mock_cache_get(None), _mock_http(200, raw), _mock_cache_set() as mock_set:
             result = tools_read.get_resolutions({})
             assert len(result["resolutions"]) == 2
             assert result["resolutions"][0] == {"id": "1", "name": "Done"}
             # Descriptions are stripped
             assert "description" not in result["resolutions"][0]
+            # Cached with 1 hour TTL
+            mock_set.assert_called_once()
+            assert mock_set.call_args[1]["ttl"] == 3600
+
+    def test_cache_hit(self):
+        cached = {"resolutions": [{"id": "1", "name": "Done"}]}
+        with _mock_cache_get(cached):
+            result = tools_read.get_resolutions({})
+            assert result == cached
 
     def test_http_error(self):
-        with _mock_http(500, {"error": "Server Error"}):
+        with _mock_cache_get(None), _mock_http(500, {"error": "Server Error"}):
             result = tools_read.get_resolutions({})
             assert result["error"] == "HTTP 500"
 
@@ -301,11 +344,20 @@ class TestGetLinkTypes:
                 {"id": "2", "name": "Clones", "inward": "is cloned by", "outward": "clones"},
             ]
         }
-        with _mock_http(200, link_types):
+        with _mock_cache_get(None), _mock_http(200, link_types), _mock_cache_set() as mock_set:
             result = tools_read.get_link_types({})
             assert result["issueLinkTypes"][0]["name"] == "Blocks"
+            # Cached with 1 hour TTL
+            mock_set.assert_called_once()
+            assert mock_set.call_args[1]["ttl"] == 3600
+
+    def test_cache_hit(self):
+        cached = {"issueLinkTypes": [{"id": "1", "name": "Blocks"}]}
+        with _mock_cache_get(cached):
+            result = tools_read.get_link_types({})
+            assert result == cached
 
     def test_http_error(self):
-        with _mock_http(403, {"error": "Forbidden"}):
+        with _mock_cache_get(None), _mock_http(403, {"error": "Forbidden"}):
             result = tools_read.get_link_types({})
             assert result["error"] == "HTTP 403"

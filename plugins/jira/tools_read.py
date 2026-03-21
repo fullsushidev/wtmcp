@@ -75,7 +75,7 @@ def search(params):
 
 
 def get_issues(params):
-    """Get issues by key with optional brief mode."""
+    """Get issues by key with optional brief mode, cached for 5 min."""
     raw_keys = params.get("issue_keys", "")
     keys = [validate_issue_key(k) for k in raw_keys.split(",") if k.strip()]
     if not keys:
@@ -83,6 +83,14 @@ def get_issues(params):
 
     fields = params.get("fields", "summary,status,assignee,priority")
     brief = params.get("brief", True)
+
+    sorted_keys = ",".join(sorted(keys))
+    key_input = f"{sorted_keys}|{fields}|{brief}"
+    cache_key = f"issues:{hashlib.sha256(key_input.encode()).hexdigest()[:12]}"
+    cached = handler.cache_get(cache_key)
+    if cached:
+        handler.log(f"returning cached issues: {sorted_keys[:60]}")
+        return cached
 
     # Batch fetch via JQL: key in (K1, K2, ...)
     key_list = ",".join(keys)
@@ -113,7 +121,9 @@ def get_issues(params):
         else:
             results.append({"key": k, "error": "Issue not found or not accessible"})
 
-    return {"issues": results, "count": len(results)}
+    result = {"issues": results, "count": len(results)}
+    handler.cache_set(cache_key, result, ttl=300)
+    return result
 
 
 def get_user(params):
@@ -156,20 +166,32 @@ def get_transitions(params):
 
 
 def get_resolutions(_params):
-    """Get all available resolution values."""
+    """Get all available resolution values, cached for 1 hour."""
+    cached = handler.cache_get("resolutions")
+    if cached:
+        return cached
+
     status, body, _ = handler.http("GET", "/rest/api/2/resolution")
     if status < 200 or status >= 300:
         return http_error(status, body)
     if isinstance(body, list):
-        return {"resolutions": [{"id": r.get("id"), "name": r.get("name")} for r in body]}
-    return body
+        result = {"resolutions": [{"id": r.get("id"), "name": r.get("name")} for r in body]}
+    else:
+        result = body
+    handler.cache_set("resolutions", result, ttl=3600)
+    return result
 
 
 def get_link_types(_params):
-    """List available issue link types."""
+    """List available issue link types, cached for 1 hour."""
+    cached = handler.cache_get("link_types")
+    if cached:
+        return cached
+
     status, body, _ = handler.http("GET", "/rest/api/2/issueLinkType")
     if status < 200 or status >= 300:
         return http_error(status, body)
+    handler.cache_set("link_types", body, ttl=3600)
     return body
 
 
