@@ -175,6 +175,30 @@ def cache_set(key, value, ttl=None):
     _recv()  # consume ack
 
 
+def cache_del(key):
+    """Delete a key from the core cache."""
+    _send({"id": _gen_id("cache"), "type": "cache_del", "key": key})
+    _recv()  # consume ack
+
+
+def cache_flush():
+    """Flush all entries in this plugin's cache namespace."""
+    _send({"id": _gen_id("cache"), "type": "cache_flush"})
+    _recv()  # consume ack
+
+
+def invalidate_cache(*_issue_keys):
+    """Flush plugin cache after modifying issues.
+
+    Accepts issue keys for future targeted invalidation, but currently
+    flushes the entire namespace.
+    """
+    try:
+        cache_flush()
+    except Exception:
+        pass  # best-effort — don't mask a successful write
+
+
 def _detect_cloud():
     """Detect if Jira instance is Cloud based on serverInfo.
 

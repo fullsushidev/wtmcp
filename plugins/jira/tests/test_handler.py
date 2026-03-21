@@ -1,4 +1,4 @@
-"""Unit tests for handler.py — _api_path() and _detect_cloud()."""
+"""Unit tests for handler.py — _api_path(), _detect_cloud(), and cache ops."""
 
 from unittest.mock import patch
 
@@ -123,3 +123,44 @@ class TestDetectCloud:
             # 410 on v2 is strong signal of Cloud, even if v3 fails
             assert is_cloud is True
             assert auth_ok is True
+
+
+class TestCacheDel:
+    """Test cache_del() protocol message."""
+
+    def test_sends_cache_del(self):
+        with patch.object(handler, "_send") as mock_send, patch.object(handler, "_recv", return_value={"ok": True}):
+            handler.cache_del("mykey")
+            msg = mock_send.call_args[0][0]
+            assert msg["type"] == "cache_del"
+            assert msg["key"] == "mykey"
+
+
+class TestCacheFlush:
+    """Test cache_flush() protocol message."""
+
+    def test_sends_cache_flush(self):
+        with patch.object(handler, "_send") as mock_send, patch.object(handler, "_recv", return_value={"ok": True}):
+            handler.cache_flush()
+            msg = mock_send.call_args[0][0]
+            assert msg["type"] == "cache_flush"
+            assert "key" not in msg
+
+
+class TestInvalidateCache:
+    """Test invalidate_cache() best-effort wrapper."""
+
+    def test_calls_cache_flush(self):
+        with patch.object(handler, "cache_flush") as mock_flush:
+            handler.invalidate_cache("PROJ-1")
+            mock_flush.assert_called_once()
+
+    def test_swallows_exceptions(self):
+        with patch.object(handler, "cache_flush", side_effect=RuntimeError("boom")):
+            # Should not raise
+            handler.invalidate_cache("PROJ-1")
+
+    def test_works_without_issue_keys(self):
+        with patch.object(handler, "cache_flush") as mock_flush:
+            handler.invalidate_cache()
+            mock_flush.assert_called_once()
