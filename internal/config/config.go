@@ -28,6 +28,7 @@ type Config struct {
 	Plugins        PluginsConfig `yaml:"plugins"`
 	Output         OutputConfig  `yaml:"output"`
 	Tools          ToolsConfig   `yaml:"tools"`
+	Stats          StatsConfig   `yaml:"stats"`
 }
 
 // HTTPConfig controls the HTTP proxy behavior.
@@ -85,6 +86,14 @@ type ToolsConfig struct {
 	Discovery string `yaml:"discovery"`
 }
 
+// StatsConfig controls tool usage stats collection.
+type StatsConfig struct {
+	Enabled   bool   `yaml:"enabled"`
+	Tokenizer string `yaml:"tokenizer"`
+	LogCalls  bool   `yaml:"log_calls"`
+	Persist   bool   `yaml:"persist"`
+}
+
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() *Config {
 	return &Config{
@@ -118,6 +127,11 @@ func DefaultConfig() *Config {
 		Tools: ToolsConfig{
 			Discovery: "full",
 		},
+		Stats: StatsConfig{
+			Enabled:   true,
+			Tokenizer: "chars",
+			Persist:   true,
+		},
 	}
 }
 
@@ -146,6 +160,10 @@ func Load(configPath, workdir string) (*Config, error) {
 
 	if cfg.Tools.Discovery != "full" && cfg.Tools.Discovery != "progressive" {
 		return nil, fmt.Errorf("tools.discovery must be 'full' or 'progressive', got %q", cfg.Tools.Discovery)
+	}
+
+	if cfg.Stats.Tokenizer != "chars" {
+		return nil, fmt.Errorf("stats.tokenizer must be 'chars', got %q", cfg.Stats.Tokenizer)
 	}
 
 	if cfg.HTTP.Timeout > 0 && cfg.Plugins.ToolCallTimeout > 0 &&
