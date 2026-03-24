@@ -242,6 +242,20 @@ class TestTextToAdf:
         result = text_to_adf({})
         assert result["content"] == [{"type": "paragraph", "content": []}]
 
+    def test_invalid_adf_dict_wrong_version(self):
+        with pytest.raises(ValueError, match="Invalid ADF dict"):
+            text_to_adf({"type": "doc", "version": 2})
+
+    def test_json_array_string_treated_as_text(self):
+        result = text_to_adf("[1, 2, 3]")
+        assert result["type"] == "doc"
+        assert result["content"][0]["content"][0]["text"] == "[1, 2, 3]"
+
+    def test_json_string_invalid_adf_treated_as_text(self):
+        result = text_to_adf('{"type": "table", "version": 1}')
+        assert result["type"] == "doc"
+        assert result["content"][0]["content"][0]["text"] == '{"type": "table", "version": 1}'
+
     def test_non_adf_json_string_treated_as_text(self):
         result = text_to_adf('{"key": "value"}')
         assert result["type"] == "doc"

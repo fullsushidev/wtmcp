@@ -73,7 +73,7 @@ def extract_brief_issue(issue):
     }
 
 
-def text_to_adf(text):
+def text_to_adf(text: str | dict | None) -> dict:
     """Convert plain text to Atlassian Document Format (ADF).
 
     Jira Cloud API v3 requires comment/description bodies in ADF.
@@ -82,20 +82,25 @@ def text_to_adf(text):
     (parsed and validated).
 
     Raises ValueError if a dict is passed that isn't valid ADF.
+    JSON strings encoding non-ADF dicts are intentionally treated as
+    plain text, since a string is ambiguous (could be user text that
+    happens to be valid JSON).
     """
-    # Already a valid ADF dict — pass through
+    _EMPTY_ADF: dict = {"version": 1, "type": "doc", "content": [{"type": "paragraph", "content": []}]}
+
     if isinstance(text, dict):
         if not text:
-            pass  # fall through to empty handling below
-        elif text.get("type") == "doc" and text.get("version") == 1:
+            return _EMPTY_ADF
+        if text.get("type") == "doc" and text.get("version") == 1:
             return text
-        else:
-            raise ValueError("Invalid ADF dict: must have 'type': 'doc' and 'version': 1")
+        raise ValueError("Invalid ADF dict: must have 'type': 'doc' and 'version': 1")
 
     if not text:
-        return {"version": 1, "type": "doc", "content": [{"type": "paragraph", "content": []}]}
+        return _EMPTY_ADF
 
-    # Check if the string is a JSON-encoded ADF document
+    # Check if the string is a JSON-encoded ADF document.
+    # Only valid ADF (type=doc, version=1) is accepted; other JSON
+    # strings fall through to plain-text handling intentionally.
     if isinstance(text, str):
         try:
             parsed = json.loads(text)
