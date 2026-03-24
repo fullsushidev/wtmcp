@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -69,46 +70,70 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 
 func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool, progressive bool, collector *stats.Collector) {
 	for _, toolDef := range manifest.Tools {
-		tool := buildMCPTool(toolDef, progressive)
+		tool, schemaJSON := buildMCPTool(toolDef, progressive)
 		toolName := toolDef.Name
 		format := outputFormat
 		fallback := toonFallback
+		plugName := manifest.Name
+
+		// Record schema token cost.
+		if collector != nil {
+			collector.RecordSchema(toolName, plugName, toolDef.Description, schemaJSON)
+		}
 
 		srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			start := time.Now()
+			var inputRaw []byte
+			var outputText string
+			var isErr bool
+
+			defer func() {
+				if collector != nil {
+					collector.Record(toolName, plugName, start,
+						inputRaw, outputText, isErr)
+				}
+			}()
+
 			_, handle := mgr.CallTool(ctx, toolName)
 			if handle == nil {
-				return mcp.NewToolResultError(fmt.Sprintf("plugin for tool %s not loaded", toolName)), nil
+				outputText = fmt.Sprintf("plugin for tool %s not loaded", toolName)
+				isErr = true
+				return mcp.NewToolResultError(outputText), nil
 			}
 
 			params, err := json.Marshal(req.GetArguments())
 			if err != nil {
-				return mcp.NewToolResultError("invalid parameters: " + err.Error()), nil //nolint:nilerr // MCP convention: tool errors returned as result, not Go error
+				outputText = "invalid parameters: " + err.Error()
+				isErr = true
+				return mcp.NewToolResultError(outputText), nil //nolint:nilerr // MCP convention: tool errors returned as result, not Go error
 			}
+			inputRaw = params
 
 			callResult, err := handle.CallTool(ctx, toolName, params)
 			if err != nil {
 				var pluginErr *protocol.Error
 				if isPluginError(err, &pluginErr) {
-					return mcp.NewToolResultError(
-						fmt.Sprintf("[%s] %s", pluginErr.Code, pluginErr.Message),
-					), nil
+					outputText = fmt.Sprintf("[%s] %s", pluginErr.Code, pluginErr.Message)
+				} else {
+					outputText = err.Error()
 				}
-				return mcp.NewToolResultError(err.Error()), nil
+				isErr = true
+				return mcp.NewToolResultError(outputText), nil
 			}
 
 			// Process post-tool actions in background
 			if len(callResult.Actions) > 0 {
-				go processToolActions(srv, mgr, manifest.Name, callResult.Actions, collector)
+				go processToolActions(srv, mgr, plugName, callResult.Actions, collector)
 			}
 
 			// Apply output encoding (JSON passthrough or TOON)
-			encoded := encoding.FormatResult(callResult.Result, format, fallback)
-			return mcp.NewToolResultText(encoded), nil
+			outputText = encoding.FormatResult(callResult.Result, format, fallback)
+			return mcp.NewToolResultText(outputText), nil
 		})
 	}
 }
 
-func buildMCPTool(def plugin.ToolDef, progressive bool) mcp.Tool {
+func buildMCPTool(def plugin.ToolDef, progressive bool) (mcp.Tool, []byte) {
 	schema := def.ParamsSchema()
 	schemaJSON, _ := json.Marshal(schema)
 	tool := mcp.NewToolWithRawSchema(def.Name, def.Description, schemaJSON)
@@ -125,14 +150,14 @@ func buildMCPTool(def plugin.ToolDef, progressive bool) mcp.Tool {
 		tool.Annotations.DestructiveHint = &t
 	}
 
-	return tool
+	return tool, schemaJSON
 }
 
 func registerDisabledPluginTools(srv *mcpserver.MCPServer, disabled map[string]plugin.DisabledPlugin, progressive bool) {
 	for _, dp := range disabled {
 		pluginName := dp.Name
 		for _, toolDef := range dp.Manifest.Tools {
-			tool := buildMCPTool(toolDef, progressive)
+			tool, _ := buildMCPTool(toolDef, progressive)
 			tool.Description = fmt.Sprintf(
 				"[DISABLED] %s — after fixing, run plugin_reload(name=\"%s\") to enable.\n\n---\n\n%s",
 				dp.Reason, pluginName, toolDef.Description,
@@ -242,6 +267,12 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 				}
 			}
 		}
+	}
+
+	// Clear stats for this plugin before reload.
+	if collector != nil {
+		collector.RemovePluginSchemas(name)
+		collector.RemovePluginResources(name)
 	}
 
 	// Reload the plugin (stops handler, re-reads manifest, restarts)
