@@ -363,8 +363,8 @@ def set_components(params):
 def add_issue_link(params):
     """Add a link between two Jira issues."""
     link_type = params.get("link_type", "")
-    inward_key = params.get("inward_issue_key", "")
-    outward_key = params.get("outward_issue_key", "")
+    inward_key = validate_issue_key(params.get("inward_issue_key", ""))
+    outward_key = validate_issue_key(params.get("outward_issue_key", ""))
     comment = params.get("comment", "")
     dry_run = params.get("dry_run", True)
 
