@@ -17,12 +17,13 @@ import (
 	"github.com/LeGambiArt/wtmcp/internal/plugin"
 	"github.com/LeGambiArt/wtmcp/internal/pluginctx"
 	"github.com/LeGambiArt/wtmcp/internal/protocol"
+	"github.com/LeGambiArt/wtmcp/internal/stats"
 )
 
 // New creates an MCP server with tools from all loaded plugins.
 // The index is used for tool_search and must be rebuilt on plugin
 // reload via ReloadPlugin.
-func New(version string, manager *plugin.Manager, cfg *config.Config, index *ToolIndex) *mcpserver.MCPServer {
+func New(version string, manager *plugin.Manager, cfg *config.Config, index *ToolIndex, collector *stats.Collector) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer(
 		"wtmcp",
 		version,
@@ -45,20 +46,20 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
-		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback, progressive)
+		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback, progressive, collector)
 	}
 
 	// Register disabled plugin tools with [DISABLED] descriptions
 	registerDisabledPluginTools(srv, disabled, progressive)
 
 	// Register context files as MCP resources
-	registerContextResources(srv, manager)
+	registerContextResources(srv, manager, collector)
 
 	// Register resources from resource provider plugins
-	registerPluginProvidedResources(srv, manager)
+	registerPluginProvidedResources(srv, manager, collector)
 
 	// Built-in management tools
-	registerManagementTools(srv, manager, cfg, index)
+	registerManagementTools(srv, manager, cfg, index, collector)
 
 	// tool_search — useful in both modes
 	registerToolSearch(srv, index)
@@ -66,7 +67,7 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 	return srv
 }
 
-func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool, progressive bool) {
+func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool, progressive bool, collector *stats.Collector) {
 	for _, toolDef := range manifest.Tools {
 		tool := buildMCPTool(toolDef, progressive)
 		toolName := toolDef.Name
@@ -97,7 +98,7 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 
 			// Process post-tool actions in background
 			if len(callResult.Actions) > 0 {
-				go processToolActions(srv, mgr, manifest.Name, callResult.Actions)
+				go processToolActions(srv, mgr, manifest.Name, callResult.Actions, collector)
 			}
 
 			// Apply output encoding (JSON passthrough or TOON)
@@ -149,7 +150,7 @@ func registerDisabledPluginTools(srv *mcpserver.MCPServer, disabled map[string]p
 	}
 }
 
-func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex) {
+func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex, collector *stats.Collector) {
 	// plugin_list: list all plugins and their status
 	srv.AddTool(
 		mcp.NewTool("plugin_list",
@@ -205,7 +206,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 			if !ok || name == "" {
 				return mcp.NewToolResultError("name is required"), nil
 			}
-			if err := ReloadPlugin(ctx, srv, mgr, cfg, name, index); err != nil {
+			if err := ReloadPlugin(ctx, srv, mgr, cfg, name, index, collector); err != nil {
 				return mcp.NewToolResultError(err.Error()), nil
 			}
 			return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
@@ -220,7 +221,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 //
 // The index is rebuilt to reflect manifest changes, and tool_search is
 // re-registered so its CategorySummary stays current.
-func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string, index *ToolIndex) error {
+func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string, index *ToolIndex, collector *stats.Collector) error {
 	progressive := cfg.Tools.Discovery == "progressive"
 
 	// Collect old tool names, context URIs, and provided resource URIs
@@ -265,11 +266,11 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
-		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback, progressive)
-		registerPluginContextResources(srv, manifest)
+		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback, progressive, collector)
+		registerPluginContextResources(srv, manifest, collector)
 		if manifest.ProvidesResources() {
 			if handle := mgr.Handle(name); handle != nil {
-				registerHandleResources(srv, name, handle)
+				registerHandleResources(srv, name, handle, collector)
 			}
 		}
 	}
@@ -283,18 +284,17 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 	return nil
 }
 
-func registerContextResources(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
+func registerContextResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, collector *stats.Collector) {
 	for _, manifest := range mgr.Manifests() {
-		registerPluginContextResources(srv, manifest)
+		registerPluginContextResources(srv, manifest, collector)
 	}
 }
 
-func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.Manifest) {
+func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.Manifest, collector *stats.Collector) { //nolint:revive,unparam // collector used in upcoming instrumentation commit
 	for _, ctxFile := range manifest.ContextFiles {
 		uri := pluginctx.ResourceURI(manifest.Name, ctxFile)
 		dir := manifest.Dir
 		file := ctxFile
-
 		srv.AddResource(
 			mcp.NewResource(uri, manifest.Name+" context: "+file,
 				mcp.WithResourceDescription(fmt.Sprintf("Context instructions for %s plugin", manifest.Name)),
@@ -318,11 +318,11 @@ func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.M
 }
 
 // processToolActions handles side effects declared in tool results.
-func processToolActions(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginName string, actions []protocol.Action) {
+func processToolActions(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginName string, actions []protocol.Action, collector *stats.Collector) {
 	for _, action := range actions {
 		switch action.Type {
 		case "invalidate_resources":
-			invalidatePluginResources(srv, mgr, pluginName)
+			invalidatePluginResources(srv, mgr, pluginName, collector)
 		default:
 			log.Printf("[%s] unknown tool action: %s", pluginName, action.Type)
 		}
@@ -331,7 +331,7 @@ func processToolActions(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginNam
 
 // invalidatePluginResources re-queries a resource provider and updates
 // MCP registrations by diffing old vs new resource URIs.
-func invalidatePluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginName string) {
+func invalidatePluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, pluginName string, collector *stats.Collector) {
 	manifest, ok := mgr.Manifests()[pluginName]
 	if !ok || !manifest.ProvidesResources() {
 		return
@@ -368,7 +368,7 @@ func invalidatePluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, pl
 		srv.DeleteResources(toRemove...)
 	}
 
-	registerHandleResources(srv, pluginName, handle)
+	registerHandleResources(srv, pluginName, handle, collector)
 
 	log.Printf("[%s] invalidate_resources: %d resources (%d removed)",
 		pluginName, len(newResources), len(toRemove))
@@ -376,7 +376,7 @@ func invalidatePluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, pl
 
 // registerPluginProvidedResources registers resources from plugins that
 // declare provides.resources: true.
-func registerPluginProvidedResources(srv *mcpserver.MCPServer, mgr *plugin.Manager) {
+func registerPluginProvidedResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, collector *stats.Collector) {
 	for name, manifest := range mgr.Manifests() {
 		if !manifest.ProvidesResources() {
 			continue
@@ -385,11 +385,11 @@ func registerPluginProvidedResources(srv *mcpserver.MCPServer, mgr *plugin.Manag
 		if handle == nil {
 			continue
 		}
-		registerHandleResources(srv, name, handle)
+		registerHandleResources(srv, name, handle, collector)
 	}
 }
 
-func registerHandleResources(srv *mcpserver.MCPServer, _ string, handle *plugin.Handle) {
+func registerHandleResources(srv *mcpserver.MCPServer, pluginName string, handle *plugin.Handle, collector *stats.Collector) { //nolint:revive,unparam // pluginName,collector used in upcoming instrumentation commit
 	for _, res := range handle.InitialResources() {
 		uri := res.URI
 		mimeType := res.MIMEType

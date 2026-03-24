@@ -23,7 +23,7 @@ func TestDiscoveryFullMode(t *testing.T) {
 	cfg.Tools.Discovery = "full"
 
 	index := NewToolIndex(mgr)
-	srv := New("test", mgr, cfg, index)
+	srv := New("test", mgr, cfg, index, nil)
 	tools := srv.ListTools()
 
 	// All tools should be registered (no DeferLoading)
@@ -60,7 +60,7 @@ func TestDiscoveryProgressiveMode(t *testing.T) {
 	cfg.Tools.Discovery = "progressive"
 
 	index := NewToolIndex(mgr)
-	srv := New("test", mgr, cfg, index)
+	srv := New("test", mgr, cfg, index, nil)
 	tools := srv.ListTools()
 
 	// All tools should still be registered
@@ -99,7 +99,7 @@ func TestDiscoveryToolSearchRegistered(t *testing.T) {
 
 	cfg := config.DefaultConfig()
 	index := NewToolIndex(mgr)
-	srv := New("test", mgr, cfg, index)
+	srv := New("test", mgr, cfg, index, nil)
 
 	tools := srv.ListTools()
 	ts, ok := tools["tool_search"]
@@ -177,7 +177,7 @@ func TestDiscoveryFullModeBackwardCompatible(t *testing.T) {
 	cfg.Tools.Discovery = "full"
 
 	index := NewToolIndex(mgr)
-	srv := New("test", mgr, cfg, index)
+	srv := New("test", mgr, cfg, index, nil)
 	tools := srv.ListTools()
 
 	// Expected: alpha_one, alpha_two, tool_search, plugin_list, plugin_reload

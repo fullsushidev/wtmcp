@@ -20,6 +20,7 @@ import (
 	"github.com/LeGambiArt/wtmcp/internal/plugin"
 	"github.com/LeGambiArt/wtmcp/internal/proxy"
 	"github.com/LeGambiArt/wtmcp/internal/server"
+	"github.com/LeGambiArt/wtmcp/internal/stats"
 )
 
 // Version and BuildDate are set via ldflags at build time.
@@ -158,11 +159,23 @@ func run() error {
 		return fmt.Errorf("plugin loading: %w", err)
 	}
 
+	// Create stats collector if enabled.
+	var collector *stats.Collector
+	if cfg.Stats.Enabled {
+		collector = stats.NewCollector(stats.CharsTokenizer{}, cfg.Stats.LogCalls)
+		if cfg.Stats.Persist {
+			statsPath := filepath.Join(cfg.Cache.Dir, "stats.json")
+			if err := collector.SetPersistPath(statsPath); err != nil {
+				log.Printf("stats persistence disabled: %v", err)
+			}
+		}
+	}
+
 	index := server.NewToolIndex(mgr)
-	srv := server.New(Version, mgr, cfg, index)
+	srv := server.New(Version, mgr, cfg, index, collector)
 
 	// Start control directory watcher for external reload triggers
-	controlWatcher := server.NewControlWatcher(wd, srv, mgr, cfg, index)
+	controlWatcher := server.NewControlWatcher(wd, srv, mgr, cfg, index, collector)
 	if err := controlWatcher.Start(); err != nil {
 		log.Printf("control watcher disabled: %v", err)
 	}
@@ -170,6 +183,9 @@ func run() error {
 	go func() {
 		<-ctx.Done()
 		controlWatcher.Stop()
+		if collector != nil {
+			collector.Close()
+		}
 		log.Println("shutting down plugins...")
 		mgr.ShutdownAll(context.Background())
 	}()

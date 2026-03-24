@@ -14,6 +14,7 @@ import (
 
 	"github.com/LeGambiArt/wtmcp/internal/config"
 	"github.com/LeGambiArt/wtmcp/internal/plugin"
+	"github.com/LeGambiArt/wtmcp/internal/stats"
 )
 
 // ControlWatcher monitors a control directory for external reload commands.
@@ -28,12 +29,13 @@ type ControlWatcher struct {
 	mgr         *plugin.Manager
 	cfg         *config.Config
 	index       *ToolIndex
+	collector   *stats.Collector
 	stop        chan struct{}
 	done        chan struct{}
 }
 
 // NewControlWatcher creates a control watcher for the given workdir.
-func NewControlWatcher(workdir string, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex) *ControlWatcher {
+func NewControlWatcher(workdir string, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, index *ToolIndex, collector *stats.Collector) *ControlWatcher {
 	controlDir := filepath.Join(workdir, "control")
 	return &ControlWatcher{
 		commandsDir: filepath.Join(controlDir, "commands"),
@@ -44,6 +46,7 @@ func NewControlWatcher(workdir string, srv *mcpserver.MCPServer, mgr *plugin.Man
 		mgr:         mgr,
 		cfg:         cfg,
 		index:       index,
+		collector:   collector,
 		stop:        make(chan struct{}),
 		done:        make(chan struct{}),
 	}
@@ -126,7 +129,7 @@ func (w *ControlWatcher) processCommand(filename string) {
 			result["status"] = "success"
 			var reloaded []string
 			for name := range w.mgr.Manifests() {
-				if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, name, w.index); err != nil {
+				if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, name, w.index, w.collector); err != nil {
 					result["status"] = "partial"
 					result["error"] = fmt.Sprintf("failed to reload %s: %v", name, err)
 				} else {
@@ -135,7 +138,7 @@ func (w *ControlWatcher) processCommand(filename string) {
 			}
 			result["reloaded"] = reloaded
 		default:
-			if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, pluginName, w.index); err != nil {
+			if err := ReloadPlugin(ctx, w.srv, w.mgr, w.cfg, pluginName, w.index, w.collector); err != nil {
 				result["status"] = "error"
 				result["error"] = err.Error()
 			} else {
