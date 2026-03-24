@@ -132,6 +132,16 @@ func (h *Handle) callPersistent(ctx context.Context, toolName string, params jso
 		}
 		return &CallToolResult{Result: resp.Result, Actions: resp.Actions}, nil
 	case <-ctx.Done():
+		// For persistent handlers, the plugin process may still be
+		// finishing the timed-out call (e.g. reading an HTTP response).
+		// Drain the orphaned tool_result before releasing the mutex to
+		// prevent stdin message ordering races with the next call.
+		drainTimer := time.NewTimer(2 * time.Second)
+		select {
+		case <-ch:
+		case <-drainTimer.C:
+		}
+		drainTimer.Stop()
 		return nil, &protocol.Error{
 			Code:    "timeout",
 			Message: fmt.Sprintf("tool call %s timed out after %s", toolName, h.toolTimeout),
