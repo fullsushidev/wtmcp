@@ -321,20 +321,24 @@ func registerContextResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, col
 	}
 }
 
-func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.Manifest, collector *stats.Collector) { //nolint:revive,unparam // collector used in upcoming instrumentation commit
+func registerPluginContextResources(srv *mcpserver.MCPServer, manifest *plugin.Manifest, collector *stats.Collector) {
+	plugName := manifest.Name
 	for _, ctxFile := range manifest.ContextFiles {
-		uri := pluginctx.ResourceURI(manifest.Name, ctxFile)
+		uri := pluginctx.ResourceURI(plugName, ctxFile)
 		dir := manifest.Dir
 		file := ctxFile
 		srv.AddResource(
-			mcp.NewResource(uri, manifest.Name+" context: "+file,
-				mcp.WithResourceDescription(fmt.Sprintf("Context instructions for %s plugin", manifest.Name)),
+			mcp.NewResource(uri, plugName+" context: "+file,
+				mcp.WithResourceDescription(fmt.Sprintf("Context instructions for %s plugin", plugName)),
 				mcp.WithMIMEType("text/markdown"),
 			),
 			func(_ context.Context, _ mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
 				content, err := pluginctx.LoadFile(dir, file)
 				if err != nil {
 					return nil, err
+				}
+				if collector != nil {
+					collector.RecordResourceRead(uri, plugName, "context", content)
 				}
 				return []mcp.ResourceContents{
 					mcp.TextResourceContents{
@@ -420,7 +424,7 @@ func registerPluginProvidedResources(srv *mcpserver.MCPServer, mgr *plugin.Manag
 	}
 }
 
-func registerHandleResources(srv *mcpserver.MCPServer, pluginName string, handle *plugin.Handle, collector *stats.Collector) { //nolint:revive,unparam // pluginName,collector used in upcoming instrumentation commit
+func registerHandleResources(srv *mcpserver.MCPServer, pluginName string, handle *plugin.Handle, collector *stats.Collector) {
 	for _, res := range handle.InitialResources() {
 		uri := res.URI
 		mimeType := res.MIMEType
@@ -436,6 +440,9 @@ func registerHandleResources(srv *mcpserver.MCPServer, pluginName string, handle
 				content, actualMIME, err := handle.ReadResource(ctx, uri)
 				if err != nil {
 					return nil, fmt.Errorf("read resource %s: %w", uri, err)
+				}
+				if collector != nil {
+					collector.RecordResourceRead(uri, pluginName, "provided", content)
 				}
 				return []mcp.ResourceContents{
 					mcp.TextResourceContents{
