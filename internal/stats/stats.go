@@ -114,16 +114,18 @@ func (a *runningAggregate) toSummary(toolName string) ToolSummary {
 
 // Collector accumulates tool call stats (thread-safe).
 type Collector struct {
-	mu         sync.Mutex
-	closed     atomic.Bool
-	entries    []Entry
-	head       int
-	full       bool
-	aggregates map[string]*runningAggregate
-	schemas    map[string]SchemaEntry
-	resources  map[string]*ResourceEntry
-	tokenizer  Tokenizer
-	logCalls   bool
+	mu          sync.Mutex
+	closed      atomic.Bool
+	entries     []Entry
+	head        int
+	full        bool
+	aggregates  map[string]*runningAggregate
+	schemas     map[string]SchemaEntry
+	resources   map[string]*ResourceEntry
+	tokenizer   Tokenizer
+	logCalls    bool
+	persistPath string
+	persistTmr  *time.Timer
 }
 
 // NewCollector creates a Collector with the given tokenizer.
@@ -203,6 +205,8 @@ func (c *Collector) Record(
 	if outputTokens > agg.MaxOutputTokens {
 		agg.MaxOutputTokens = outputTokens
 	}
+
+	c.scheduleSave()
 }
 
 // RecordSchema records a tool's schema token cost. Overwrites any
@@ -259,6 +263,8 @@ func (c *Collector) RecordResourceRead(uri, pluginName, resourceType, content st
 			ReadCount:     1,
 		}
 	}
+
+	c.scheduleSave()
 }
 
 // RemovePluginSchemas clears all schema entries for a plugin.
