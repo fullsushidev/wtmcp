@@ -48,6 +48,9 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 // globalWorkdir is set by the --workdir flag and used for plugin discovery.
 var globalWorkdir string
 
+// globalVerbose controls whether discovery/diagnostic log output is shown.
+var globalVerbose bool
+
 // setWorkdir sets the global workdir for plugin discovery.
 func setWorkdir(workdir string) {
 	globalWorkdir = workdir

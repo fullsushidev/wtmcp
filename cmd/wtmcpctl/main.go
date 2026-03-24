@@ -3,6 +3,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -32,6 +34,8 @@ var versionCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVar(&globalWorkdir, "workdir", "",
 		"Working directory (default: ~/.config/wtmcp)")
+	rootCmd.PersistentFlags().BoolVarP(&globalVerbose, "verbose", "v", false,
+		"Show verbose output (discovery logs, etc.)")
 	if err := rootCmd.MarkPersistentFlagDirname("workdir"); err != nil {
 		panic(err)
 	}
@@ -43,6 +47,10 @@ func init() {
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		w, _ := cmd.Flags().GetString("workdir")
 		setWorkdir(w)
+
+		if !globalVerbose {
+			log.SetOutput(io.Discard)
+		}
 		return nil
 	}
 
