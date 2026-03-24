@@ -93,7 +93,7 @@ class TestCreateIssue:
 
     def test_parent_create_success(self):
         resp = {"key": "PROJ-124", "id": "10002", "self": "https://jira/issue/10002"}
-        with _mock_http(201, resp):
+        with _mock_http(201, resp) as mock_http:
             result = tools_write.create_issue(
                 {
                     "project": "PROJ",
@@ -104,6 +104,32 @@ class TestCreateIssue:
                 }
             )
             assert result["key"] == "PROJ-124"
+            call_body = mock_http.call_args[1].get("body") or mock_http.call_args[0][3]
+            assert call_body["fields"]["parent"] == {"key": "PROJ-100"}
+
+    def test_parent_empty_string_ignored(self):
+        result = tools_write.create_issue(
+            {
+                "project": "PROJ",
+                "issue_type": "Task",
+                "summary": "Test",
+                "parent": "",
+                "dry_run": True,
+            }
+        )
+        assert "parent" not in result["fields"]
+
+    def test_parent_whitespace_only_raises(self):
+        with pytest.raises(ValueError):
+            tools_write.create_issue(
+                {
+                    "project": "PROJ",
+                    "issue_type": "Sub-task",
+                    "summary": "Child",
+                    "parent": "  ",
+                    "dry_run": True,
+                }
+            )
 
     def test_parent_invalid_key_raises(self):
         with pytest.raises(ValueError):
@@ -116,6 +142,18 @@ class TestCreateIssue:
                     "dry_run": True,
                 }
             )
+
+    def test_parent_case_normalization(self):
+        result = tools_write.create_issue(
+            {
+                "project": "PROJ",
+                "issue_type": "Sub-task",
+                "summary": "Child",
+                "parent": "proj-100",
+                "dry_run": True,
+            }
+        )
+        assert result["fields"]["parent"] == {"key": "PROJ-100"}
 
     def test_cloud_description_uses_adf(self):
         with patch.object(handler, "is_cloud", True):
