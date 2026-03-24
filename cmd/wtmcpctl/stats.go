@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss/table"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
+	"gopkg.in/yaml.v3"
 
 	"github.com/LeGambiArt/wtmcp/internal/stats"
 )
@@ -26,12 +27,46 @@ to be running.`,
 	RunE: runStats,
 }
 
+var statsConfigCmd = &cobra.Command{
+	Use:   "config",
+	Short: "View or modify stats configuration",
+	Long:  `View current stats configuration or set individual fields.`,
+	RunE:  runStatsConfig,
+}
+
+var statsConfigSetCmd = &cobra.Command{
+	Use:               "set <key> <value>",
+	Short:             "Set a stats configuration field",
+	Args:              cobra.ExactArgs(2),
+	ValidArgsFunction: completeStatsConfigSet,
+	RunE:              runStatsConfigSet,
+}
+
+var statsResetCmd = &cobra.Command{
+	Use:   "reset",
+	Short: "Clear accumulated stats",
+	Long:  `Delete stats.json to start fresh. The server does not need to be stopped.`,
+	Args:  cobra.NoArgs,
+	RunE:  runStatsReset,
+}
+
+// Valid stats config keys and their allowed values.
+var statsConfigKeys = map[string][]string{
+	"enabled":   {"true", "false"},
+	"tokenizer": {"chars"},
+	"log_calls": {"true", "false"},
+	"persist":   {"true", "false"},
+}
+
 func init() {
 	statsCmd.Flags().Bool("schemas", false, "Include tool schema token costs")
 	statsCmd.Flags().Bool("resources", false, "Include resource read stats")
 	statsCmd.Flags().StringP("sort", "s", "calls", "Sort by: calls, tokens, errors, name")
 	statsCmd.Flags().BoolP("plain", "p", false, "Plain text output (no colors or borders)")
 	statsCmd.Flags().Bool("json", false, "Raw JSON output")
+
+	statsConfigCmd.AddCommand(statsConfigSetCmd)
+	statsCmd.AddCommand(statsConfigCmd, statsResetCmd)
 }
 
 func runStats(cmd *cobra.Command, _ []string) error {
@@ -281,5 +316,151 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 			Headers("URI", "Plugin", "Type", "Bytes", "Tokens", "Reads").
 			Rows(resRows...)
 		fmt.Println(rt)
+	}
+}
+
+// --- stats config ---
+
+func runStatsConfig(_ *cobra.Command, _ []string) error {
+	result, err := getDiscoveryResult()
+	if err != nil {
+		return err
+	}
+
+	cfg := result.Config.Stats
+	fmt.Printf("enabled:    %v\n", cfg.Enabled)
+	fmt.Printf("tokenizer:  %s\n", cfg.Tokenizer)
+	fmt.Printf("log_calls:  %v\n", cfg.LogCalls)
+	fmt.Printf("persist:    %v\n", cfg.Persist)
+	return nil
+}
+
+func runStatsConfigSet(_ *cobra.Command, args []string) error {
+	key, value := args[0], args[1]
+
+	validValues, ok := statsConfigKeys[key]
+	if !ok {
+		var keys []string
+		for k := range statsConfigKeys {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return fmt.Errorf("unknown key %q; valid keys: %v", key, keys)
+	}
+
+	// Validate value.
+	valid := false
+	for _, v := range validValues {
+		if value == v {
+			valid = true
+			break
+		}
+	}
+	if !valid {
+		return fmt.Errorf("invalid value %q for stats.%s; valid values: %v", value, key, validValues)
+	}
+
+	result, err := getDiscoveryResult()
+	if err != nil {
+		return err
+	}
+
+	// Parse into typed value.
+	var typedValue any
+	if b, bErr := strconv.ParseBool(value); bErr == nil {
+		typedValue = b
+	} else {
+		typedValue = value
+	}
+
+	if err := updateStatsConfig(result.ConfigPath, key, typedValue); err != nil {
+		return err
+	}
+
+	fmt.Printf("stats.%s set to %v in %s\n", key, typedValue, result.ConfigPath)
+	return nil
+}
+
+func updateStatsConfig(configPath, key string, value any) error {
+	data, err := os.ReadFile(configPath) //nolint:gosec // config file path from user
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	var doc map[string]any
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse config: %w", err)
+		}
+	}
+	if doc == nil {
+		doc = make(map[string]any)
+	}
+
+	statsRaw, ok := doc["stats"]
+	var statsMap map[string]any
+	if ok {
+		statsMap, _ = statsRaw.(map[string]any)
+	}
+	if statsMap == nil {
+		statsMap = make(map[string]any)
+	}
+
+	statsMap[key] = value
+	doc["stats"] = statsMap
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+
+	return atomicWriteFile(configPath, out, 0o600)
+}
+
+// --- stats reset ---
+
+func runStatsReset(_ *cobra.Command, _ []string) error {
+	result, err := getDiscoveryResult()
+	if err != nil {
+		return err
+	}
+
+	statsPath := filepath.Join(result.Config.Cache.Dir, "stats.json")
+	if err := os.Remove(statsPath); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println("No stats to clear.")
+			return nil
+		}
+		return fmt.Errorf("delete stats: %w", err)
+	}
+
+	fmt.Printf("Stats cleared (deleted %s)\n", statsPath)
+	return nil
+}
+
+// --- shell completion ---
+
+func completeStatsConfigSet(_ *cobra.Command, args []string, _ string) ([]string, cobra.ShellCompDirective) {
+	switch len(args) {
+	case 0:
+		// Complete key names.
+		keys := make([]string, 0, len(statsConfigKeys))
+		for k := range statsConfigKeys {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return keys, cobra.ShellCompDirectiveNoFileComp
+	case 1:
+		// Complete values for the given key.
+		if values, ok := statsConfigKeys[args[0]]; ok {
+			return values, cobra.ShellCompDirectiveNoFileComp
+		}
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	default:
+		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 }
