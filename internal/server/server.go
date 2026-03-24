@@ -237,6 +237,96 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 			return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
 		},
 	)
+
+	// tool_stats: show tool usage stats
+	if collector != nil {
+		registerToolStats(srv, collector)
+	}
+}
+
+// excludedTools is the set of management tools excluded from stats recording.
+var excludedTools = map[string]bool{
+	"tool_stats":    true,
+	"plugin_list":   true,
+	"plugin_reload": true,
+	"tool_search":   true,
+}
+
+// ExcludedTools returns the set of tool names excluded from stats.
+func ExcludedTools() map[string]bool { return excludedTools }
+
+func registerToolStats(srv *mcpserver.MCPServer, collector *stats.Collector) {
+	srv.AddTool(
+		mcp.NewTool("tool_stats",
+			mcp.WithDescription("Show tool usage stats: call counts, token estimates, durations, schema costs, resource reads"),
+			mcp.WithString("group_by",
+				mcp.Description("Group results by 'tool' (default) or 'plugin'"),
+			),
+			mcp.WithBoolean("include_schemas",
+				mcp.Description("Include tool schema token costs (default: false)"),
+			),
+			mcp.WithBoolean("include_resources",
+				mcp.Description("Include resource read stats (default: false)"),
+			),
+		),
+		func(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			args := req.GetArguments()
+			groupBy, _ := args["group_by"].(string)
+			includeSchemas, _ := args["include_schemas"].(bool)
+			includeResources, _ := args["include_resources"].(bool)
+
+			result := map[string]any{
+				"tokenizer":      collector.TokenizerName(),
+				"excluded_tools": excludedToolNames(),
+			}
+
+			if groupBy == "plugin" {
+				result["calls"] = collector.PluginSummaries()
+			} else {
+				result["calls"] = collector.Summary()
+			}
+
+			if includeSchemas {
+				result["schema_cost"] = collector.SchemaCost()
+			}
+
+			if includeResources {
+				result["resources"] = collector.ResourceSummary()
+			}
+
+			inputTk, outputTk := collector.TotalTokens()
+			totals := map[string]any{
+				"total_input_tokens":  inputTk,
+				"total_output_tokens": outputTk,
+				"total_tokens":        inputTk + outputTk,
+			}
+			if includeSchemas {
+				sc := collector.SchemaCost()
+				totals["schema_overhead_tokens"] = sc.TotalSchemaTokens
+			}
+			if includeResources {
+				var resTk, resReads int
+				for _, r := range collector.ResourceSummary() {
+					resTk += r.ContentTokens
+					resReads += r.ReadCount
+				}
+				totals["resource_tokens"] = resTk
+				totals["resource_reads"] = resReads
+			}
+			result["totals"] = totals
+
+			data, _ := json.Marshal(result)
+			return mcp.NewToolResultText(string(data)), nil
+		},
+	)
+}
+
+func excludedToolNames() []string {
+	names := make([]string, 0, len(excludedTools))
+	for name := range excludedTools {
+		names = append(names, name)
+	}
+	return names
 }
 
 // ReloadPlugin reloads a plugin and re-registers its tools and context
