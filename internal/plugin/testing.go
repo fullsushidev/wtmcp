@@ -18,3 +18,15 @@ func (m *Manager) SetManifest(name string, manifest *Manifest) {
 func (m *Manager) SetHandle(name string) {
 	m.handles[name] = &Handle{}
 }
+
+// SetEnvDisabledPlugin marks a plugin as env-disabled for testing.
+func (m *Manager) SetEnvDisabledPlugin(name, reason string) {
+	if m.disabled == nil {
+		m.disabled = make(map[string]DisabledPlugin)
+	}
+	m.disabled[name] = DisabledPlugin{
+		Name:     name,
+		Reason:   reason,
+		Manifest: m.manifests[name],
+	}
+}
