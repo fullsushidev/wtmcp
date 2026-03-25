@@ -24,6 +24,10 @@ import (
 // New creates an MCP server with tools from all loaded plugins.
 // The index is used for tool_search and must be rebuilt on plugin
 // reload via ReloadPlugin.
+//
+// When cfg.ReadOnly is true, only read-access tools are registered.
+// This is immutable for the server's lifetime — ReadOnly must not be
+// changed after New returns.
 func New(version string, manager *plugin.Manager, cfg *config.Config, index *ToolIndex, collector *stats.Collector) *mcpserver.MCPServer {
 	srv := mcpserver.NewMCPServer(
 		"wtmcp",
@@ -33,6 +37,10 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 	)
 
 	progressive := cfg.Tools.Discovery == "progressive"
+
+	if cfg.ReadOnly {
+		log.Println("read-only mode: write tools will not be registered")
+	}
 
 	disabled := manager.EnvDisabledPlugins()
 
@@ -47,11 +55,11 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
-		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback, progressive, collector)
+		registerPluginTools(srv, manager, manifest, outputFormat, cfg.Output.ToonFallback, progressive, cfg.ReadOnly, collector)
 	}
 
 	// Register disabled plugin tools with [DISABLED] descriptions
-	registerDisabledPluginTools(srv, disabled, progressive)
+	registerDisabledPluginTools(srv, disabled, progressive, cfg.ReadOnly)
 
 	// Register context files as MCP resources
 	registerContextResources(srv, manager, collector)
@@ -68,13 +76,20 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 	return srv
 }
 
-func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool, progressive bool, collector *stats.Collector) {
+func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest *plugin.Manifest, outputFormat string, toonFallback bool, progressive bool, readOnly bool, collector *stats.Collector) {
+	var skipped int
 	for _, toolDef := range manifest.Tools {
+		if readOnly && !toolDef.IsReadOnly() {
+			skipped++
+			continue
+		}
+
 		tool, schemaJSON := buildMCPTool(toolDef, progressive)
 		toolName := toolDef.Name
 		format := outputFormat
 		fallback := toonFallback
 		plugName := manifest.Name
+		isRead := toolDef.IsReadOnly()
 
 		// Record schema token cost.
 		if collector != nil {
@@ -82,6 +97,12 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 		}
 
 		srv.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			// Defense-in-depth: reject write tools even if they
+			// somehow got registered in read-only mode.
+			if readOnly && !isRead {
+				return mcp.NewToolResultError("tool not available"), nil
+			}
+
 			start := time.Now()
 			var inputRaw []byte
 			var outputText string
@@ -131,6 +152,9 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 			return mcp.NewToolResultText(outputText), nil
 		})
 	}
+	if skipped > 0 {
+		log.Printf("read-only: skipped %d write tools from %s", skipped, manifest.Name)
+	}
 }
 
 func buildMCPTool(def plugin.ToolDef, progressive bool) (mcp.Tool, []byte) {
@@ -153,10 +177,14 @@ func buildMCPTool(def plugin.ToolDef, progressive bool) (mcp.Tool, []byte) {
 	return tool, schemaJSON
 }
 
-func registerDisabledPluginTools(srv *mcpserver.MCPServer, disabled map[string]plugin.DisabledPlugin, progressive bool) {
+func registerDisabledPluginTools(srv *mcpserver.MCPServer, disabled map[string]plugin.DisabledPlugin, progressive bool, readOnly bool) {
 	for _, dp := range disabled {
 		pluginName := dp.Name
 		for _, toolDef := range dp.Manifest.Tools {
+			if readOnly && !toolDef.IsReadOnly() {
+				continue
+			}
+
 			tool, _ := buildMCPTool(toolDef, progressive)
 			tool.Description = fmt.Sprintf(
 				"[DISABLED] %s — after fixing, run plugin_reload(name=\"%s\") to enable.\n\n---\n\n%s",
@@ -220,23 +248,25 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 		},
 	)
 
-	// plugin_reload: reload a plugin by name
-	srv.AddTool(
-		mcp.NewTool("plugin_reload",
-			mcp.WithDescription("Reload a plugin by name, re-registering tools and context resources"),
-			mcp.WithString("name", mcp.Required(), mcp.Description("Plugin name to reload")),
-		),
-		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-			name, ok := req.GetArguments()["name"].(string)
-			if !ok || name == "" {
-				return mcp.NewToolResultError("name is required"), nil
-			}
-			if err := ReloadPlugin(ctx, srv, mgr, cfg, name, index, collector); err != nil {
-				return mcp.NewToolResultError(err.Error()), nil
-			}
-			return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
-		},
-	)
+	// plugin_reload: reload a plugin by name (not available in read-only mode)
+	if !cfg.ReadOnly {
+		srv.AddTool(
+			mcp.NewTool("plugin_reload",
+				mcp.WithDescription("Reload a plugin by name, re-registering tools and context resources"),
+				mcp.WithString("name", mcp.Required(), mcp.Description("Plugin name to reload")),
+			),
+			func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+				name, ok := req.GetArguments()["name"].(string)
+				if !ok || name == "" {
+					return mcp.NewToolResultError("name is required"), nil
+				}
+				if err := ReloadPlugin(ctx, srv, mgr, cfg, name, index, collector); err != nil {
+					return mcp.NewToolResultError(err.Error()), nil
+				}
+				return mcp.NewToolResultText(fmt.Sprintf("plugin %s reloaded", name)), nil
+			},
+		)
+	}
 
 	// tool_stats: show tool usage stats
 	if collector != nil {
@@ -387,7 +417,7 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format
 		}
-		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback, progressive, collector)
+		registerPluginTools(srv, mgr, manifest, outputFormat, cfg.Output.ToonFallback, progressive, cfg.ReadOnly, collector)
 		registerPluginContextResources(srv, manifest, collector)
 		if manifest.ProvidesResources() {
 			if handle := mgr.Handle(name); handle != nil {

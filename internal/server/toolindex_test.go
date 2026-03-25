@@ -39,7 +39,7 @@ func testManager() *plugin.Manager {
 }
 
 func TestToolIndexSearch_ExactName(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("jira_search", "", 10)
 	if len(results) == 0 {
 		t.Fatal("expected results")
@@ -50,7 +50,7 @@ func TestToolIndexSearch_ExactName(t *testing.T) {
 }
 
 func TestToolIndexSearch_PartialName(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("export", "", 10)
 	if len(results) == 0 {
 		t.Fatal("expected results")
@@ -68,7 +68,7 @@ func TestToolIndexSearch_PartialName(t *testing.T) {
 }
 
 func TestToolIndexSearch_ByDescription(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("custom fields", "", 10)
 	if len(results) == 0 {
 		t.Fatal("expected results for description match")
@@ -86,7 +86,7 @@ func TestToolIndexSearch_ByDescription(t *testing.T) {
 }
 
 func TestToolIndexSearch_PluginFilter(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("", "gmail", 50)
 	if len(results) != 3 {
 		t.Fatalf("got %d results, want 3 (all gmail tools)", len(results))
@@ -99,7 +99,7 @@ func TestToolIndexSearch_PluginFilter(t *testing.T) {
 }
 
 func TestToolIndexSearch_CombinedQueryAndFilter(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("send", "gmail", 10)
 	if len(results) == 0 {
 		t.Fatal("expected results")
@@ -110,7 +110,7 @@ func TestToolIndexSearch_CombinedQueryAndFilter(t *testing.T) {
 }
 
 func TestToolIndexSearch_MaxResults(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("jira", "", 2)
 	if len(results) != 2 {
 		t.Errorf("got %d results, want 2", len(results))
@@ -118,7 +118,7 @@ func TestToolIndexSearch_MaxResults(t *testing.T) {
 }
 
 func TestToolIndexSearch_MaxResultsClamped(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("jira", "", 1000)
 	if len(results) > maxResultsCap {
 		t.Errorf("got %d results, want at most %d", len(results), maxResultsCap)
@@ -126,7 +126,7 @@ func TestToolIndexSearch_MaxResultsClamped(t *testing.T) {
 }
 
 func TestToolIndexSearch_QueryTruncated(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	longQuery := strings.Repeat("jira ", 200) // way over 500 chars
 	results := idx.Search(longQuery, "", 10)
 	// Should not panic and should still return results
@@ -136,7 +136,7 @@ func TestToolIndexSearch_QueryTruncated(t *testing.T) {
 }
 
 func TestToolIndexSearch_NoResults(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("nonexistent_xyz", "", 10)
 	if len(results) != 0 {
 		t.Errorf("expected empty results, got %d", len(results))
@@ -144,7 +144,7 @@ func TestToolIndexSearch_NoResults(t *testing.T) {
 }
 
 func TestToolIndexSearch_EmptyQuery(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	results := idx.Search("", "", 10)
 	if len(results) != 0 {
 		t.Errorf("expected empty results for empty query, got %d", len(results))
@@ -152,7 +152,7 @@ func TestToolIndexSearch_EmptyQuery(t *testing.T) {
 }
 
 func TestToolIndexGet_Found(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	entry, ok := idx.Get("gmail_send_message")
 	if !ok {
 		t.Fatal("expected to find gmail_send_message")
@@ -163,7 +163,7 @@ func TestToolIndexGet_Found(t *testing.T) {
 }
 
 func TestToolIndexGet_NotFound(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	_, ok := idx.Get("nonexistent")
 	if ok {
 		t.Error("expected not found")
@@ -171,7 +171,7 @@ func TestToolIndexGet_NotFound(t *testing.T) {
 }
 
 func TestToolIndexCategorySummary(t *testing.T) {
-	idx := NewToolIndex(testManager())
+	idx := NewToolIndex(testManager(), false)
 	summary := idx.CategorySummary()
 	if !strings.Contains(summary, "jira") {
 		t.Error("summary should contain 'jira'")
@@ -186,7 +186,7 @@ func TestToolIndexCategorySummary(t *testing.T) {
 
 func TestToolIndexRebuild(t *testing.T) {
 	mgr := testManager()
-	idx := NewToolIndex(mgr)
+	idx := NewToolIndex(mgr, false)
 
 	// Verify initial state
 	_, ok := idx.Get("jira_search")
@@ -281,7 +281,7 @@ func TestToolIndexUnloadedPluginExcluded(t *testing.T) {
 		},
 	})
 
-	idx := NewToolIndex(mgr)
+	idx := NewToolIndex(mgr, false)
 	_, ok := idx.Get("broken_tool")
 	if ok {
 		t.Error("tool from unloaded plugin should not be in index")

@@ -22,7 +22,7 @@ func TestDiscoveryFullMode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Tools.Discovery = "full"
 
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	srv := New("test", mgr, cfg, index, nil)
 	tools := srv.ListTools()
 
@@ -59,7 +59,7 @@ func TestDiscoveryProgressiveMode(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Tools.Discovery = "progressive"
 
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	srv := New("test", mgr, cfg, index, nil)
 	tools := srv.ListTools()
 
@@ -98,7 +98,7 @@ func TestDiscoveryToolSearchRegistered(t *testing.T) {
 	mgr.SetHandle("alpha")
 
 	cfg := config.DefaultConfig()
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	srv := New("test", mgr, cfg, index, nil)
 
 	tools := srv.ListTools()
@@ -133,7 +133,7 @@ func TestDiscoveryToolSearchSafeResponse(t *testing.T) {
 	})
 	mgr.SetHandle("alpha")
 
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	results := index.Search("search", "", 10)
 	if len(results) == 0 {
 		t.Fatal("expected search results")
@@ -176,7 +176,7 @@ func TestDiscoveryFullModeBackwardCompatible(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Tools.Discovery = "full"
 
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	srv := New("test", mgr, cfg, index, nil)
 	tools := srv.ListTools()
 

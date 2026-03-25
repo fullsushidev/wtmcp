@@ -23,7 +23,7 @@ func TestStats_SchemaRecording(t *testing.T) {
 	mgr.SetHandle("jira")
 
 	cfg := config.DefaultConfig()
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	_ = New("test", mgr, cfg, index, collector)
 
 	cost := collector.SchemaCost()
@@ -62,7 +62,7 @@ func TestStats_SchemaRecordingMultiplePlugins(t *testing.T) {
 	mgr.SetHandle("keylime")
 
 	cfg := config.DefaultConfig()
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	_ = New("test", mgr, cfg, index, collector)
 
 	cost := collector.SchemaCost()
@@ -85,7 +85,7 @@ func TestStats_NilCollector(t *testing.T) {
 	mgr.SetHandle("test")
 
 	cfg := config.DefaultConfig()
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 
 	// Should not panic with nil collector.
 	srv := New("test", mgr, cfg, index, nil)
@@ -108,7 +108,7 @@ func TestStats_ToolStatsRegistered(t *testing.T) {
 	mgr.SetHandle("test")
 
 	cfg := config.DefaultConfig()
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	srv := New("test", mgr, cfg, index, collector)
 
 	tools := srv.ListTools()
@@ -120,7 +120,7 @@ func TestStats_ToolStatsRegistered(t *testing.T) {
 func TestStats_ToolStatsNotRegisteredWithNilCollector(t *testing.T) {
 	mgr := plugin.NewManagerForTest()
 	cfg := config.DefaultConfig()
-	index := NewToolIndex(mgr)
+	index := NewToolIndex(mgr, false)
 	srv := New("test", mgr, cfg, index, nil)
 
 	tools := srv.ListTools()

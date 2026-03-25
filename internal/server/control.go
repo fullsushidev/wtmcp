@@ -124,6 +124,11 @@ func (w *ControlWatcher) processCommand(filename string) {
 
 	switch action {
 	case "reload":
+		if w.cfg.ReadOnly {
+			result["status"] = "error"
+			result["error"] = "reload is not available in read-only mode"
+			break
+		}
 		switch pluginName {
 		case "all", "":
 			result["status"] = "success"

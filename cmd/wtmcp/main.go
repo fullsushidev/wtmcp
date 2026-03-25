@@ -179,7 +179,7 @@ func run() error {
 		}
 	}
 
-	index := server.NewToolIndex(mgr)
+	index := server.NewToolIndex(mgr, cfg.ReadOnly)
 	srv := server.New(Version, mgr, cfg, index, collector)
 
 	// Start control directory watcher for external reload triggers

@@ -54,21 +54,23 @@ func (e ToolEntry) toSearchResult() searchResult {
 
 // ToolIndex holds all plugin tools for keyword search.
 type ToolIndex struct {
-	mu      sync.RWMutex
-	entries []ToolEntry
+	mu       sync.RWMutex
+	entries  []ToolEntry
+	readOnly bool
 }
 
 // NewToolIndex builds the index from loaded plugin manifests.
-func NewToolIndex(mgr *plugin.Manager) *ToolIndex {
-	idx := &ToolIndex{}
-	idx.entries = buildEntries(mgr)
+// When readOnly is true, write-access tools are excluded.
+func NewToolIndex(mgr *plugin.Manager, readOnly bool) *ToolIndex {
+	idx := &ToolIndex{readOnly: readOnly}
+	idx.entries = buildEntries(mgr, readOnly)
 	return idx
 }
 
 // Rebuild replaces all index entries by re-scanning the manager's
 // loaded plugins. Thread-safe.
 func (idx *ToolIndex) Rebuild(mgr *plugin.Manager) {
-	newEntries := buildEntries(mgr)
+	newEntries := buildEntries(mgr, idx.readOnly)
 	idx.mu.Lock()
 	idx.entries = newEntries
 	idx.mu.Unlock()
@@ -223,7 +225,8 @@ func (idx *ToolIndex) CategorySummary() string {
 }
 
 // buildEntries creates index entries from loaded and disabled plugin manifests.
-func buildEntries(mgr *plugin.Manager) []ToolEntry {
+// When readOnly is true, write-access tools are excluded from the index.
+func buildEntries(mgr *plugin.Manager, readOnly bool) []ToolEntry {
 	loaded := mgr.LoadedPlugins()
 	loadedSet := make(map[string]bool, len(loaded))
 	for _, name := range loaded {
@@ -240,6 +243,10 @@ func buildEntries(mgr *plugin.Manager) []ToolEntry {
 		}
 
 		for _, tool := range manifest.Tools {
+			if readOnly && !tool.IsReadOnly() {
+				continue
+			}
+
 			paramNames := make([]string, 0, len(tool.Params))
 			for name := range tool.Params {
 				paramNames = append(paramNames, name)
