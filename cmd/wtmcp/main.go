@@ -33,6 +33,7 @@ var (
 var (
 	configPath string
 	workdir    string
+	readOnly   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -75,6 +76,7 @@ var versionCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().StringVar(&configPath, "config", "", "Config file path")
 	rootCmd.PersistentFlags().StringVar(&workdir, "workdir", "", "Working directory")
+	rootCmd.PersistentFlags().BoolVar(&readOnly, "read-only", false, "Only register read-access tools (no write tools)")
 	if err := rootCmd.MarkPersistentFlagDirname("workdir"); err != nil {
 		panic(err)
 	}
@@ -131,6 +133,12 @@ func run() error {
 	cfg, err := config.Load(configPath, wd)
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
+	}
+
+	// CLI flag escalates to read-only (one-way: cannot disable via CLI
+	// if config.yaml enables it).
+	if readOnly {
+		cfg.ReadOnly = true
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -204,8 +212,16 @@ func runCheck() error {
 		return err
 	}
 
+	// CLI flag escalates to read-only.
+	if readOnly {
+		result.Config.ReadOnly = true
+	}
+
 	fmt.Printf("wtmcp %s\n", Version)
 	fmt.Printf("workdir: %s\n", result.Workdir)
+	if result.Config.ReadOnly {
+		fmt.Printf("read-only: true (write tools will not be registered)\n")
+	}
 	fmt.Printf("user plugins: %v\n", result.Config.Plugins.UserPlugins)
 	fmt.Printf("env groups: %d\n", len(result.EnvGroups))
 	for group := range result.EnvGroups {
