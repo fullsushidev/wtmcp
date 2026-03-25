@@ -95,6 +95,8 @@ func init() {
 	if err := agentEnableCmd.MarkFlagDirname("dir"); err != nil {
 		panic(err)
 	}
+	agentEnableCmd.Flags().Bool("read-only", false,
+		"Start wtmcp in read-only mode (only read-access tools)")
 
 	agentDisableCmd.Flags().StringP("dir", "d", "",
 		"Project directory (default: current directory)")
@@ -127,8 +129,10 @@ func runAgentEnable(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	roFlag, _ := cmd.Flags().GetBool("read-only")
+
 	// Execute enable
-	return agentEnable(agentName, resolvedDir)
+	return agentEnable(agentName, resolvedDir, roFlag)
 }
 
 func runAgentDisable(cmd *cobra.Command, args []string) error {
@@ -151,7 +155,7 @@ func runAgentDisable(cmd *cobra.Command, args []string) error {
 }
 
 // agentEnable enables the wtmcp MCP server for the specified agent.
-func agentEnable(agentName, dir string) error {
+func agentEnable(agentName, dir string, readOnly bool) error {
 	// Resolve wtmcp binary path
 	wtmcpPath, err := resolveWtmcpBinary()
 	if err != nil {
@@ -189,9 +193,13 @@ func agentEnable(agentName, dir string) error {
 	}
 
 	// Build server entry
+	args := make([]any, 0)
+	if readOnly {
+		args = append(args, "--read-only")
+	}
 	serverEntry := map[string]any{
 		"command": wtmcpPath,
-		"args":    []any{},
+		"args":    args,
 	}
 
 	// Add type field if needed

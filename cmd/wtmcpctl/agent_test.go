@@ -189,12 +189,38 @@ func TestValidAgentNames(t *testing.T) {
 	}
 }
 
+func TestAgentEnable_ReadOnly(t *testing.T) {
+	t.Skip("test requires wtmcp binary in PATH")
+	tmpDir := t.TempDir()
+
+	if err := agentEnable("claude-code", tmpDir, true); err != nil {
+		t.Fatalf("agentEnable() failed: %v", err)
+	}
+
+	configPath := filepath.Join(tmpDir, ".mcp.json")
+	config, err := readJSONConfig(configPath)
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+
+	mcpServers := config["mcpServers"].(map[string]any)
+	wtmcp := mcpServers[mcpServerKey].(map[string]any)
+
+	args, ok := wtmcp["args"].([]any)
+	if !ok {
+		t.Fatal("args field missing or wrong type")
+	}
+	if len(args) != 1 || args[0] != "--read-only" {
+		t.Errorf("args = %v, want [\"--read-only\"]", args)
+	}
+}
+
 func TestAgentEnable_Claude_Alias(t *testing.T) {
 	t.Skip("test requires wtmcp binary in PATH")
 	tmpDir := t.TempDir()
 
 	// Enable using "claude" alias
-	if err := agentEnable("claude", tmpDir); err != nil {
+	if err := agentEnable("claude", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
@@ -228,12 +254,12 @@ func TestAgentEnable_ClaudeVsClaudeCode_SameConfig(t *testing.T) {
 	tmpDir2 := t.TempDir()
 
 	// Enable with "claude"
-	if err := agentEnable("claude", tmpDir1); err != nil {
+	if err := agentEnable("claude", tmpDir1, false); err != nil {
 		t.Fatalf("agentEnable('claude') failed: %v", err)
 	}
 
 	// Enable with "claude-code"
-	if err := agentEnable("claude-code", tmpDir2); err != nil {
+	if err := agentEnable("claude-code", tmpDir2, false); err != nil {
 		t.Fatalf("agentEnable('claude-code') failed: %v", err)
 	}
 
@@ -294,7 +320,7 @@ func TestAgentEnable_ClaudeCode_NewFile(t *testing.T) {
 	t.Skip("test requires wtmcp binary in PATH")
 	tmpDir := t.TempDir()
 
-	if err := agentEnable("claude-code", tmpDir); err != nil {
+	if err := agentEnable("claude-code", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
@@ -343,7 +369,7 @@ func TestAgentEnable_Gemini_CreatesDirectory(t *testing.T) {
 	t.Skip("test requires wtmcp binary in PATH")
 	tmpDir := t.TempDir()
 
-	if err := agentEnable("gemini", tmpDir); err != nil {
+	if err := agentEnable("gemini", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
@@ -382,7 +408,7 @@ func TestAgentEnable_Cursor_CreatesDirectory(t *testing.T) {
 	t.Skip("test requires wtmcp binary in PATH")
 	tmpDir := t.TempDir()
 
-	if err := agentEnable("cursor", tmpDir); err != nil {
+	if err := agentEnable("cursor", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
@@ -421,7 +447,7 @@ func TestAgentEnable_ExistingServers(t *testing.T) {
 	}
 
 	// Enable wtmcp
-	if err := agentEnable("claude-code", tmpDir); err != nil {
+	if err := agentEnable("claude-code", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
@@ -467,7 +493,7 @@ func TestAgentEnable_Gemini_PreservesOtherSettings(t *testing.T) {
 	}
 
 	// Enable wtmcp
-	if err := agentEnable("gemini", tmpDir); err != nil {
+	if err := agentEnable("gemini", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
@@ -513,7 +539,7 @@ func TestAgentEnable_OverwriteExisting(t *testing.T) {
 	}
 
 	// Re-enable (should update the path)
-	if err := agentEnable("claude-code", tmpDir); err != nil {
+	if err := agentEnable("claude-code", tmpDir, false); err != nil {
 		t.Fatalf("agentEnable() failed: %v", err)
 	}
 
