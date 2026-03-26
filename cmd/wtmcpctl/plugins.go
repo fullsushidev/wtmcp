@@ -75,8 +75,8 @@ func init() {
 // determined from Config.Plugins.Disabled instead.
 func getPluginsDiscoveryResult() (*plugin.DiscoveryResult, error) {
 	return plugin.Discover(plugin.DiscoveryOptions{
-		WorkdirOverride:    globalWorkdir,
-		SkipConfigDisabled: true,
+		WorkdirOverride:     globalWorkdir,
+		SkipConfigFiltering: true,
 	})
 }
 

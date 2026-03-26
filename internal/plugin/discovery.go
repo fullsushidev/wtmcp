@@ -9,9 +9,9 @@ import (
 
 // DiscoveryOptions configures plugin discovery behavior.
 type DiscoveryOptions struct {
-	ConfigPath         string // Optional config file path
-	WorkdirOverride    string // Optional workdir override
-	SkipConfigDisabled bool   // If true, ignore plugins.disabled during discovery
+	ConfigPath          string // Optional config file path
+	WorkdirOverride     string // Optional workdir override
+	SkipConfigFiltering bool   // If true, ignore plugins.enabled and plugins.disabled during discovery
 }
 
 // DiscoveryResult contains the results of plugin discovery.
@@ -52,13 +52,15 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	// When SkipConfigDisabled is set, temporarily clear the disabled
-	// list so all plugins end up in Manifests(). Restore it after
-	// discovery so Config.Plugins.Disabled is available to the caller.
-	var savedDisabled []string
-	if opts.SkipConfigDisabled {
+	// When SkipConfigFiltering is set, temporarily clear the enabled
+	// and disabled lists so all plugins end up in Manifests(). Restore
+	// after discovery so the config is available to the caller.
+	var savedDisabled, savedEnabled []string
+	if opts.SkipConfigFiltering {
 		savedDisabled = cfg.Plugins.Disabled
+		savedEnabled = cfg.Plugins.Enabled
 		cfg.Plugins.Disabled = nil
+		cfg.Plugins.Enabled = nil
 	}
 
 	// Create manager with nil dependencies (discovery only)
@@ -69,8 +71,9 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 		return nil, fmt.Errorf("plugin discovery: %w", err)
 	}
 
-	if opts.SkipConfigDisabled {
+	if opts.SkipConfigFiltering {
 		cfg.Plugins.Disabled = savedDisabled
+		cfg.Plugins.Enabled = savedEnabled
 	}
 
 	return &DiscoveryResult{

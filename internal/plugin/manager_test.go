@@ -797,3 +797,92 @@ func TestCheckDisabledProvider_NoAuth(t *testing.T) {
 		t.Errorf("plugin without auth should not be affected, got: %s", reason)
 	}
 }
+
+func TestAllowlistOnlyLoadsEnabledPlugins(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "alpha", echoScript)
+	createPluginInDir(t, dir, "beta", echoScript)
+	createPluginInDir(t, dir, "gamma", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Enabled = []string{"alpha", "gamma"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if _, ok := manifests["alpha"]; !ok {
+		t.Error("expected 'alpha' in Manifests()")
+	}
+	if _, ok := manifests["gamma"]; !ok {
+		t.Error("expected 'gamma' in Manifests()")
+	}
+	if _, ok := manifests["beta"]; ok {
+		t.Error("'beta' should not be in Manifests() with allowlist")
+	}
+
+	configDisabled := m.ConfigDisabledPlugins()
+	if _, ok := configDisabled["beta"]; !ok {
+		t.Error("expected 'beta' in ConfigDisabledPlugins()")
+	}
+}
+
+func TestAllowlistOverridesDisabled(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "alpha", echoScript)
+	createPluginInDir(t, dir, "beta", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Enabled = []string{"alpha", "beta"}
+	cfg.Plugins.Disabled = []string{"beta"} // should be ignored
+
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// Both should be loaded since enabled takes precedence
+	manifests := m.Manifests()
+	if _, ok := manifests["alpha"]; !ok {
+		t.Error("expected 'alpha' in Manifests()")
+	}
+	if _, ok := manifests["beta"]; !ok {
+		t.Error("expected 'beta' in Manifests() — allowlist overrides disabled")
+	}
+}
+
+func TestEmptyAllowlistUsesDefault(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "alpha", echoScript)
+	createPluginInDir(t, dir, "beta", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Plugins.Enabled = []string{} // empty = not active
+	cfg.Plugins.Disabled = []string{"beta"}
+
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifests := m.Manifests()
+	if _, ok := manifests["alpha"]; !ok {
+		t.Error("expected 'alpha' in Manifests()")
+	}
+	if _, ok := manifests["beta"]; ok {
+		t.Error("'beta' should be disabled via blocklist when allowlist is empty")
+	}
+}

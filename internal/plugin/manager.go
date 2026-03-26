@@ -113,7 +113,14 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 				log.Printf("plugin %s is disabled", manifest.Name)
 				continue
 			}
-			if slices.Contains(m.cfg.Plugins.Disabled, manifest.Name) {
+			if len(m.cfg.Plugins.Enabled) > 0 {
+				// Allowlist mode: only load plugins in the enabled list
+				if !slices.Contains(m.cfg.Plugins.Enabled, manifest.Name) {
+					log.Printf("plugin %s not in allowlist", manifest.Name)
+					m.configDisabled[manifest.Name] = manifest
+					continue
+				}
+			} else if slices.Contains(m.cfg.Plugins.Disabled, manifest.Name) {
 				log.Printf("plugin %s is disabled via config", manifest.Name)
 				m.configDisabled[manifest.Name] = manifest
 				continue
@@ -143,10 +150,21 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 		}
 	}
 
-	// Warn about disabled entries that don't match any discovered plugin.
-	for _, name := range m.cfg.Plugins.Disabled {
-		if !seenNames[name] {
-			log.Printf("WARNING: config disables plugin %q but no such plugin was found", name)
+	// Warn about enabled/disabled entries that don't match any discovered plugin.
+	if len(m.cfg.Plugins.Enabled) > 0 {
+		if len(m.cfg.Plugins.Disabled) > 0 {
+			log.Printf("WARNING: both plugins.enabled and plugins.disabled are set; using allowlist (plugins.enabled)")
+		}
+		for _, name := range m.cfg.Plugins.Enabled {
+			if !seenNames[name] {
+				log.Printf("WARNING: config enables plugin %q but no such plugin was found", name)
+			}
+		}
+	} else {
+		for _, name := range m.cfg.Plugins.Disabled {
+			if !seenNames[name] {
+				log.Printf("WARNING: config disables plugin %q but no such plugin was found", name)
+			}
 		}
 	}
 

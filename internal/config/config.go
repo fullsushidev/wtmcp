@@ -73,6 +73,7 @@ type PluginsConfig struct {
 	ShutdownKillAfter time.Duration `yaml:"shutdown_kill_after"`
 	UserPlugins       bool          `yaml:"user_plugins"`
 	Disabled          []string      `yaml:"disabled"`
+	Enabled           []string      `yaml:"enabled"`
 }
 
 // OutputConfig controls tool result encoding.
