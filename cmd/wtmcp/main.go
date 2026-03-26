@@ -237,6 +237,11 @@ func runCheck() error {
 	if result.Config.ReadOnly {
 		fmt.Printf("read-only: true (write tools will not be registered)\n")
 	}
+	if len(result.Config.Plugins.Enabled) > 0 {
+		fmt.Printf("plugin mode: allowlist (%d plugins)\n", len(result.Config.Plugins.Enabled))
+	} else {
+		fmt.Printf("plugin mode: default\n")
+	}
 	fmt.Printf("user plugins: %v\n", result.Config.Plugins.UserPlugins)
 	fmt.Printf("env groups: %d\n", len(result.EnvGroups))
 	for group := range result.EnvGroups {

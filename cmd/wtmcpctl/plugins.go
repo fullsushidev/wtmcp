@@ -84,8 +84,8 @@ func init() {
 }
 
 // getPluginsDiscoveryResult discovers ALL plugins, ignoring the
-// plugins.disabled config filter. The enabled/disabled status is
-// determined from Config.Plugins.Disabled instead.
+// plugins.enabled and plugins.disabled config filters. The enabled/disabled
+// status is determined from Config.Plugins.Enabled/Disabled instead.
 func getPluginsDiscoveryResult() (*plugin.DiscoveryResult, error) {
 	return plugin.Discover(plugin.DiscoveryOptions{
 		WorkdirOverride:     globalWorkdir,
@@ -93,7 +93,18 @@ func getPluginsDiscoveryResult() (*plugin.DiscoveryResult, error) {
 	})
 }
 
+// isAllowlistActive reports whether the plugin allowlist is in use.
+func isAllowlistActive(result *plugin.DiscoveryResult) bool {
+	return len(result.Config.Plugins.Enabled) > 0
+}
+
 func buildPluginEntries(result *plugin.DiscoveryResult) []pluginEntry {
+	allowlist := isAllowlistActive(result)
+
+	enabledSet := make(map[string]bool)
+	for _, name := range result.Config.Plugins.Enabled {
+		enabledSet[name] = true
+	}
 	disabledSet := make(map[string]bool)
 	for _, name := range result.Config.Plugins.Disabled {
 		disabledSet[name] = true
@@ -101,9 +112,15 @@ func buildPluginEntries(result *plugin.DiscoveryResult) []pluginEntry {
 
 	var entries []pluginEntry
 	for _, m := range result.Manager.Manifests() {
+		var enabled bool
+		if allowlist {
+			enabled = enabledSet[m.Name]
+		} else {
+			enabled = !disabledSet[m.Name]
+		}
 		entries = append(entries, pluginEntry{
 			Name: m.Name, Version: m.Version,
-			Description: m.Description, Enabled: !disabledSet[m.Name],
+			Description: m.Description, Enabled: enabled,
 		})
 	}
 	// Sort: disabled first, then alphabetically within each group
@@ -160,29 +177,37 @@ func runPluginsInteractive(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Compute disabled list: all names NOT in selected
 	selectedSet := make(map[string]bool, len(selected))
 	for _, s := range selected {
 		selectedSet[s] = true
 	}
-	var disabled []string
-	for _, e := range entries {
-		if !selectedSet[e.Name] {
-			disabled = append(disabled, e.Name)
+
+	if isAllowlistActive(result) {
+		// Allowlist mode: save the selected plugins as the enabled list
+		sort.Strings(selected)
+		if err := updateConfigStringList(result.ConfigPath, "plugins", "enabled", selected); err != nil {
+			return err
 		}
-	}
-	sort.Strings(disabled)
-
-	if err := updateConfigDisabled(result.ConfigPath, disabled); err != nil {
-		return err
-	}
-
-	if len(disabled) == 0 {
-		fmt.Println("All plugins enabled.")
+		fmt.Printf("Allowlist updated in %s (%d plugins enabled).\n", result.ConfigPath, len(selected))
 	} else {
-		fmt.Printf("Disabled plugins updated in %s:\n", result.ConfigPath)
-		for _, name := range disabled {
-			fmt.Printf("  - %s\n", name)
+		// Blocklist mode: save unselected plugins as disabled
+		var disabled []string
+		for _, e := range entries {
+			if !selectedSet[e.Name] {
+				disabled = append(disabled, e.Name)
+			}
+		}
+		sort.Strings(disabled)
+		if err := updateConfigDisabled(result.ConfigPath, disabled); err != nil {
+			return err
+		}
+		if len(disabled) == 0 {
+			fmt.Println("All plugins enabled.")
+		} else {
+			fmt.Printf("Disabled plugins updated in %s:\n", result.ConfigPath)
+			for _, name := range disabled {
+				fmt.Printf("  - %s\n", name)
+			}
 		}
 	}
 	return nil
@@ -202,13 +227,22 @@ func runPluginsListCmd(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	allowlist := isAllowlistActive(result)
+	disabledLabel := "disabled"
+	if allowlist {
+		disabledLabel = "not in allowlist"
+	}
+
 	if plain {
 		for _, e := range entries {
 			status := "enabled"
 			if !e.Enabled {
-				status = "disabled"
+				status = disabledLabel
 			}
 			fmt.Printf("%s\t%s\t%s\t%s\n", e.Name, e.Version, status, e.Description)
+		}
+		if allowlist {
+			fmt.Println("# allowlist active")
 		}
 		return nil
 	}
@@ -217,7 +251,7 @@ func runPluginsListCmd(cmd *cobra.Command, _ []string) error {
 	for i, e := range entries {
 		status := enabledStyle.Render("enabled")
 		if !e.Enabled {
-			status = disabledStyle.Render("disabled")
+			status = disabledStyle.Render(disabledLabel)
 		}
 		data[i] = []string{e.Name, "v" + e.Version, status, e.Description}
 	}
@@ -241,6 +275,9 @@ func runPluginsListCmd(cmd *cobra.Command, _ []string) error {
 		Rows(data...)
 
 	fmt.Println(t)
+	if allowlist {
+		fmt.Println("Allowlist active: only explicitly listed plugins are loaded.")
+	}
 	return nil
 }
 
@@ -264,7 +301,31 @@ func runPluginsEnable(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Load current disabled list, remove the specified names
+	if isAllowlistActive(result) {
+		// Allowlist mode: add to plugins.enabled
+		enabled := append([]string{}, result.Config.Plugins.Enabled...)
+		enabledSet := make(map[string]bool, len(enabled))
+		for _, name := range enabled {
+			enabledSet[name] = true
+		}
+		for _, name := range args {
+			if !enabledSet[name] {
+				enabled = append(enabled, name)
+			}
+		}
+		sort.Strings(enabled)
+
+		if err := updateConfigStringList(result.ConfigPath, "plugins", "enabled", enabled); err != nil {
+			return err
+		}
+		for _, name := range args {
+			fmt.Printf("Enabled plugin: %s\n", name)
+		}
+		fmt.Println("Note: allowlist mode active; added to plugins.enabled.")
+		return nil
+	}
+
+	// Blocklist mode: remove from plugins.disabled
 	disabled, err := loadCurrentDisabled(result.ConfigPath)
 	if err != nil {
 		return err
@@ -311,7 +372,31 @@ func runPluginsDisable(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Load current disabled list, add the specified names
+	if isAllowlistActive(result) {
+		// Allowlist mode: remove from plugins.enabled
+		removeSet := make(map[string]bool, len(args))
+		for _, name := range args {
+			removeSet[name] = true
+		}
+		var newEnabled []string
+		for _, name := range result.Config.Plugins.Enabled {
+			if !removeSet[name] {
+				newEnabled = append(newEnabled, name)
+			}
+		}
+		sort.Strings(newEnabled)
+
+		if err := updateConfigStringList(result.ConfigPath, "plugins", "enabled", newEnabled); err != nil {
+			return err
+		}
+		for _, name := range args {
+			fmt.Printf("Disabled plugin: %s\n", name)
+		}
+		fmt.Println("Note: allowlist mode active; removed from plugins.enabled.")
+		return nil
+	}
+
+	// Blocklist mode: add to plugins.disabled
 	disabled, err := loadCurrentDisabled(result.ConfigPath)
 	if err != nil {
 		return err
@@ -454,7 +539,8 @@ func updateConfigDisabled(configPath string, disabled []string) error {
 }
 
 // completeEnabledPlugins returns currently enabled plugin names for
-// the disable subcommand, filtering out names already on the command line.
+// the disable subcommand. In allowlist mode, returns plugins in the
+// allowlist. In blocklist mode, returns plugins not in the disabled list.
 func completeEnabledPlugins(
 	_ *cobra.Command, args []string, _ string,
 ) ([]string, cobra.ShellCompDirective) {
@@ -463,28 +549,40 @@ func completeEnabledPlugins(
 		return nil, cobra.ShellCompDirectiveError
 	}
 
-	disabledSet := make(map[string]bool)
-	for _, name := range result.Config.Plugins.Disabled {
-		disabledSet[name] = true
-	}
-
 	already := make(map[string]bool, len(args))
 	for _, a := range args {
 		already[a] = true
 	}
 
 	var names []string
-	for name := range result.Manager.Manifests() {
-		if !already[name] && !disabledSet[name] {
-			names = append(names, name)
+	if isAllowlistActive(result) {
+		enabledSet := make(map[string]bool)
+		for _, name := range result.Config.Plugins.Enabled {
+			enabledSet[name] = true
+		}
+		for name := range result.Manager.Manifests() {
+			if !already[name] && enabledSet[name] {
+				names = append(names, name)
+			}
+		}
+	} else {
+		disabledSet := make(map[string]bool)
+		for _, name := range result.Config.Plugins.Disabled {
+			disabledSet[name] = true
+		}
+		for name := range result.Manager.Manifests() {
+			if !already[name] && !disabledSet[name] {
+				names = append(names, name)
+			}
 		}
 	}
 	sort.Strings(names)
 	return names, cobra.ShellCompDirectiveNoFileComp
 }
 
-// completeDisabledPlugins returns currently config-disabled plugin names
-// for the enable subcommand, filtering out names already on the command line.
+// completeDisabledPlugins returns currently disabled plugin names for
+// the enable subcommand. In allowlist mode, returns plugins not in the
+// allowlist. In blocklist mode, returns plugins in the disabled list.
 func completeDisabledPlugins(
 	_ *cobra.Command, args []string, _ string,
 ) ([]string, cobra.ShellCompDirective) {
@@ -493,20 +591,31 @@ func completeDisabledPlugins(
 		return nil, cobra.ShellCompDirectiveError
 	}
 
-	disabledSet := make(map[string]bool)
-	for _, name := range result.Config.Plugins.Disabled {
-		disabledSet[name] = true
-	}
-
 	already := make(map[string]bool, len(args))
 	for _, a := range args {
 		already[a] = true
 	}
 
 	var names []string
-	for name := range result.Manager.Manifests() {
-		if !already[name] && disabledSet[name] {
-			names = append(names, name)
+	if isAllowlistActive(result) {
+		enabledSet := make(map[string]bool)
+		for _, name := range result.Config.Plugins.Enabled {
+			enabledSet[name] = true
+		}
+		for name := range result.Manager.Manifests() {
+			if !already[name] && !enabledSet[name] {
+				names = append(names, name)
+			}
+		}
+	} else {
+		disabledSet := make(map[string]bool)
+		for _, name := range result.Config.Plugins.Disabled {
+			disabledSet[name] = true
+		}
+		for name := range result.Manager.Manifests() {
+			if !already[name] && disabledSet[name] {
+				names = append(names, name)
+			}
 		}
 	}
 	sort.Strings(names)
