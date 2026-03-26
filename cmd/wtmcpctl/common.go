@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/LeGambiArt/wtmcp/internal/plugin"
 )
 
@@ -43,6 +45,58 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	}
 
 	return nil
+}
+
+// updateConfigStringList sets or removes a string list at doc[section][key]
+// in the YAML config file. If values is empty, the key is deleted; if the
+// section becomes empty, it is also deleted.
+func updateConfigStringList(configPath, section, key string, values []string) error {
+	data, err := os.ReadFile(configPath) //nolint:gosec // config file path from user
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	var doc map[string]any
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("parse config: %w", err)
+		}
+	}
+	if doc == nil {
+		doc = make(map[string]any)
+	}
+
+	sectionRaw, ok := doc[section]
+	var sectionMap map[string]any
+	if ok {
+		sectionMap, _ = sectionRaw.(map[string]any)
+	}
+	if sectionMap == nil {
+		sectionMap = make(map[string]any)
+	}
+
+	if len(values) > 0 {
+		sectionMap[key] = values
+	} else {
+		delete(sectionMap, key)
+	}
+
+	if len(sectionMap) > 0 {
+		doc[section] = sectionMap
+	} else {
+		delete(doc, section)
+	}
+
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
+		return fmt.Errorf("create config directory: %w", err)
+	}
+
+	return atomicWriteFile(configPath, out, 0o600)
 }
 
 // globalWorkdir is set by the --workdir flag and used for plugin discovery.

@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/charmbracelet/huh"
@@ -375,52 +374,7 @@ func loadCurrentDisabled(configPath string) ([]string, error) {
 }
 
 func updateConfigDisabled(configPath string, disabled []string) error {
-	data, err := os.ReadFile(configPath) //nolint:gosec // config file path from user
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	var doc map[string]any
-	if len(data) > 0 {
-		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("parse config: %w", err)
-		}
-	}
-	if doc == nil {
-		doc = make(map[string]any)
-	}
-
-	pluginsRaw, ok := doc["plugins"]
-	var plugins map[string]any
-	if ok {
-		plugins, _ = pluginsRaw.(map[string]any)
-	}
-	if plugins == nil {
-		plugins = make(map[string]any)
-	}
-
-	if len(disabled) > 0 {
-		plugins["disabled"] = disabled
-	} else {
-		delete(plugins, "disabled")
-	}
-
-	if len(plugins) > 0 {
-		doc["plugins"] = plugins
-	} else {
-		delete(doc, "plugins")
-	}
-
-	out, err := yaml.Marshal(doc)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
-		return fmt.Errorf("create config directory: %w", err)
-	}
-
-	return atomicWriteFile(configPath, out, 0o600)
+	return updateConfigStringList(configPath, "plugins", "disabled", disabled)
 }
 
 // completeEnabledPlugins returns currently enabled plugin names for
