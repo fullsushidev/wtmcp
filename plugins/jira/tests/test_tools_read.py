@@ -150,6 +150,46 @@ class TestSearch:
             result = tools_read.search({"jql": "bad"})
             assert result["error"] == "HTTP 500"
 
+    def test_start_at_passed_in_query(self):
+        with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE) as mock_http, _mock_cache_set():
+            tools_read.search({"jql": "project = PROJ", "start_at": 25})
+            query = mock_http.call_args[1].get("query") or mock_http.call_args[0][2]
+            assert query["startAt"] == "25"
+
+    def test_start_at_default_is_zero(self):
+        with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE) as mock_http, _mock_cache_set():
+            tools_read.search({"jql": "project = PROJ"})
+            query = mock_http.call_args[1].get("query") or mock_http.call_args[0][2]
+            assert query["startAt"] == "0"
+
+    def test_start_at_in_response(self):
+        with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE), _mock_cache_set():
+            result = tools_read.search({"jql": "project = PROJ", "start_at": 10})
+            assert result["start_at"] == 10
+
+    def test_start_at_negative_clamped(self):
+        with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE) as mock_http, _mock_cache_set():
+            tools_read.search({"jql": "project = PROJ", "start_at": -5})
+            query = mock_http.call_args[1].get("query") or mock_http.call_args[0][2]
+            assert query["startAt"] == "0"
+
+    def test_cache_key_varies_with_start_at(self):
+        keys = set()
+        base = {"jql": "project = PROJ"}
+        for start in [0, 50, 100]:
+            with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE), _mock_cache_set() as mock_set:
+                tools_read.search({**base, "start_at": start})
+                cache_key = mock_set.call_args[0][0]
+                keys.add(cache_key)
+        assert len(keys) == 3, f"Expected 3 unique keys, got {len(keys)}"
+
+    def test_truncated_warning_with_offset(self):
+        truncated = {"total": 150, "issues": SEARCH_RESPONSE["issues"]}
+        with _mock_cache_get(None), _mock_http(200, truncated), _mock_cache_set():
+            result = tools_read.search({"jql": "project = PROJ", "start_at": 50})
+            assert result["truncated"] is True
+            assert "start_at=52" in result["warning"]
+
 
 # --- jira_get_issues ---
 
