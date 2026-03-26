@@ -191,6 +191,176 @@ class TestSearch:
             assert "start_at=52" in result["warning"]
 
 
+# --- jira_search (Cloud pagination) ---
+
+CLOUD_PAGE_1 = {
+    "issues": SAMPLE_ISSUES[:1],
+    "isLast": False,
+    "nextPageToken": "token-page-2",
+}
+
+CLOUD_PAGE_2 = {
+    "issues": SAMPLE_ISSUES[1:],
+    "isLast": True,
+    "nextPageToken": "",
+}
+
+CLOUD_SINGLE_PAGE = {
+    "issues": SAMPLE_ISSUES,
+    "isLast": True,
+}
+
+
+class TestSearchCloud:
+    def test_single_page(self):
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(200, CLOUD_SINGLE_PAGE),
+            _mock_cache_set(),
+        ):
+            result = tools_read.search({"jql": "project = PROJ"})
+            assert result["count"] == 2
+            assert result["total"] == 2
+
+    def test_multi_page_pagination(self):
+        responses = [
+            (200, CLOUD_PAGE_1, {}),
+            (200, CLOUD_PAGE_2, {}),
+        ]
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            patch.object(handler, "http", side_effect=responses),
+            _mock_cache_set(),
+        ):
+            result = tools_read.search({"jql": "project = PROJ"})
+            assert result["count"] == 2
+            assert result["total"] == 2
+            assert result["issues"][0]["key"] == "PROJ-1"
+            assert result["issues"][1]["key"] == "PROJ-2"
+
+    def test_multi_page_sends_next_page_token(self):
+        responses = [
+            (200, CLOUD_PAGE_1, {}),
+            (200, CLOUD_PAGE_2, {}),
+        ]
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            patch.object(handler, "http", side_effect=responses) as mock_http,
+            _mock_cache_set(),
+        ):
+            tools_read.search({"jql": "project = PROJ"})
+            # First call: no nextPageToken
+            first_query = mock_http.call_args_list[0][1].get("query") or mock_http.call_args_list[0][0][2]
+            assert "nextPageToken" not in first_query
+            # Second call: nextPageToken from first response
+            second_query = mock_http.call_args_list[1][1].get("query") or mock_http.call_args_list[1][0][2]
+            assert second_query["nextPageToken"] == "token-page-2"
+
+    def test_start_at_slices_results(self):
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(200, CLOUD_SINGLE_PAGE),
+            _mock_cache_set(),
+        ):
+            result = tools_read.search({"jql": "project = PROJ", "start_at": 1})
+            assert result["count"] == 1
+            assert result["start_at"] == 1
+            assert result["issues"][0]["key"] == "PROJ-2"
+
+    def test_start_at_beyond_results_returns_empty(self):
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(200, CLOUD_SINGLE_PAGE),
+            _mock_cache_set(),
+        ):
+            result = tools_read.search({"jql": "project = PROJ", "start_at": 10})
+            assert result["count"] == 0
+            assert result["issues"] == []
+
+    def test_max_results_caps_output(self):
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(200, CLOUD_SINGLE_PAGE),
+            _mock_cache_set(),
+        ):
+            result = tools_read.search({"jql": "project = PROJ", "max_results": 1})
+            assert result["count"] == 1
+
+    def test_empty_results(self):
+        empty = {"issues": [], "isLast": True}
+        with patch.object(handler, "is_cloud", True), _mock_cache_get(None), _mock_http(200, empty), _mock_cache_set():
+            result = tools_read.search({"jql": "project = PROJ"})
+            assert result["count"] == 0
+            assert result["total"] == 0
+            assert result["issues"] == []
+
+    def test_mid_pagination_error(self):
+        responses = [
+            (200, CLOUD_PAGE_1, {}),
+            (500, {"error": "Server Error"}, {}),
+        ]
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            patch.object(handler, "http", side_effect=responses),
+        ):
+            result = tools_read.search({"jql": "project = PROJ"})
+            assert result["error"] == "HTTP 500"
+
+    def test_missing_is_last_field_terminates(self):
+        no_is_last = {"issues": SAMPLE_ISSUES}
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(200, no_is_last),
+            _mock_cache_set(),
+        ):
+            result = tools_read.search({"jql": "project = PROJ"})
+            assert result["count"] == 2
+
+    def test_cache_key_differs_from_server(self):
+        keys = set()
+        for cloud in [True, False]:
+            with (
+                patch.object(handler, "is_cloud", cloud),
+                _mock_cache_get(None),
+                _mock_http(200, SEARCH_RESPONSE),
+                _mock_cache_set() as mock_set,
+            ):
+                tools_read.search({"jql": "project = PROJ"})
+                cache_key = mock_set.call_args[0][0]
+                keys.add(cache_key)
+        assert len(keys) == 2
+
+    def test_no_start_at_in_cloud_query(self):
+        """Cloud search should not send startAt query parameter."""
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(200, CLOUD_SINGLE_PAGE) as mock_http,
+            _mock_cache_set(),
+        ):
+            tools_read.search({"jql": "project = PROJ"})
+            query = mock_http.call_args[1].get("query") or mock_http.call_args[0][2]
+            assert "startAt" not in query
+
+    def test_error_not_cached(self):
+        with (
+            patch.object(handler, "is_cloud", True),
+            _mock_cache_get(None),
+            _mock_http(500, {"error": "fail"}),
+            _mock_cache_set() as mock_set,
+        ):
+            tools_read.search({"jql": "bad"})
+            mock_set.assert_not_called()
+
+
 # --- jira_get_issues ---
 
 
