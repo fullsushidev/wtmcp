@@ -20,16 +20,17 @@ const AppName = "wtmcp"
 
 // Config holds the core server configuration.
 type Config struct {
-	PluginDirs     []string      `yaml:"plugin_dirs"`
-	CredentialsDir string        `yaml:"credentials_dir"`
-	UserPluginDir  string        `yaml:"-"` // set internally, not from config file
-	ReadOnly       bool          `yaml:"read_only"`
-	HTTP           HTTPConfig    `yaml:"http"`
-	Cache          CacheConfig   `yaml:"cache"`
-	Plugins        PluginsConfig `yaml:"plugins"`
-	Output         OutputConfig  `yaml:"output"`
-	Tools          ToolsConfig   `yaml:"tools"`
-	Stats          StatsConfig   `yaml:"stats"`
+	PluginDirs     []string        `yaml:"plugin_dirs"`
+	CredentialsDir string          `yaml:"credentials_dir"`
+	UserPluginDir  string          `yaml:"-"` // set internally, not from config file
+	ReadOnly       bool            `yaml:"read_only"`
+	HTTP           HTTPConfig      `yaml:"http"`
+	Cache          CacheConfig     `yaml:"cache"`
+	Plugins        PluginsConfig   `yaml:"plugins"`
+	Output         OutputConfig    `yaml:"output"`
+	Tools          ToolsConfig     `yaml:"tools"`
+	Stats          StatsConfig     `yaml:"stats"`
+	Providers      ProvidersConfig `yaml:"providers"`
 }
 
 // HTTPConfig controls the HTTP proxy behavior.
@@ -93,6 +94,11 @@ type StatsConfig struct {
 	Tokenizer string `yaml:"tokenizer"`
 	LogCalls  bool   `yaml:"log_calls"`
 	Persist   bool   `yaml:"persist"`
+}
+
+// ProvidersConfig controls which auth providers are active.
+type ProvidersConfig struct {
+	Disabled []string `yaml:"disabled"`
 }
 
 // DefaultConfig returns a Config with sensible defaults.
