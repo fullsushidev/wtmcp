@@ -8,7 +8,7 @@ LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE)
 all: build
 
 # Build everything
-build: wtmcp wtmcpctl google-plugins
+build: wtmcp wtmcpctl go-plugins
 
 # Build wtmcp binary
 wtmcp: $(shell find cmd/wtmcp -name '*.go') $(shell find internal -name '*.go')
@@ -20,10 +20,10 @@ wtmcpctl: $(shell find cmd/wtmcpctl -name '*.go') $(shell find internal -name '*
 	@echo "Building wtmcpctl..."
 	go build -ldflags "$(LDFLAGS)" -o wtmcpctl ./cmd/wtmcpctl
 
-# Build google-plugins
-google-plugins:
+# Build all Go plugin handlers
+go-plugins:
 	@echo "Building plugin handlers..."
-	@for plugin in plugins/google-*/; do \
+	@for plugin in plugins/*/; do \
 		if ls $$plugin*.go >/dev/null 2>&1; then \
 			echo "  $$plugin"; \
 			go build -o $${plugin}handler ./$${plugin}; \
@@ -70,7 +70,7 @@ clean:
 	@echo "Cleaning..."
 	rm -f wtmcp wtmcpctl
 	rm -f coverage.out
-	rm -f plugins/google-*/handler
+	rm -f plugins/*/handler
 
 # Show help
 help:
@@ -81,7 +81,7 @@ help:
 	@echo "  build          - Build all binaries and plugins"
 	@echo "  wtmcp          - Build wtmcp binary"
 	@echo "  wtmcpctl       - Build wtmcpctl binary"
-	@echo "  google-plugins - Build all Google plugin handlers"
+	@echo "  go-plugins     - Build all Go plugin handlers"
 	@echo "  test           - Run tests"
 	@echo "  test-cover     - Run tests with coverage report"
 	@echo "  lint           - Run golangci-lint"
