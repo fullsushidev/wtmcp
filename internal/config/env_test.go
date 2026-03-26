@@ -41,7 +41,7 @@ func TestLoadEnvGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := LoadEnvGroups(dir)
+	result, err := LoadEnvGroups(envDir)
 	if err != nil {
 		t.Fatalf("LoadEnvGroups: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestLoadEnvGroupsNotInProcessEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadEnvGroups(dir)
+	_, err := LoadEnvGroups(envDir)
 	if err != nil {
 		t.Fatalf("LoadEnvGroups: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestLoadEnvGroupsNotInProcessEnv(t *testing.T) {
 }
 
 func TestLoadEnvGroupsMissingDir(t *testing.T) {
-	result, err := LoadEnvGroups("/nonexistent/path")
+	result, err := LoadEnvGroups("/nonexistent/path/env.d")
 	if err != nil {
 		t.Errorf("should not error on missing dir: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestLoadEnvGroupsPartialOnBadFilePerms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := LoadEnvGroups(dir)
+	result, err := LoadEnvGroups(envDir)
 	if err != nil {
 		t.Fatalf("should not return fatal error: %v", err)
 	}
@@ -155,7 +155,7 @@ func TestLoadEnvGroupsRejectsLooseDirPerms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadEnvGroups(dir)
+	_, err := LoadEnvGroups(envDir)
 	if err == nil {
 		t.Fatal("expected error for world-readable env.d directory")
 	}
@@ -185,7 +185,7 @@ func TestLoadEnvGroupsRejectsSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := LoadEnvGroups(dir)
+	result, err := LoadEnvGroups(envDir)
 	if err != nil {
 		t.Fatalf("should not return fatal error: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestLoadSingleEnvGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	vars, err := LoadSingleEnvGroup(dir, "mygroup")
+	vars, err := LoadSingleEnvGroup(envDir, "mygroup")
 	if err != nil {
 		t.Fatalf("LoadSingleEnvGroup: %v", err)
 	}
@@ -234,7 +234,7 @@ func TestLoadSingleEnvGroupBadPerms(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := LoadSingleEnvGroup(dir, "bad")
+	_, err := LoadSingleEnvGroup(envDir, "bad")
 	if err == nil {
 		t.Fatal("expected error for bad permissions")
 	}

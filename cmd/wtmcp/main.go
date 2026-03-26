@@ -134,7 +134,8 @@ func run() error {
 	}
 
 	// Load scoped env.d groups (not into process env)
-	envResult, err := config.LoadEnvGroups(wd)
+	envDir := config.ResolveEnvDir(cfg, wd)
+	envResult, err := config.LoadEnvGroups(envDir)
 	if err != nil {
 		return fmt.Errorf("load env: %w", err)
 	}
@@ -166,7 +167,7 @@ func run() error {
 	cacheStore := cache.NewMemoryStore()
 	httpProxy := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
 
-	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envResult.Groups, envResult.Errors, wd)
+	mgr := plugin.NewManager(authReg, httpProxy, cacheStore, cfg, envResult.Groups, envResult.Errors, wd, envDir)
 
 	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {
 		return fmt.Errorf("plugin discovery: %w", err)

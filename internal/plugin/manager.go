@@ -39,6 +39,7 @@ type Manager struct {
 	envGroups      config.EnvGroups
 	envErrors      map[string]string // credential group → error message
 	workdir        string
+	envDir         string
 	authReg        *auth.Registry
 	proxy          *proxy.Proxy
 	cache          cache.Store
@@ -49,9 +50,9 @@ type Manager struct {
 // NewManager creates a plugin manager. envErrors maps credential
 // group names to their load errors (from LoadEnvGroups). Plugins
 // whose credential_group appears in envErrors will be disabled
-// during LoadAll instead of loaded. workdir is needed to re-read
-// env.d files on plugin reload.
-func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *config.Config, envGroups config.EnvGroups, envErrors map[string]string, workdir string) *Manager {
+// during LoadAll instead of loaded. envDir is the resolved env.d
+// directory path used to re-read env files on plugin reload.
+func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *config.Config, envGroups config.EnvGroups, envErrors map[string]string, workdir, envDir string) *Manager {
 	if envErrors == nil {
 		envErrors = make(map[string]string)
 	}
@@ -63,6 +64,7 @@ func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *conf
 		envGroups:      envGroups,
 		envErrors:      envErrors,
 		workdir:        workdir,
+		envDir:         envDir,
 		authReg:        authReg,
 		proxy:          p,
 		cache:          c,
@@ -390,8 +392,8 @@ func (m *Manager) Reload(ctx context.Context, name string) error {
 	} else if manifest, ok := m.manifests[name]; ok {
 		group = manifest.CredentialGroup
 	}
-	if group != "" && m.workdir != "" {
-		vars, err := config.LoadSingleEnvGroup(m.workdir, group)
+	if group != "" && m.envDir != "" {
+		vars, err := config.LoadSingleEnvGroup(m.envDir, group)
 		if err != nil {
 			if _, wasDisabled := m.disabled[name]; wasDisabled {
 				return fmt.Errorf("env group %s still has issues: %w", group, err)

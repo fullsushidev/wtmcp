@@ -34,22 +34,23 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 		workdir = opts.WorkdirOverride
 	}
 
-	// Load scoped env.d groups (not into process env)
-	envResult, err := config.LoadEnvGroups(workdir)
-	if err != nil {
-		return nil, fmt.Errorf("load env: %w", err)
-	}
-
 	// Resolve config path (same defaulting logic as config.Load)
 	cfgPath := opts.ConfigPath
 	if cfgPath == "" {
 		cfgPath = filepath.Join(workdir, "config.yaml")
 	}
 
-	// Load config (uses workdir for defaults)
+	// Load config first so we can use cfg.EnvDir.
 	cfg, err := config.Load(opts.ConfigPath, workdir)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
+	}
+
+	// Load scoped env.d groups (not into process env)
+	envDir := config.ResolveEnvDir(cfg, workdir)
+	envResult, err := config.LoadEnvGroups(envDir)
+	if err != nil {
+		return nil, fmt.Errorf("load env: %w", err)
 	}
 
 	// When SkipConfigFiltering is set, temporarily clear the enabled
@@ -64,7 +65,7 @@ func Discover(opts DiscoveryOptions) (*DiscoveryResult, error) {
 	}
 
 	// Create manager with nil dependencies (discovery only)
-	mgr := NewManager(nil, nil, nil, cfg, envResult.Groups, envResult.Errors, workdir)
+	mgr := NewManager(nil, nil, nil, cfg, envResult.Groups, envResult.Errors, workdir, envDir)
 
 	// Discover plugins (without loading/starting them)
 	if err := mgr.Discover(cfg.PluginDirs, cfg.UserPluginDir); err != nil {

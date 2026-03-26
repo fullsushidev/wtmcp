@@ -23,6 +23,7 @@ type Config struct {
 	PluginDirs     []string        `yaml:"plugin_dirs"`
 	CredentialsDir string          `yaml:"credentials_dir"`
 	LogFile        string          `yaml:"log_file"`
+	EnvDir         string          `yaml:"env_dir"`
 	UserPluginDir  string          `yaml:"-"` // set internally, not from config file
 	ReadOnly       bool            `yaml:"read_only"`
 	HTTP           HTTPConfig      `yaml:"http"`

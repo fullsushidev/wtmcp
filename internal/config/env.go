@@ -50,26 +50,28 @@ type EnvLoadResult struct {
 	Errors map[string]string // group name → human-readable error
 }
 
-// LoadEnvGroups reads env.d/*.env files and returns them as scoped
+// ResolveEnvDir returns the env.d directory path from config or default.
+func ResolveEnvDir(cfg *Config, workdir string) string {
+	if cfg.EnvDir != "" {
+		return ResolveEnvVars(cfg.EnvDir)
+	}
+	return filepath.Join(workdir, "env.d")
+}
+
+// LoadEnvGroups reads *.env files from envDir and returns them as scoped
 // groups. Each file becomes a group keyed by its filename without
 // the .env extension. Variables are NOT loaded into the process
 // environment — they are only available through the returned map.
 //
-// Directory-level errors (env.d missing permissions) are fatal and
-// returned as the error. Per-file errors (bad permissions, symlinks,
-// parse failures) are captured in EnvLoadResult.Errors and the file
-// is skipped — other groups continue loading normally.
-//
-// Plugin credentials and configuration must be set via env.d files;
-// shell-exported environment variables are not used for plugin
-// variable resolution.
-func LoadEnvGroups(workdir string) (EnvLoadResult, error) {
+// Directory-level errors (missing permissions) are fatal and returned
+// as the error. Per-file errors (bad permissions, symlinks, parse
+// failures) are captured in EnvLoadResult.Errors and the file is
+// skipped — other groups continue loading normally.
+func LoadEnvGroups(envDir string) (EnvLoadResult, error) {
 	result := EnvLoadResult{
 		Groups: make(EnvGroups),
 		Errors: make(map[string]string),
 	}
-
-	envDir := filepath.Join(workdir, "env.d")
 
 	// Check env.d directory permissions — fatal if bad
 	dirInfo, err := os.Stat(envDir)
@@ -118,8 +120,8 @@ func LoadEnvGroups(workdir string) (EnvLoadResult, error) {
 // group name. Performs symlink rejection, permission checks, and
 // parsing — same validation as LoadEnvGroups. Used by the plugin
 // reload path to re-read credentials after the user fixes permissions.
-func LoadSingleEnvGroup(workdir, group string) (map[string]string, error) {
-	path := filepath.Join(workdir, "env.d", group+".env")
+func LoadSingleEnvGroup(envDir, group string) (map[string]string, error) {
+	path := filepath.Join(envDir, group+".env")
 	return loadEnvFile(path)
 }
 
