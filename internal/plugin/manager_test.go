@@ -557,3 +557,243 @@ func TestManagerDiscoverUserCanAddNew(t *testing.T) {
 		t.Error("expected 'user-only' manifest")
 	}
 }
+
+// createPluginWithManifest creates a plugin with a custom manifest YAML.
+func createPluginWithManifest(t *testing.T, parentDir, name, manifestYAML string) {
+	t.Helper()
+	pluginDir := filepath.Join(parentDir, name)
+	if err := os.MkdirAll(pluginDir, 0o755); err != nil { //nolint:gosec // test dir
+		t.Fatal(err)
+	}
+	handlerPath := filepath.Join(pluginDir, "handler.sh")
+	if err := os.WriteFile(handlerPath, []byte(echoScript), 0o755); err != nil { //nolint:gosec // test needs executable
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(pluginDir, "plugin.yaml")
+	if err := os.WriteFile(manifestPath, []byte(manifestYAML), 0o644); err != nil { //nolint:gosec // test config
+		t.Fatal(err)
+	}
+}
+
+func TestCheckDisabledProvider_SingleType(t *testing.T) {
+	dir := t.TempDir()
+	createPluginWithManifest(t, dir, "krb-plugin", `
+name: krb-plugin
+version: "1.0.0"
+description: "Kerberos plugin"
+execution: persistent
+handler: ./handler.sh
+services:
+  auth:
+    type: kerberos/spnego
+    spn: "HTTP@host"
+tools:
+  - name: krb_test
+    description: "test"
+`)
+
+	cfg := config.DefaultConfig()
+	cfg.Providers.Disabled = []string{"kerberos/spnego"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifest := m.manifests["krb-plugin"]
+	reason := m.checkDisabledProvider(manifest)
+	if reason == "" {
+		t.Fatal("expected disabled reason for single-type kerberos plugin")
+	}
+	if !strings.Contains(reason, "kerberos/spnego") {
+		t.Errorf("reason should mention kerberos/spnego, got: %s", reason)
+	}
+}
+
+func TestCheckDisabledProvider_SingleTypeAlias(t *testing.T) {
+	dir := t.TempDir()
+	createPluginWithManifest(t, dir, "krb-alias", `
+name: krb-alias
+version: "1.0.0"
+description: "Kerberos alias plugin"
+execution: persistent
+handler: ./handler.sh
+services:
+  auth:
+    type: kerberos
+    spn: "HTTP@host"
+tools:
+  - name: krb_alias_test
+    description: "test"
+`)
+
+	cfg := config.DefaultConfig()
+	cfg.Providers.Disabled = []string{"kerberos/spnego"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifest := m.manifests["krb-alias"]
+	reason := m.checkDisabledProvider(manifest)
+	if reason == "" {
+		t.Fatal("expected disabled reason for kerberos alias")
+	}
+}
+
+func TestCheckDisabledProvider_VariantAutoSelect(t *testing.T) {
+	dir := t.TempDir()
+	createPluginWithManifest(t, dir, "jira-like", `
+name: jira-like
+version: "1.0.0"
+description: "Jira-like plugin"
+execution: persistent
+handler: ./handler.sh
+services:
+  auth:
+    select: auto
+    variants:
+      cloud:
+        type: bearer
+        token: "tok"
+      server-kerberos:
+        type: kerberos/spnego
+        spn: "HTTP@host"
+tools:
+  - name: jira_test
+    description: "test"
+`)
+
+	cfg := config.DefaultConfig()
+	cfg.Providers.Disabled = []string{"kerberos/spnego"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// With auto-select and bearer still available, plugin should NOT be disabled
+	manifest := m.manifests["jira-like"]
+	reason := m.checkDisabledProvider(manifest)
+	if reason != "" {
+		t.Errorf("plugin with viable variant should not be disabled, got: %s", reason)
+	}
+}
+
+func TestCheckDisabledProvider_VariantAutoSelectAllDisabled(t *testing.T) {
+	dir := t.TempDir()
+	createPluginWithManifest(t, dir, "all-disabled", `
+name: all-disabled
+version: "1.0.0"
+description: "All variants disabled"
+execution: persistent
+handler: ./handler.sh
+services:
+  auth:
+    select: auto
+    variants:
+      krb1:
+        type: kerberos/spnego
+        spn: "HTTP@host1"
+      krb2:
+        type: kerberos/spnego
+        spn: "HTTP@host2"
+tools:
+  - name: all_disabled_test
+    description: "test"
+`)
+
+	cfg := config.DefaultConfig()
+	cfg.Providers.Disabled = []string{"kerberos/spnego"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifest := m.manifests["all-disabled"]
+	reason := m.checkDisabledProvider(manifest)
+	if reason == "" {
+		t.Fatal("expected disabled reason when all variants use disabled providers")
+	}
+}
+
+func TestCheckDisabledProvider_ExplicitSelectDisabled(t *testing.T) {
+	dir := t.TempDir()
+	createPluginWithManifest(t, dir, "explicit-krb", `
+name: explicit-krb
+version: "1.0.0"
+description: "Explicit kerberos select"
+execution: persistent
+handler: ./handler.sh
+services:
+  auth:
+    select: server-kerberos
+    variants:
+      cloud:
+        type: bearer
+        token: "tok"
+      server-kerberos:
+        type: kerberos/spnego
+        spn: "HTTP@host"
+tools:
+  - name: explicit_krb_test
+    description: "test"
+`)
+
+	cfg := config.DefaultConfig()
+	cfg.Providers.Disabled = []string{"kerberos/spnego"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	// Explicit select of disabled variant should disable the plugin
+	manifest := m.manifests["explicit-krb"]
+	reason := m.checkDisabledProvider(manifest)
+	if reason == "" {
+		t.Fatal("expected disabled reason for explicit select of disabled variant")
+	}
+	if !strings.Contains(reason, "server-kerberos") {
+		t.Errorf("reason should mention variant name, got: %s", reason)
+	}
+}
+
+func TestCheckDisabledProvider_NoAuth(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "no-auth", echoScript)
+
+	cfg := config.DefaultConfig()
+	cfg.Providers.Disabled = []string{"kerberos/spnego"}
+	authReg := auth.NewRegistry()
+	cacheStore := cache.NewMemoryStore()
+	p := proxy.New(nil, cfg.Plugins.MaxMessageSize, cfg.HTTP.Timeout)
+	m := NewManager(authReg, p, cacheStore, cfg, nil, nil, "")
+
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	manifest := m.manifests["no-auth"]
+	reason := m.checkDisabledProvider(manifest)
+	if reason != "" {
+		t.Errorf("plugin without auth should not be affected, got: %s", reason)
+	}
+}

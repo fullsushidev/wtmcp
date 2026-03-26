@@ -164,3 +164,31 @@ func TestResolveVariantNoneAvailable(t *testing.T) {
 		t.Error("should error when no variant is available")
 	}
 }
+
+func TestIsKnownProviderType(t *testing.T) {
+	for _, name := range KnownProviderTypes {
+		if !IsKnownProviderType(name) {
+			t.Errorf("IsKnownProviderType(%q) = false, want true", name)
+		}
+	}
+	if IsKnownProviderType("unknown") {
+		t.Error("IsKnownProviderType(unknown) should be false")
+	}
+}
+
+func TestNormalizeProviderType(t *testing.T) {
+	tests := []struct {
+		input, want string
+	}{
+		{"kerberos", "kerberos/spnego"},
+		{"kerberos/spnego", "kerberos/spnego"},
+		{"bearer", "bearer"},
+		{"oauth2", "oauth2"},
+	}
+	for _, tt := range tests {
+		got := NormalizeProviderType(tt.input)
+		if got != tt.want {
+			t.Errorf("NormalizeProviderType(%q) = %q, want %q", tt.input, got, tt.want)
+		}
+	}
+}
