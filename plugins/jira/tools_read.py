@@ -30,6 +30,9 @@ def get_myself(_params):
     return result
 
 
+_MAX_SEARCH_PAGES = 20
+
+
 def search(params):
     """Search issues using JQL with optional brief mode."""
     jql = params.get("jql", "")
@@ -38,13 +41,85 @@ def search(params):
     fields = params.get("fields", "summary,status,assignee,priority")
     brief = params.get("brief", True)
 
-    key_input = f"{jql}|{max_results}|{start_at}|{fields}|{brief}"
+    key_input = f"{jql}|{max_results}|{start_at}|{fields}|{brief}|{handler.is_cloud}"
     cache_key = f"search:{hashlib.sha256(key_input.encode()).hexdigest()[:12]}"
     cached = handler.cache_get(cache_key)
     if cached:
         handler.log(f"returning cached search: {jql[:60]}")
         return cached
 
+    if handler.is_cloud:
+        result = _search_cloud(jql, max_results, start_at, fields, brief)
+    else:
+        result = _search_server(jql, max_results, start_at, fields, brief)
+
+    if "error" not in result:
+        handler.cache_set(cache_key, result, ttl=300)
+    return result
+
+
+def _search_cloud(jql, max_results, start_at, fields, brief):
+    """Cloud v3: cursor-based pagination via nextPageToken.
+
+    Cloud v3 does not support startAt — pagination uses an opaque
+    nextPageToken cursor. The start_at parameter is emulated by
+    fetching enough results and slicing. High start_at values
+    cause proportionally more API calls.
+    """
+    all_issues = []
+    next_page_token = ""
+    page_size = min(max_results + start_at, 100)
+
+    for page in range(_MAX_SEARCH_PAGES):
+        query = {
+            "jql": jql,
+            "maxResults": str(page_size),
+            "fields": fields,
+        }
+        if next_page_token:
+            query["nextPageToken"] = next_page_token
+
+        status, body, _ = handler.http("GET", "/rest/api/2/search", query=query)
+        if status < 200 or status >= 300 or not isinstance(body, dict):
+            handler.log(f"cloud search failed on page {page}: HTTP {status}")
+            return http_error(status, body)
+
+        page_issues = body.get("issues", [])
+        all_issues.extend(page_issues)
+
+        if len(all_issues) >= start_at + max_results:
+            break
+
+        if len(page_issues) == 0 or body.get("isLast", True) or not body.get("nextPageToken"):
+            break
+
+        next_page_token = body["nextPageToken"]
+
+    total_fetched = len(all_issues)
+
+    if start_at > 0:
+        all_issues = all_issues[start_at:]
+    all_issues = all_issues[:max_results]
+
+    result = {"total": total_fetched, "count": len(all_issues), "start_at": start_at}
+
+    if total_fetched > start_at + len(all_issues):
+        result["truncated"] = True
+        result["warning"] = (
+            f"Showing {len(all_issues)} of {total_fetched} fetched results. "
+            f"Use start_at={start_at + len(all_issues)} to fetch the next page."
+        )
+
+    if brief:
+        result["issues"] = [extract_brief_issue(i) for i in all_issues]
+    else:
+        result["issues"] = all_issues
+
+    return result
+
+
+def _search_server(jql, max_results, start_at, fields, brief):
+    """Server v2: offset-based pagination via startAt."""
     status, body, _ = handler.http(
         "GET",
         "/rest/api/2/search",
@@ -74,7 +149,6 @@ def search(params):
     else:
         result["issues"] = issues
 
-    handler.cache_set(cache_key, result, ttl=300)
     return result
 
 
