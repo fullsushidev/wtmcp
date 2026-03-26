@@ -540,6 +540,67 @@ func toolGetIssueDetails(params, _ json.RawMessage) (any, error) {
 	return result, nil
 }
 
+// --- gitlab_my_issues ---
+
+type myIssuesParams struct {
+	instanceParam
+	Labels     []string `json:"labels"`
+	Sort       string   `json:"sort"`
+	OrderBy    string   `json:"order_by"`
+	MaxResults int      `json:"max_results"`
+}
+
+func toolMyIssues(params, _ json.RawMessage) (any, error) {
+	var p myIssuesParams
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.MaxResults == 0 {
+		p.MaxResults = 30
+	}
+	if p.OrderBy == "" {
+		p.OrderBy = "updated_at"
+	}
+	if p.Sort == "" {
+		p.Sort = "desc"
+	}
+
+	client, err := resolveInstance(p.Instance)
+	if err != nil {
+		return nil, err
+	}
+
+	perPage := int64(p.MaxResults)
+	if perPage > 100 {
+		perPage = 100
+	}
+
+	scope := "assigned_to_me"
+	state := "opened"
+	opts := &gogitlab.ListIssuesOptions{
+		ListOptions: gogitlab.ListOptions{PerPage: perPage},
+		Scope:       &scope,
+		State:       &state,
+		OrderBy:     &p.OrderBy,
+		Sort:        &p.Sort,
+	}
+	if len(p.Labels) > 0 {
+		labels := gogitlab.LabelOptions(p.Labels)
+		opts.Labels = &labels
+	}
+
+	issues, _, err := client.Issues.ListIssues(opts)
+	if err != nil {
+		return nil, fmt.Errorf("list issues: %w", err)
+	}
+
+	var result []map[string]any
+	for _, i := range issues {
+		result = append(result, issueToMap(i))
+	}
+	return map[string]any{"issues": result, "total": len(result)}, nil
+}
+
 // --- gitlab_get_todos ---
 
 type getTodosParams struct {

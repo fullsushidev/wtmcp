@@ -193,7 +193,12 @@ tools:
 
   - name: gitlab_get_todos
     access: read
-    description: "Get to-do items for the authenticated user"
+    visibility: primary
+    description: >
+      List your GitLab to-do items — MR reviews, assigned issues,
+      mentions, and other actionable items across all projects. This
+      is your unified task list. Filter by action, target type, or
+      state.
     params:
       instance:
         type: string
@@ -215,6 +220,32 @@ tools:
       max_results:
         type: integer
         default: 20
+
+  - name: gitlab_my_issues
+    access: read
+    visibility: primary
+    description: >
+      List open issues assigned to you across all projects. Unlike
+      gitlab_get_project_issues which requires a project_id, this
+      searches globally.
+    params:
+      instance:
+        type: string
+        description: "GitLab instance name (optional if only one configured)"
+      labels:
+        type: array
+        description: "Filter by labels"
+      sort:
+        type: string
+        default: "desc"
+        description: "Sort direction: asc or desc"
+      order_by:
+        type: string
+        default: "updated_at"
+        description: "Order by: created_at, updated_at, priority, etc."
+      max_results:
+        type: integer
+        default: 30
 
   - name: gitlab_list_merge_requests
     access: read

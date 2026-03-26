@@ -452,3 +452,33 @@ func TestToolListMergeRequestsProject(t *testing.T) {
 		t.Errorf("total = %v", m["total"])
 	}
 }
+
+func TestToolMyIssues(t *testing.T) {
+	setupGitLabTest(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v4/issues" {
+			if r.URL.Query().Get("scope") != "assigned_to_me" {
+				t.Errorf("scope = %q, want assigned_to_me", r.URL.Query().Get("scope"))
+			}
+			if r.URL.Query().Get("state") != "opened" {
+				t.Errorf("state = %q, want opened", r.URL.Query().Get("state"))
+			}
+			jsonResponse(w, `[{"id":10,"iid":10,"title":"Fix bug","state":"opened","web_url":"https://gitlab.example.com/issues/10","author":{"username":"alice"},"assignees":[{"username":"testuser"}],"labels":["bug"],"created_at":"2026-03-20T10:00:00Z","updated_at":"2026-03-25T10:00:00Z"}]`)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
+	result, err := toolMyIssues(mustJSON(t, map[string]any{}), nil)
+	if err != nil {
+		t.Fatalf("toolMyIssues: %v", err)
+	}
+
+	m := result.(map[string]any)
+	if m["total"] != 1 {
+		t.Errorf("total = %v, want 1", m["total"])
+	}
+	issues := m["issues"].([]map[string]any)
+	if issues[0]["title"] != "Fix bug" {
+		t.Errorf("title = %v", issues[0]["title"])
+	}
+}

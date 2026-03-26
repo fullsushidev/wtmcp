@@ -29,6 +29,7 @@ func main() {
 	p.Handle("gitlab_get_project_pipelines", toolGetProjectPipelines)
 	p.Handle("gitlab_get_project_issues", toolGetProjectIssues)
 	p.Handle("gitlab_get_issue_details", toolGetIssueDetails)
+	p.Handle("gitlab_my_issues", toolMyIssues)
 	p.Handle("gitlab_get_todos", toolGetTodos)
 	p.Handle("gitlab_list_merge_requests", toolListMergeRequests)
 
