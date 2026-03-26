@@ -36,7 +36,8 @@ _MAX_SEARCH_PAGES = 20
 def search(params):
     """Search issues using JQL with optional brief mode."""
     jql = params.get("jql", "")
-    max_results = min(int(params.get("max_results", 50)), 200)
+    max_cap = 2000 if handler.is_cloud else 200
+    max_results = min(int(params.get("max_results", 50)), max_cap)
     start_at = max(int(params.get("start_at", 0)), 0)
     fields = params.get("fields", "summary,status,assignee,priority")
     brief = params.get("brief", True)
