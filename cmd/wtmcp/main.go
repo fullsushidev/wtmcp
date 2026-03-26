@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"github.com/spf13/cobra"
@@ -146,8 +147,10 @@ func run() error {
 
 	authReg := auth.NewRegistry()
 
-	// Initialize Kerberos if available
-	if err := auth.InitKerberos(); err != nil {
+	// Initialize Kerberos if available and not disabled.
+	if slices.Contains(cfg.Providers.Disabled, "kerberos/spnego") {
+		log.Println("kerberos/spnego disabled via config")
+	} else if err := auth.InitKerberos(); err != nil {
 		log.Printf("kerberos not available: %v", err)
 	} else if auth.KerberosAvailable() {
 		defer auth.CloseKerberos()
