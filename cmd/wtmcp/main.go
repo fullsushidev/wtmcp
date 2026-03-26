@@ -199,7 +199,18 @@ func run() error {
 	}()
 
 	log.Printf("wtmcp %s starting (workdir: %s)", Version, wd)
-	return mcpserver.ServeStdio(srv)
+
+	stdioSrv := mcpserver.NewStdioServer(srv)
+	stdioSrv.SetErrorLogger(log.Default())
+
+	err = stdioSrv.Listen(ctx, os.Stdin, os.Stdout)
+	os.Stdin.Close() //nolint:errcheck,gosec // best-effort cleanup at shutdown
+
+	// Signal-initiated shutdown is not an error.
+	if err != nil && ctx.Err() != nil {
+		return nil
+	}
+	return err
 }
 
 // runCheck prints diagnostic info about the config and discovered plugins.
