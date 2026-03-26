@@ -63,11 +63,24 @@ var pluginsDisableCmd = &cobra.Command{
 	RunE:              runPluginsDisable,
 }
 
+var pluginsOnlyCmd = &cobra.Command{
+	Use:   "only [plugin-name...]",
+	Short: "Set an allowlist of plugins to load",
+	Long: `Set an allowlist so only the specified plugins are loaded.
+All other plugins will be skipped. Use --clear to remove the
+allowlist and return to the default behavior (all plugins loaded
+except those in plugins.disabled).`,
+	ValidArgsFunction: completeAllPlugins,
+	RunE:              runPluginsOnly,
+}
+
 func init() {
 	pluginsListCmd.Flags().BoolP("plain", "p", false,
 		"Plain text output (no colors or borders)")
+	pluginsOnlyCmd.Flags().Bool("clear", false,
+		"Remove the allowlist, returning to default behavior")
 
-	pluginsCmd.AddCommand(pluginsListCmd, pluginsEnableCmd, pluginsDisableCmd)
+	pluginsCmd.AddCommand(pluginsListCmd, pluginsEnableCmd, pluginsDisableCmd, pluginsOnlyCmd)
 }
 
 // getPluginsDiscoveryResult discovers ALL plugins, ignoring the
@@ -325,6 +338,69 @@ func runPluginsDisable(_ *cobra.Command, args []string) error {
 	return nil
 }
 
+func runPluginsOnly(cmd *cobra.Command, args []string) error {
+	clearList, _ := cmd.Flags().GetBool("clear")
+
+	if clearList {
+		result, err := getDiscoveryResult()
+		if err != nil {
+			return err
+		}
+		if err := updateConfigStringList(result.ConfigPath, "plugins", "enabled", nil); err != nil {
+			return err
+		}
+		fmt.Println("Allowlist cleared: all plugins will be loaded (except disabled).")
+		fmt.Println("Restart wtmcp for changes to take effect.")
+		return nil
+	}
+
+	if len(args) == 0 {
+		return fmt.Errorf("specify plugin names or use --clear")
+	}
+
+	for _, name := range args {
+		if err := plugin.ValidatePluginName(name); err != nil {
+			return fmt.Errorf("invalid plugin name %q: %w", name, err)
+		}
+	}
+
+	result, err := getPluginsDiscoveryResult()
+	if err != nil {
+		return err
+	}
+
+	// Warn about unknown plugins
+	allPlugins := allPluginNames(result)
+	for _, name := range args {
+		if !allPlugins[name] {
+			fmt.Fprintf(os.Stderr, "warning: plugin %q not found in any plugin directory\n", name)
+		}
+	}
+
+	enabled := make([]string, len(args))
+	copy(enabled, args)
+	sort.Strings(enabled)
+
+	// Set enabled and clear disabled atomically
+	if err := updateConfigStringList(result.ConfigPath, "plugins", "enabled", enabled); err != nil {
+		return err
+	}
+	if err := updateConfigStringList(result.ConfigPath, "plugins", "disabled", nil); err != nil {
+		return err
+	}
+
+	if len(enabled) == 1 {
+		fmt.Printf("Allowlist set: only %q will be loaded.\n", enabled[0])
+	} else {
+		fmt.Printf("Allowlist set: only %d plugins will be loaded.\n", len(enabled))
+		for _, name := range enabled {
+			fmt.Printf("  - %s\n", name)
+		}
+	}
+	fmt.Println("Restart wtmcp for changes to take effect.")
+	return nil
+}
+
 func allPluginNames(result *plugin.DiscoveryResult) map[string]bool {
 	names := make(map[string]bool)
 	for name := range result.Manager.Manifests() {
@@ -430,6 +506,30 @@ func completeDisabledPlugins(
 	var names []string
 	for name := range result.Manager.Manifests() {
 		if !already[name] && disabledSet[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completeAllPlugins returns all discovered plugin names for the only subcommand.
+func completeAllPlugins(
+	_ *cobra.Command, args []string, _ string,
+) ([]string, cobra.ShellCompDirective) {
+	result, err := getPluginsDiscoveryResult()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveError
+	}
+
+	already := make(map[string]bool, len(args))
+	for _, a := range args {
+		already[a] = true
+	}
+
+	var names []string
+	for name := range result.Manager.Manifests() {
+		if !already[name] {
 			names = append(names, name)
 		}
 	}
