@@ -192,6 +192,17 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 			}
 		}
 
+		// Check if the plugin's auth provider is disabled
+		if reason := m.checkDisabledProvider(manifest); reason != "" {
+			m.disabled[name] = DisabledPlugin{
+				Name:     name,
+				Reason:   reason,
+				Manifest: manifest,
+			}
+			log.Printf("plugin %s disabled: %s", name, reason)
+			continue
+		}
+
 		if err := m.Load(ctx, name); err != nil {
 			log.Printf("failed to load plugin %s: %v", name, err)
 		}
@@ -484,6 +495,56 @@ func (m *Manager) isKerberosAuth(manifest *Manifest) bool {
 	return authCfg.Type == "kerberos" || authCfg.Type == "kerberos/spnego"
 }
 
+// isProviderDisabled checks whether a provider type is in the disabled list,
+// normalizing aliases (e.g., "kerberos" → "kerberos/spnego").
+func (m *Manager) isProviderDisabled(typeName string) bool {
+	return slices.Contains(m.cfg.Providers.Disabled, auth.NormalizeProviderType(typeName))
+}
+
+// checkDisabledProvider returns a reason string if the plugin's auth
+// depends entirely on disabled providers. Returns "" if the plugin
+// can still operate.
+func (m *Manager) checkDisabledProvider(manifest *Manifest) string {
+	authCfg := manifest.Services.Auth
+
+	// No auth configured — not affected
+	if authCfg.Type == "" && len(authCfg.Variants) == 0 {
+		return ""
+	}
+
+	// Single-type plugin (no variants)
+	if len(authCfg.Variants) == 0 {
+		normalized := auth.NormalizeProviderType(authCfg.Type)
+		if m.isProviderDisabled(normalized) {
+			return fmt.Sprintf("auth provider %q is disabled", normalized)
+		}
+		return ""
+	}
+
+	// Variant-based plugin: check if the explicit selection uses a disabled provider
+	vars := m.pluginVars(manifest)
+	sel := config.ResolveVars(authCfg.Select, vars)
+
+	if sel != "auto" && sel != "" {
+		if v, ok := authCfg.Variants[sel]; ok {
+			normalized := auth.NormalizeProviderType(v.Type)
+			if m.isProviderDisabled(normalized) {
+				return fmt.Sprintf("auth variant %q uses disabled provider %q", sel, normalized)
+			}
+		}
+		return ""
+	}
+
+	// Auto-select: check if ALL variants use disabled providers
+	for _, name := range authCfg.VariantOrder {
+		v := authCfg.Variants[name]
+		if !m.isProviderDisabled(auth.NormalizeProviderType(v.Type)) {
+			return "" // at least one variant is still viable
+		}
+	}
+	return "all auth variants use disabled providers"
+}
+
 func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 	authCfg := manifest.Services.Auth
 	if authCfg.Type == "" && len(authCfg.Variants) == 0 {
@@ -496,9 +557,18 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 	var variantCfg auth.VariantConfig
 	if len(authCfg.Variants) > 0 {
 		variantCfg.Select = resolve(authCfg.Select)
-		variantCfg.VariantOrder = authCfg.VariantOrder
 		variantCfg.Variants = make(map[string]auth.SingleAuthConfig)
-		for name, v := range authCfg.Variants {
+
+		// Filter out variants whose provider is disabled (auto-select only;
+		// explicit selection is already caught by checkDisabledProvider).
+		for _, name := range authCfg.VariantOrder {
+			v := authCfg.Variants[name]
+			if m.isProviderDisabled(auth.NormalizeProviderType(v.Type)) {
+				log.Printf("[%s] skipping variant %q: provider %q is disabled",
+					manifest.Name, name, auth.NormalizeProviderType(v.Type))
+				continue
+			}
+			variantCfg.VariantOrder = append(variantCfg.VariantOrder, name)
 			variantCfg.Variants[name] = auth.SingleAuthConfig{
 				Type:            v.Type,
 				Token:           resolve(v.Token),
