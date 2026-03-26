@@ -111,10 +111,21 @@ func run() error {
 		wd = workdir
 	}
 
-	// Set up file logging in workdir/logs/
-	logsDir := filepath.Join(wd, "logs")
+	// Load config first so we can use cfg.LogFile.
+	cfg, err := config.Load(configPath, wd)
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	// Set up file logging (from config or default path).
+	logPath := cfg.LogFile
+	if logPath != "" {
+		logPath = config.ResolveEnvVars(logPath)
+	} else {
+		logPath = filepath.Join(wd, "logs", "server.log")
+	}
+	logsDir := filepath.Dir(logPath)
 	if err := os.MkdirAll(logsDir, 0o700); err == nil {
-		logPath := filepath.Join(logsDir, "server.log")
 		if logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600); err == nil { //nolint:gosec // log file in user's config dir
 			log.SetOutput(logFile)
 			log.SetFlags(log.LstdFlags | log.Lshortfile)
@@ -129,12 +140,6 @@ func run() error {
 	}
 	for group, msg := range envResult.Errors {
 		log.Printf("WARNING: env group %s disabled: %s", group, msg)
-	}
-
-	// Load config (uses workdir for defaults)
-	cfg, err := config.Load(configPath, wd)
-	if err != nil {
-		return fmt.Errorf("load config: %w", err)
 	}
 
 	// CLI flag escalates to read-only (one-way: cannot disable via CLI
