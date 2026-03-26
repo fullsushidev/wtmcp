@@ -34,10 +34,11 @@ def search(params):
     """Search issues using JQL with optional brief mode."""
     jql = params.get("jql", "")
     max_results = min(int(params.get("max_results", 50)), 200)
+    start_at = max(int(params.get("start_at", 0)), 0)
     fields = params.get("fields", "summary,status,assignee,priority")
     brief = params.get("brief", True)
 
-    key_input = f"{jql}|{max_results}|{fields}|{brief}"
+    key_input = f"{jql}|{max_results}|{start_at}|{fields}|{brief}"
     cache_key = f"search:{hashlib.sha256(key_input.encode()).hexdigest()[:12]}"
     cached = handler.cache_get(cache_key)
     if cached:
@@ -50,6 +51,7 @@ def search(params):
         query={
             "jql": jql,
             "maxResults": str(max_results),
+            "startAt": str(start_at),
             "fields": fields,
         },
     )
@@ -59,11 +61,13 @@ def search(params):
     issues = body.get("issues", [])
     total = body.get("total", len(issues))
 
-    result = {"total": total, "count": len(issues)}
+    result = {"total": total, "count": len(issues), "start_at": start_at}
 
     if total > len(issues):
         result["truncated"] = True
-        result["warning"] = f"Showing {len(issues)} of {total} results. Narrow the JQL or increase max_results."
+        result["warning"] = (
+            f"Showing {len(issues)} of {total} results. Use start_at={start_at + len(issues)} to fetch the next page."
+        )
 
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]

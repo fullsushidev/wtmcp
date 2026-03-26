@@ -58,6 +58,10 @@ tools:
         type: integer
         default: 50
         description: "Maximum number of results (1-200)"
+      start_at:
+        type: integer
+        default: 0
+        description: "Starting index for pagination"
       fields:
         type: string
         default: "summary,status,assignee,priority"
