@@ -1,0 +1,275 @@
+name: github
+version: "0.1.0"
+description: "GitHub integration for task discovery and investigation"
+
+execution: persistent
+handler: ./handler.py
+credential_group: github
+enabled: true
+priority: 50
+
+context_files:
+  - context.md
+
+env:
+  - GITHUB_TOKEN
+  - GITHUB_URL
+
+services:
+  auth:
+    type: bearer
+    token: "${GITHUB_TOKEN}"
+  http:
+    base_url: "${GITHUB_URL:-https://api.github.com}"
+  cache:
+    enabled: true
+    default_ttl: 300
+
+config:
+  github_url: "${GITHUB_URL:-https://api.github.com}"
+
+tools:
+  # --- Primary tools (task discovery) ---
+
+  - name: github_my_work
+    access: read
+    visibility: primary
+    description: >
+      List all open items involving you: issues assigned, PRs to
+      review, things you're mentioned in. This is your unified task
+      list. Each item includes its type (issue/pr), repo, number,
+      and title.
+    params:
+      org:
+        type: string
+        description: "Filter to a specific org (optional)"
+      repo:
+        type: string
+        description: "Filter to owner/repo (optional)"
+      sort:
+        type: string
+        default: "updated"
+        description: "Sort by: created, updated, comments"
+      max_results:
+        type: integer
+        default: 50
+      start_at:
+        type: integer
+        default: 0
+        description: "Starting index for pagination"
+
+  - name: github_my_prs_to_review
+    access: read
+    visibility: primary
+    description: >
+      List open pull requests that need your review. Returns PRs where
+      you are a requested reviewer, sorted by most recently updated.
+    params:
+      org:
+        type: string
+        description: "Filter to a specific org (optional)"
+      repo:
+        type: string
+        description: "Filter to owner/repo (optional)"
+      max_results:
+        type: integer
+        default: 30
+
+  - name: github_my_issues
+    access: read
+    visibility: primary
+    description: >
+      List open issues assigned to you across all visible repos.
+      Includes issues from repos you own, are a member of, or are
+      in your orgs.
+    params:
+      filter:
+        type: string
+        default: "assigned"
+        description: "Filter: assigned, created, mentioned, subscribed"
+      labels:
+        type: string
+        description: "Comma-separated label names to filter by"
+      sort:
+        type: string
+        default: "updated"
+        description: "Sort by: created, updated, comments"
+      max_results:
+        type: integer
+        default: 30
+
+  - name: github_my_notifications
+    access: read
+    visibility: primary
+    description: >
+      List your GitHub notifications. By default shows only
+      notifications where you are directly participating (mentioned,
+      assigned, review requested). Requires a classic PAT with
+      notifications scope; fine-grained PATs do not support this.
+    params:
+      participating:
+        type: boolean
+        default: true
+        description: "Only show participating notifications"
+      all:
+        type: boolean
+        default: false
+        description: "Include read notifications"
+      max_results:
+        type: integer
+        default: 30
+
+  # --- Deferred tools (investigation) ---
+
+  - name: github_get_pr
+    access: read
+    description: >
+      Get details of a pull request: title, body, status, merge state,
+      additions/deletions, changed files count, reviewers, labels.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      pr_number:
+        type: integer
+        required: true
+
+  - name: github_get_issue
+    access: read
+    description: >
+      Get details of an issue: title, body, state, labels, assignees,
+      milestone, comment count, and reactions.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      issue_number:
+        type: integer
+        required: true
+
+  - name: github_get_pr_files
+    access: read
+    description: >
+      List files changed in a pull request with status (added/modified/
+      removed), additions, deletions, and the patch diff for each file.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      pr_number:
+        type: integer
+        required: true
+      max_results:
+        type: integer
+        default: 30
+
+  - name: github_get_pr_reviews
+    access: read
+    description: >
+      List all reviews on a pull request. Shows reviewer, state
+      (APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED), body,
+      and submission date.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      pr_number:
+        type: integer
+        required: true
+
+  - name: github_get_pr_review_comments
+    access: read
+    description: >
+      List inline code review comments on a pull request. Shows the
+      diff hunk, file path, line number, commenter, body, and
+      reactions. These are comments attached to specific lines of
+      code, not general conversation comments.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      pr_number:
+        type: integer
+        required: true
+      max_results:
+        type: integer
+        default: 50
+
+  - name: github_get_comments
+    access: read
+    description: >
+      List conversation comments on an issue or pull request (not
+      inline review comments). Shows commenter, body, and date.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      issue_number:
+        type: integer
+        required: true
+        description: "Issue or PR number"
+      max_results:
+        type: integer
+        default: 50
+
+  - name: github_get_pr_commits
+    access: read
+    description: >
+      List commits in a pull request. Shows SHA, message, author,
+      and date for each commit.
+    params:
+      repo:
+        type: string
+        required: true
+        description: "Repository as owner/repo"
+      pr_number:
+        type: integer
+        required: true
+
+  - name: github_search
+    access: read
+    description: >
+      Search issues and pull requests using GitHub search syntax.
+      Supports qualifiers like is:pr, is:issue, is:open, repo:,
+      org:, assignee:, review-requested:, author:, label:, etc.
+      The query parameter accepts raw GitHub search syntax.
+    params:
+      query:
+        type: string
+        required: true
+        description: "Search query with GitHub qualifiers"
+      sort:
+        type: string
+        default: "updated"
+        description: "Sort by: comments, reactions, created, updated"
+      max_results:
+        type: integer
+        default: 30
+      start_at:
+        type: integer
+        default: 0
+        description: "Starting index for pagination"
+
+setup:
+  credentials:
+    GITHUB_TOKEN:
+      description: "GitHub personal access token"
+      help_url: "https://github.com/settings/tokens"
+      instructions: >
+        Create a personal access token with repo, read:org, and
+        notifications scopes. For fine-grained tokens, grant
+        read access to Issues, Pull Requests, and Metadata (note:
+        notifications require a classic PAT).
+      secret: true
+    GITHUB_URL:
+      description: "GitHub API URL (for Enterprise)"
+      example: "https://github.example.com/api/v3"
+      secret: false
+  validation_tool: github_my_work
+  post_setup_message: "Restart the MCP server for changes to take effect."
