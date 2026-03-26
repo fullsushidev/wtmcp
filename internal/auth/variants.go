@@ -1,6 +1,29 @@
 package auth
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
+
+// KnownProviderTypes lists the built-in auth provider type names.
+// This is the single source of truth shared by the server and CLI.
+var KnownProviderTypes = []string{
+	"bearer", "basic", "kerberos/spnego", "oauth2", "refresh_token",
+}
+
+// IsKnownProviderType reports whether name is a recognized provider type.
+func IsKnownProviderType(name string) bool {
+	return slices.Contains(KnownProviderTypes, name)
+}
+
+// NormalizeProviderType maps aliases to canonical names.
+// Currently normalizes "kerberos" to "kerberos/spnego".
+func NormalizeProviderType(name string) string {
+	if name == "kerberos" {
+		return "kerberos/spnego"
+	}
+	return name
+}
 
 // VariantConfig describes an auth configuration with optional variants.
 type VariantConfig struct {
