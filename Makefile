@@ -1,4 +1,4 @@
-.PHONY: all build google-plugins test lint fmt vet clean help
+.PHONY: all build plugins test lint fmt vet clean help
 
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -8,7 +8,7 @@ LDFLAGS := -s -w -X main.Version=$(VERSION) -X main.BuildDate=$(BUILD_DATE)
 all: build
 
 # Build everything
-build: wtmcp wtmcpctl go-plugins
+build: wtmcp wtmcpctl plugins
 
 # Build wtmcp binary
 wtmcp: $(shell find cmd/wtmcp -name '*.go') $(shell find internal -name '*.go')
@@ -20,13 +20,12 @@ wtmcpctl: $(shell find cmd/wtmcpctl -name '*.go') $(shell find internal -name '*
 	@echo "Building wtmcpctl..."
 	go build -ldflags "$(LDFLAGS)" -o wtmcpctl ./cmd/wtmcpctl
 
-# Build all Go plugin handlers
-go-plugins:
-	@echo "Building plugin handlers..."
-	@for plugin in plugins/*/; do \
-		if ls $$plugin*.go >/dev/null 2>&1; then \
-			echo "  $$plugin"; \
-			go build -o $${plugin}handler ./$${plugin}; \
+# Build all plugins that have a Makefile
+plugins:
+	@for dir in plugins/*/; do \
+		if [ -f "$${dir}Makefile" ]; then \
+			echo "  Building plugin: $${dir}"; \
+			$(MAKE) -C $${dir} build || exit 1; \
 		fi; \
 	done
 
@@ -68,9 +67,13 @@ pre-commit:
 # Clean build artifacts
 clean:
 	@echo "Cleaning..."
-	rm -f wtmcp wtmcpctl
-	rm -f coverage.out
+	rm -f wtmcp wtmcpctl coverage.out
 	rm -f plugins/*/handler
+	@for dir in plugins/*/; do \
+		if [ -f "$${dir}Makefile" ]; then \
+			$(MAKE) -C $${dir} clean; \
+		fi; \
+	done
 
 # Show help
 help:
@@ -81,7 +84,7 @@ help:
 	@echo "  build          - Build all binaries and plugins"
 	@echo "  wtmcp          - Build wtmcp binary"
 	@echo "  wtmcpctl       - Build wtmcpctl binary"
-	@echo "  go-plugins     - Build all Go plugin handlers"
+	@echo "  plugins        - Build all plugins with Makefiles"
 	@echo "  test           - Run tests"
 	@echo "  test-cover     - Run tests with coverage report"
 	@echo "  lint           - Run golangci-lint"
