@@ -95,6 +95,11 @@ func (p *Proxy) RegisterPlugin(name string, pa *PluginAuth) {
 	p.plugins[name] = pa
 }
 
+// UnregisterPlugin removes a plugin's auth and HTTP config.
+func (p *Proxy) UnregisterPlugin(name string) {
+	delete(p.plugins, name)
+}
+
 // NewKerberosClient creates an HTTP client with a cookie jar and
 // SPNEGORoundTripper for Kerberos-authenticated plugins. If spn is
 // empty, the SPN is derived dynamically from each request's hostname.

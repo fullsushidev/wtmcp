@@ -233,16 +233,42 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 
 // Load starts a single plugin by name.
 func (m *Manager) Load(ctx context.Context, name string) error {
+	handle, err := m.preparePlugin(name)
+	if err != nil {
+		return err
+	}
+
+	if handle.manifest.Execution == "persistent" {
+		if err := handle.Start(ctx); err != nil {
+			m.proxy.UnregisterPlugin(name)
+			return err
+		}
+	}
+
+	m.handles[name] = handle
+	log.Printf("loaded plugin %s (v%s, %s)", name, handle.manifest.Version, handle.manifest.Execution)
+	return nil
+}
+
+// preparePlugin resolves config, registers with the proxy, and creates
+// a Handle for the plugin — but does NOT start the process. This is the
+// fast, sequential phase of plugin loading. The caller is responsible
+// for calling handle.Start() and storing the handle in m.handles.
+//
+// IMPORTANT: This method writes to m.proxy (RegisterPlugin) and reads
+// from m.manifests/m.envGroups — it must be called sequentially, never
+// from concurrent goroutines.
+func (m *Manager) preparePlugin(name string) (*Handle, error) {
 	manifest, ok := m.manifests[name]
 	if !ok {
-		return fmt.Errorf("unknown plugin: %s", name)
+		return nil, fmt.Errorf("unknown plugin: %s", name)
 	}
 
 	// Resolve config
 	resolvedCfg := m.resolveConfig(manifest)
 	cfgJSON, err := json.Marshal(resolvedCfg)
 	if err != nil {
-		return fmt.Errorf("marshal config for %s: %w", name, err)
+		return nil, fmt.Errorf("marshal config for %s: %w", name, err)
 	}
 	manifest.SetResolvedConfig(cfgJSON)
 
@@ -286,7 +312,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	if tlsCfg.CACert != "" {
 		pem, err := os.ReadFile(tlsCfg.CACert) //nolint:gosec // path from env.d (permission-checked)
 		if err != nil {
-			return fmt.Errorf("[%s] read ca_cert %s: %w", name, tlsCfg.CACert, err)
+			return nil, fmt.Errorf("[%s] read ca_cert %s: %w", name, tlsCfg.CACert, err)
 		}
 		tlsCfg.CACertPEM = pem
 		log.Printf("[%s] loaded CA cert from %s", name, tlsCfg.CACert)
@@ -296,10 +322,10 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	if tlsCfg.ClientKey != "" {
 		info, err := os.Stat(tlsCfg.ClientKey)
 		if err != nil {
-			return fmt.Errorf("[%s] stat client_key %s: %w", name, tlsCfg.ClientKey, err)
+			return nil, fmt.Errorf("[%s] stat client_key %s: %w", name, tlsCfg.ClientKey, err)
 		}
 		if info.Mode().Perm()&0o077 != 0 {
-			return fmt.Errorf("[%s] client_key %s mode %04o, must not be group/other accessible",
+			return nil, fmt.Errorf("[%s] client_key %s mode %04o, must not be group/other accessible",
 				name, tlsCfg.ClientKey, info.Mode().Perm())
 		}
 	}
@@ -320,7 +346,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
 		client, err := proxy.NewKerberosClient(spn, pa.AllowPrivateIPs, pa.TLS, m.cfg.HTTP.Timeout)
 		if err != nil {
-			return fmt.Errorf("[%s] create kerberos client: %w", name, err)
+			return nil, fmt.Errorf("[%s] create kerberos client: %w", name, err)
 		}
 		pa.Client = client
 		pa.IsKerberos = true
@@ -328,7 +354,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	case pa.TLS.HasConfig():
 		transport, err := proxy.SafeTransportWithTLS(pa.AllowPrivateIPs, pa.TLS)
 		if err != nil {
-			return fmt.Errorf("[%s] create TLS transport: %w", name, err)
+			return nil, fmt.Errorf("[%s] create TLS transport: %w", name, err)
 		}
 		pa.Client = &http.Client{
 			Transport:     transport,
@@ -341,9 +367,10 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		pa.Provider = m.resolveAuth(manifest)
 	}
 
+	// IMPORTANT: RegisterPlugin is a plain map write — it must be called
+	// sequentially, never from concurrent goroutines.
 	m.proxy.RegisterPlugin(name, pa)
 
-	// Create handle and start
 	processCfg := ProcessConfig{
 		InitTimeout:       m.cfg.Plugins.InitTimeout,
 		ShutdownTimeout:   m.cfg.Plugins.ShutdownTimeout,
@@ -351,17 +378,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		MaxMessageSize:    int(m.cfg.Plugins.MaxMessageSize),
 	}
 
-	handle := NewHandle(manifest, m.svcHandler, processCfg, m.cfg.Plugins.ToolCallTimeout, vars)
-
-	if manifest.Execution == "persistent" {
-		if err := handle.Start(ctx); err != nil {
-			return err
-		}
-	}
-
-	m.handles[name] = handle
-	log.Printf("loaded plugin %s (v%s, %s)", name, manifest.Version, manifest.Execution)
-	return nil
+	return NewHandle(manifest, m.svcHandler, processCfg, m.cfg.Plugins.ToolCallTimeout, vars), nil
 }
 
 // Unload stops a plugin.
