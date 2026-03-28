@@ -304,9 +304,10 @@ func (m *Manager) WaitLoaded() {
 
 // startResult holds the outcome of a parallel plugin start.
 type startResult struct {
-	name   string
-	handle *Handle
-	err    error
+	name     string
+	handle   *Handle
+	err      error
+	duration time.Duration
 }
 
 // startLevel starts all pre-prepared plugins in a dependency level.
@@ -334,8 +335,9 @@ func (m *Manager) startLevel(ctx context.Context, names []string) {
 					results[idx] = startResult{name: n, err: fmt.Errorf("panic: %v", r)}
 				}
 			}()
+			start := time.Now()
 			err := h.Start(ctx)
-			results[idx] = startResult{name: n, handle: h, err: err}
+			results[idx] = startResult{name: n, handle: h, err: err, duration: time.Since(start)}
 		}(i, name, handle)
 	}
 
@@ -345,12 +347,13 @@ func (m *Manager) startLevel(ctx context.Context, names []string) {
 	m.handlesMu.Lock()
 	for _, r := range results {
 		if r.err != nil {
-			log.Printf("failed to load plugin %s: %v", r.name, r.err)
+			log.Printf("failed to load plugin %s (%s): %v", r.name, r.duration.Round(time.Millisecond), r.err)
 			m.proxy.UnregisterPlugin(r.name)
 			delete(m.handles, r.name)
 			continue
 		}
-		log.Printf("loaded plugin %s (v%s, %s)", r.name, r.handle.manifest.Version, r.handle.manifest.Execution)
+		log.Printf("loaded plugin %s (v%s, %s, %s)", r.name,
+			r.handle.manifest.Version, r.handle.manifest.Execution, r.duration.Round(time.Millisecond))
 	}
 	m.handlesMu.Unlock()
 }
@@ -362,6 +365,7 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		return err
 	}
 
+	start := time.Now()
 	if handle.manifest.Execution == "persistent" {
 		if err := handle.Start(ctx); err != nil {
 			m.proxy.UnregisterPlugin(name)
@@ -372,7 +376,8 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 	m.handlesMu.Lock()
 	m.handles[name] = handle
 	m.handlesMu.Unlock()
-	log.Printf("loaded plugin %s (v%s, %s)", name, handle.manifest.Version, handle.manifest.Execution)
+	log.Printf("loaded plugin %s (v%s, %s, %s)", name,
+		handle.manifest.Version, handle.manifest.Execution, time.Since(start).Round(time.Millisecond))
 	return nil
 }
 
