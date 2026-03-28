@@ -117,21 +117,22 @@ func Available() bool {
 	return available
 }
 
-// SetSPNEGOHeader acquires Kerberos credentials from the system's default
-// credential cache and generates a Kerberos token for the given service principal name.
+// GetSPNEGOToken acquires Kerberos credentials from the system's default
+// credential cache and generates a Kerberos token for the given service
+// principal name. Returns the base64-encoded token string.
 //
 // On macOS, this uses pure Kerberos V5 mechanism instead of SPNEGO because
 // GSS.framework (Heimdal) does not properly support SPNEGO negotiation.
 // Most servers accept pure Kerberos tokens via HTTP Negotiate authentication.
 //
 // The spn parameter should be in the format "HTTP@hostname" (not "HTTP/hostname").
-func SetSPNEGOHeader(req *http.Request, spn string) error {
+func GetSPNEGOToken(spn string) (string, error) {
 	initMutex.Lock()
 	avail := available
 	initMutex.Unlock()
 
 	if !avail {
-		return fmt.Errorf("GSSAPI not initialized")
+		return "", fmt.Errorf("GSSAPI not initialized")
 	}
 
 	var minorStatus C.OM_uint32
@@ -152,7 +153,7 @@ func SetSPNEGOHeader(req *http.Request, spn string) error {
 		&serviceName,
 	)
 	if majorStatus != C.GSS_S_COMPLETE {
-		return fmt.Errorf("gss_import_name failed: major=0x%x, minor=0x%x", majorStatus, minorStatus)
+		return "", fmt.Errorf("gss_import_name failed: major=0x%x, minor=0x%x", majorStatus, minorStatus)
 	}
 	defer C.gss_release_name(&minorStatus, &serviceName)
 
@@ -168,7 +169,7 @@ func SetSPNEGOHeader(req *http.Request, spn string) error {
 		nil,
 	)
 	if majorStatus != C.GSS_S_COMPLETE {
-		return fmt.Errorf("gss_acquire_cred failed: major=0x%x, minor=0x%x", majorStatus, minorStatus)
+		return "", fmt.Errorf("gss_acquire_cred failed: major=0x%x, minor=0x%x", majorStatus, minorStatus)
 	}
 	defer C.gss_release_cred(&minorStatus, &cred)
 
@@ -198,7 +199,7 @@ func SetSPNEGOHeader(req *http.Request, spn string) error {
 		}
 		errStr := C.gss_error_string(majorStatus, minorStatus)
 		defer C.free(unsafe.Pointer(errStr))
-		return fmt.Errorf("gss_init_sec_context failed: %s (major=0x%x, minor=0x%x)",
+		return "", fmt.Errorf("gss_init_sec_context failed: %s (major=0x%x, minor=0x%x)",
 			C.GoString(errStr), majorStatus, minorStatus)
 	}
 
@@ -207,14 +208,22 @@ func SetSPNEGOHeader(req *http.Request, spn string) error {
 	}
 
 	if outputToken.length == 0 {
-		return fmt.Errorf("no token generated")
+		return "", fmt.Errorf("no token generated")
 	}
 	defer C.gss_release_buffer(&minorStatus, &outputToken)
 
+	// C.GoBytes copies from C heap to Go heap before defers release the buffer.
 	tokenBytes := C.GoBytes(outputToken.value, C.int(outputToken.length))
+	return base64.StdEncoding.EncodeToString(tokenBytes), nil
+}
 
-	encoded := base64.StdEncoding.EncodeToString(tokenBytes)
-	req.Header.Set("Authorization", "Negotiate "+encoded)
-
+// SetSPNEGOHeader generates a Kerberos token and sets it as an
+// "Authorization: Negotiate <token>" header on the request.
+func SetSPNEGOHeader(req *http.Request, spn string) error {
+	token, err := GetSPNEGOToken(spn)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Negotiate "+token)
 	return nil
 }
