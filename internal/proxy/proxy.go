@@ -112,7 +112,7 @@ func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig, timeo
 	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
 	return &http.Client{
 		Jar:           jar,
-		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport),
+		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport, 0),
 		Timeout:       timeout,
 		CheckRedirect: StripAuthOnCrossDomainRedirect,
 	}, nil

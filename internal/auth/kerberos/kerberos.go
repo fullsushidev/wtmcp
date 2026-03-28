@@ -19,7 +19,17 @@ import (
 	"time"
 )
 
-const skipHostTTL = 5 * time.Minute
+const (
+	skipHostTTL             = 5 * time.Minute
+	skipHostTimeoutTTL      = 30 * time.Second
+	defaultProactiveTimeout = 2 * time.Second
+)
+
+// skipEntry records when and why a host was added to skipHosts.
+type skipEntry struct {
+	when    time.Time
+	timeout bool // true if skipped due to timeout (shorter TTL)
+}
 
 // SPNEGORoundTripper wraps an http.RoundTripper to add SPNEGO
 // authentication. Uses proactive-first strategy: sends the Negotiate
@@ -39,21 +49,33 @@ const skipHostTTL = 5 * time.Minute
 // without a Negotiate header — this allows redirect-based flows
 // (like OIDC) where the initial host has no SPN but the SSO server
 // does.
+//
+// The proactive SPNEGO attempt has a timeout (default 2s) to avoid
+// blocking on unreachable KDCs. The timeout is a tradeoff between
+// responsiveness (normal TGS exchange is <100ms) and resilience to
+// network jitter. The reactive 401 path is unaffected by this timeout.
 type SPNEGORoundTripper struct {
-	spn       string
-	next      http.RoundTripper
-	skipHosts sync.Map // hostname -> time.Time (expiry after skipHostTTL)
+	spn              string
+	next             http.RoundTripper
+	proactiveTimeout time.Duration
+	skipHosts        sync.Map // hostname -> time.Time (expiry after skipHostTTL)
 }
 
 // NewSPNEGORoundTripper creates a new round tripper that adds SPNEGO headers.
 // If spn is empty, the SPN is derived from each request's hostname.
-func NewSPNEGORoundTripper(spn string, next http.RoundTripper) http.RoundTripper {
+// proactiveTimeout caps the time spent on proactive GSSAPI token generation;
+// use 0 for the default (2s).
+func NewSPNEGORoundTripper(spn string, next http.RoundTripper, proactiveTimeout time.Duration) http.RoundTripper {
 	if next == nil {
 		next = http.DefaultTransport
 	}
+	if proactiveTimeout <= 0 {
+		proactiveTimeout = defaultProactiveTimeout
+	}
 	return &SPNEGORoundTripper{
-		spn:  spn,
-		next: next,
+		spn:              spn,
+		next:             next,
+		proactiveTimeout: proactiveTimeout,
 	}
 }
 
@@ -77,21 +99,55 @@ func (s *SPNEGORoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	hostname := req.URL.Hostname()
 
 	skip := false
-	if t, ok := s.skipHosts.Load(hostname); ok {
-		if time.Since(t.(time.Time)) < skipHostTTL {
+	if v, ok := s.skipHosts.Load(hostname); ok {
+		e := v.(skipEntry)
+		ttl := skipHostTTL
+		if e.timeout {
+			ttl = skipHostTimeoutTTL
+		}
+		if time.Since(e.when) < ttl {
 			skip = true
 		} else {
 			s.skipHosts.Delete(hostname)
 		}
 	}
 	if !skip {
-		if err := SetSPNEGOHeader(authReq, spn); err != nil {
-			// No ticket / wrong realm / GSSAPI error — send without
-			// auth. SetSPNEGOHeader does not modify headers on error,
-			// so authReq is still clean (no redundant clone needed).
-			log.Printf("kerberos: proactive SPNEGO skipped for %s: %v",
-				hostname, err)
-			s.skipHosts.Store(hostname, time.Now())
+		// Run GetSPNEGOToken in a goroutine with a timeout to avoid
+		// blocking on unreachable KDCs. gss_init_sec_context has no
+		// cancellation mechanism, so the goroutine may leak briefly
+		// (~5s) on timeout — this is bounded and acceptable.
+		//
+		// The goroutine returns the token via channel; the header is
+		// only set here in the main goroutine to avoid a data race.
+		// Timeouts use a shorter skipHosts TTL (30s) than definitive
+		// GSSAPI errors (5m). A timeout is "unknown" — the KDC may
+		// be transiently slow. The short TTL prevents repeated 2s
+		// penalties on multi-request init flows while allowing
+		// recovery once the KDC becomes reachable.
+		type spnegoResult struct {
+			token string
+			err   error
+		}
+		ch := make(chan spnegoResult, 1)
+		go func() {
+			token, err := GetSPNEGOToken(spn)
+			ch <- spnegoResult{token, err}
+		}()
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				log.Printf("kerberos: proactive SPNEGO skipped for %s: %v",
+					hostname, r.err)
+				s.skipHosts.Store(hostname, skipEntry{when: time.Now()})
+			} else {
+				authReq.Header.Set("Authorization", "Negotiate "+r.token)
+			}
+		case <-time.After(s.proactiveTimeout):
+			log.Printf("kerberos: proactive SPNEGO timed out after %s for %s",
+				s.proactiveTimeout, hostname)
+			s.skipHosts.Store(hostname, skipEntry{when: time.Now(), timeout: true})
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
 		}
 	}
 
