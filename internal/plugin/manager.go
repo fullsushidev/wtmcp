@@ -33,6 +33,7 @@ type DisabledPlugin struct {
 
 // Manager discovers, loads, and manages plugin lifecycles.
 type Manager struct {
+	handlesMu      sync.RWMutex
 	handles        map[string]*Handle
 	manifests      map[string]*Manifest
 	disabled       map[string]DisabledPlugin
@@ -46,6 +47,8 @@ type Manager struct {
 	cache          cache.Store
 	cfg            *config.Config
 	svcHandler     *serviceHandlerImpl
+	loadDone       chan struct{} // closed when LoadAll completes
+	pending        [][]string    // prepared plugin levels awaiting Start
 }
 
 // NewManager creates a plugin manager. envErrors maps credential
@@ -71,6 +74,7 @@ func NewManager(authReg *auth.Registry, p *proxy.Proxy, c cache.Store, cfg *conf
 		cache:          c,
 		cfg:            cfg,
 		svcHandler:     &serviceHandlerImpl{proxy: p, cache: c},
+		loadDone:       make(chan struct{}),
 	}
 }
 
@@ -174,15 +178,20 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 	return nil
 }
 
-// LoadAll loads all discovered plugins in dependency order.
-// Auth-providing plugins are loaded first (two-pass loading).
+// LoadAll prepares all discovered plugins synchronously: resolves
+// dependencies, loads auth providers, filters disabled plugins, and
+// prepares handles (config, proxy, TLS). This is the fast phase.
+//
+// After LoadAll returns, m.disabled is fully populated and all
+// handles are prepared. Call StartPending to launch the plugin
+// processes in the background (the slow phase).
 func (m *Manager) LoadAll(ctx context.Context) error {
 	sorted, err := m.topologicalSort()
 	if err != nil {
 		return fmt.Errorf("dependency resolution: %w", err)
 	}
 
-	// Pass 1: load auth-providing plugins
+	// Pass 1: load auth-providing plugins fully (fast, typically 0-1).
 	for _, name := range sorted {
 		manifest := m.manifests[name]
 		if manifest.ProvidesAuth() {
@@ -192,18 +201,8 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 		}
 	}
 
-	// Pass 2: load remaining plugins in parallel by dependency level.
-	//
-	// Filter out auth providers (already loaded) and disabled plugins,
-	// then compute dependency levels. For each level, follow the
-	// four-step ordering invariant:
-	//   1. Prepare all plugins sequentially (map writes, proxy registration)
-	//   2. Start all persistent plugins in parallel (goroutines + WaitGroup)
-	//   3. Wait for all starts to complete
-	//   4. Collect results sequentially (store handles, cleanup failures)
-	//
-	// This invariant ensures no concurrent map access, so no mutex is
-	// needed on Manager fields.
+	// Pass 2: filter disabled plugins, prepare remaining.
+	// After this loop, m.disabled is fully populated.
 	var pass2 []string
 	for _, name := range sorted {
 		manifest := m.manifests[name]
@@ -237,12 +236,70 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 		pass2 = append(pass2, name)
 	}
 
+	// Prepare handles for all pass 2 plugins (config, proxy, TLS).
+	// This is fast — no subprocess spawning. Store dependency levels
+	// with prepared plugin names for StartPending.
 	levels := m.dependencyLevels(pass2)
-	for _, level := range levels {
-		m.startLevel(ctx, level)
+	for i, level := range levels {
+		var prepared []string
+		for _, name := range level {
+			handle, err := m.preparePlugin(name)
+			if err != nil {
+				log.Printf("failed to prepare plugin %s: %v", name, err)
+				continue
+			}
+
+			// Store the handle so startLevel can find it.
+			m.handlesMu.Lock()
+			m.handles[name] = handle
+			m.handlesMu.Unlock()
+
+			// Non-persistent plugins are already fully loaded.
+			if handle.manifest.Execution != "persistent" {
+				log.Printf("loaded plugin %s (v%s, %s)", name, handle.manifest.Version, handle.manifest.Execution)
+				continue
+			}
+
+			prepared = append(prepared, name)
+		}
+		levels[i] = prepared
 	}
+	m.pending = levels
 
 	return nil
+}
+
+// StartPending starts all prepared plugin processes by dependency
+// level. This is the slow phase — each plugin spawns a subprocess
+// and blocks on the init handshake (up to InitTimeout per plugin).
+// Independent plugins within a level start in parallel.
+//
+// Closes loadDone when complete. Safe to call from a goroutine.
+func (m *Manager) StartPending(ctx context.Context) {
+	defer close(m.loadDone)
+
+	for _, level := range m.pending {
+		if len(level) == 0 {
+			continue
+		}
+		m.startLevel(ctx, level)
+	}
+	m.pending = nil
+}
+
+// IsLoading returns true if StartPending is still running.
+func (m *Manager) IsLoading() bool {
+	select {
+	case <-m.loadDone:
+		return false
+	default:
+		return true
+	}
+}
+
+// WaitLoaded blocks until StartPending completes.
+func (m *Manager) WaitLoaded() {
+	<-m.loadDone
 }
 
 // startResult holds the outcome of a parallel plugin start.
@@ -252,66 +309,50 @@ type startResult struct {
 	err    error
 }
 
-// startLevel loads all plugins in a single dependency level. Plugins
-// are prepared sequentially then started in parallel.
+// startLevel starts all pre-prepared plugins in a dependency level.
+// Plugins are started in parallel using goroutines. Each goroutine
+// writes its result to a pre-allocated slice at its own index.
+// After all goroutines complete, results are collected sequentially.
 func (m *Manager) startLevel(ctx context.Context, names []string) {
-	// Step 1: prepare all plugins sequentially (fast, map writes).
-	type prepared struct {
-		name   string
-		handle *Handle
-	}
-	var batch []prepared
-	for _, name := range names {
-		handle, err := m.preparePlugin(name)
-		if err != nil {
-			log.Printf("failed to prepare plugin %s: %v", name, err)
-			continue
-		}
-
-		// Non-persistent plugins don't need Start(); store directly.
-		if handle.manifest.Execution != "persistent" {
-			m.handles[name] = handle
-			log.Printf("loaded plugin %s (v%s, %s)", name, handle.manifest.Version, handle.manifest.Execution)
-			continue
-		}
-
-		batch = append(batch, prepared{name: name, handle: handle})
-	}
-
-	if len(batch) == 0 {
-		return
-	}
-
-	// Step 2: start all persistent plugins in parallel.
-	results := make([]startResult, len(batch))
+	// Start all plugins in parallel.
+	results := make([]startResult, len(names))
 	var wg sync.WaitGroup
-	for i, p := range batch {
+	for i, name := range names {
+		m.handlesMu.RLock()
+		handle := m.handles[name]
+		m.handlesMu.RUnlock()
+		if handle == nil {
+			results[i] = startResult{name: name, err: fmt.Errorf("handle not found")}
+			continue
+		}
+
 		wg.Add(1)
-		go func(idx int, name string, handle *Handle) {
+		go func(idx int, n string, h *Handle) {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					results[idx] = startResult{name: name, err: fmt.Errorf("panic: %v", r)}
+					results[idx] = startResult{name: n, err: fmt.Errorf("panic: %v", r)}
 				}
 			}()
-			err := handle.Start(ctx)
-			results[idx] = startResult{name: name, handle: handle, err: err}
-		}(i, p.name, p.handle)
+			err := h.Start(ctx)
+			results[idx] = startResult{name: n, handle: h, err: err}
+		}(i, name, handle)
 	}
 
-	// Step 3: wait for all starts to complete.
 	wg.Wait()
 
-	// Step 4: collect results sequentially (map writes, proxy cleanup).
+	// Collect results sequentially (map writes, proxy cleanup).
+	m.handlesMu.Lock()
 	for _, r := range results {
 		if r.err != nil {
 			log.Printf("failed to load plugin %s: %v", r.name, r.err)
 			m.proxy.UnregisterPlugin(r.name)
+			delete(m.handles, r.name)
 			continue
 		}
-		m.handles[r.name] = r.handle
 		log.Printf("loaded plugin %s (v%s, %s)", r.name, r.handle.manifest.Version, r.handle.manifest.Execution)
 	}
+	m.handlesMu.Unlock()
 }
 
 // Load starts a single plugin by name.
@@ -328,7 +369,9 @@ func (m *Manager) Load(ctx context.Context, name string) error {
 		}
 	}
 
+	m.handlesMu.Lock()
 	m.handles[name] = handle
+	m.handlesMu.Unlock()
 	log.Printf("loaded plugin %s (v%s, %s)", name, handle.manifest.Version, handle.manifest.Execution)
 	return nil
 }
@@ -464,16 +507,22 @@ func (m *Manager) preparePlugin(name string) (*Handle, error) {
 	return NewHandle(manifest, m.svcHandler, processCfg, m.cfg.Plugins.ToolCallTimeout, vars), nil
 }
 
-// Unload stops a plugin.
+// Unload stops a plugin. Removes the handle from the map before
+// stopping the process so new tool calls are not dispatched to a
+// stopping plugin.
 func (m *Manager) Unload(ctx context.Context, name string) error {
+	m.handlesMu.Lock()
 	handle, ok := m.handles[name]
 	if !ok {
+		m.handlesMu.Unlock()
 		return fmt.Errorf("plugin not loaded: %s", name)
 	}
+	delete(m.handles, name)
+	m.handlesMu.Unlock()
+
 	if err := handle.Stop(ctx); err != nil {
 		return err
 	}
-	delete(m.handles, name)
 	log.Printf("unloaded plugin %s", name)
 	return nil
 }
@@ -483,6 +532,9 @@ func (m *Manager) Unload(ctx context.Context, name string) error {
 // create_config). If the plugin was disabled due to an env.d
 // error, enables it if the issue is resolved.
 func (m *Manager) Reload(ctx context.Context, name string) error {
+	// Wait for initial loading to complete before reloading.
+	m.WaitLoaded()
+
 	// Re-read the env.d file for this plugin's credential group.
 	// This picks up vars added/changed since startup (e.g., by
 	// create_config writing IPA_CA_CERT to the env.d file).
@@ -507,7 +559,11 @@ func (m *Manager) Reload(ctx context.Context, name string) error {
 		}
 	}
 
-	if _, ok := m.handles[name]; ok {
+	m.handlesMu.RLock()
+	_, loaded := m.handles[name]
+	m.handlesMu.RUnlock()
+
+	if loaded {
 		if err := m.Unload(ctx, name); err != nil {
 			return err
 		}
@@ -517,7 +573,14 @@ func (m *Manager) Reload(ctx context.Context, name string) error {
 
 // ShutdownAll stops all loaded plugins.
 func (m *Manager) ShutdownAll(ctx context.Context) {
+	m.handlesMu.RLock()
+	snapshot := make(map[string]*Handle, len(m.handles))
 	for name, handle := range m.handles {
+		snapshot[name] = handle
+	}
+	m.handlesMu.RUnlock()
+
+	for name, handle := range snapshot {
 		if err := handle.Stop(ctx); err != nil {
 			log.Printf("error stopping %s: %v", name, err)
 		}
@@ -529,8 +592,10 @@ func (m *Manager) CallTool(_ context.Context, toolName string) (string, *Handle)
 	for name, manifest := range m.manifests {
 		for _, tool := range manifest.Tools {
 			if tool.Name == toolName {
-				handle, ok := m.handles[name]
-				if !ok {
+				m.handlesMu.RLock()
+				handle := m.handles[name]
+				m.handlesMu.RUnlock()
+				if handle == nil || !handle.IsReady() {
 					return name, nil
 				}
 				return name, handle
@@ -545,11 +610,15 @@ func (m *Manager) Manifests() map[string]*Manifest {
 	return m.manifests
 }
 
-// EnvDisabledPlugins returns plugins that were discovered but could
-// not be loaded due to env.d configuration issues (e.g., bad
-// permissions on credential files).
+// EnvDisabledPlugins returns a snapshot of plugins that were
+// discovered but could not be loaded due to env.d configuration
+// issues (e.g., bad permissions on credential files).
 func (m *Manager) EnvDisabledPlugins() map[string]DisabledPlugin {
-	return m.disabled
+	snapshot := make(map[string]DisabledPlugin, len(m.disabled))
+	for k, v := range m.disabled {
+		snapshot[k] = v
+	}
+	return snapshot
 }
 
 // ConfigDisabledPlugins returns plugins that were skipped during
@@ -560,6 +629,8 @@ func (m *Manager) ConfigDisabledPlugins() map[string]*Manifest {
 
 // LoadedPlugins returns the names of successfully loaded plugins.
 func (m *Manager) LoadedPlugins() []string {
+	m.handlesMu.RLock()
+	defer m.handlesMu.RUnlock()
 	names := make([]string, 0, len(m.handles))
 	for name := range m.handles {
 		names = append(names, name)
@@ -601,6 +672,8 @@ func (m *Manager) resolveConfig(manifest *Manifest) map[string]string {
 
 // Handle returns the handle for a loaded plugin, or nil if not loaded.
 func (m *Manager) Handle(name string) *Handle {
+	m.handlesMu.RLock()
+	defer m.handlesMu.RUnlock()
 	return m.handles[name]
 }
 

@@ -173,6 +173,9 @@ func run() error {
 		return fmt.Errorf("plugin discovery: %w", err)
 	}
 
+	// Phase 1 (synchronous): resolve dependencies, load auth providers,
+	// filter disabled plugins, prepare handles. After this, m.disabled
+	// is fully populated and all tools can be registered.
 	if err := mgr.LoadAll(ctx); err != nil {
 		return fmt.Errorf("plugin loading: %w", err)
 	}
@@ -192,6 +195,18 @@ func run() error {
 	index := server.NewToolIndex(mgr, cfg.ReadOnly)
 	srv := server.New(Version, mgr, cfg, index, collector)
 
+	// Phase 2 (background): start plugin processes. The MCP server
+	// accepts requests immediately; tools for still-loading plugins
+	// return "plugin still loading" until their init completes.
+	go func() {
+		mgr.StartPending(ctx)
+		// Post-load: register plugin-provided resources and rebuild
+		// the tool search index now that plugins are loaded.
+		server.RegisterPluginResources(srv, mgr, collector)
+		index.Rebuild(mgr)
+		log.Printf("all plugins loaded (%d)", len(mgr.LoadedPlugins()))
+	}()
+
 	// Start control directory watcher for external reload triggers
 	controlWatcher := server.NewControlWatcher(wd, srv, mgr, cfg, index, collector)
 	if err := controlWatcher.Start(); err != nil {
@@ -205,6 +220,7 @@ func run() error {
 			collector.Close()
 		}
 		log.Println("shutting down plugins...")
+		mgr.WaitLoaded()
 		mgr.ShutdownAll(context.Background())
 	}()
 

@@ -65,7 +65,7 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 	registerContextResources(srv, manager, collector)
 
 	// Register resources from resource provider plugins
-	registerPluginProvidedResources(srv, manager, collector)
+	RegisterPluginResources(srv, manager, collector)
 
 	// Built-in management tools
 	registerManagementTools(srv, manager, cfg, index, collector)
@@ -117,7 +117,11 @@ func registerPluginTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, manifest
 
 			_, handle := mgr.CallTool(ctx, toolName)
 			if handle == nil {
-				outputText = fmt.Sprintf("plugin for tool %s not loaded", toolName)
+				if mgr.IsLoading() {
+					outputText = fmt.Sprintf("plugin for tool %s is still loading, try again shortly", toolName)
+				} else {
+					outputText = fmt.Sprintf("plugin for tool %s not loaded", toolName)
+				}
 				isErr = true
 				return mcp.NewToolResultError(outputText), nil
 			}
@@ -529,9 +533,10 @@ func invalidatePluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, pl
 		pluginName, len(newResources), len(toRemove))
 }
 
-// registerPluginProvidedResources registers resources from plugins that
-// declare provides.resources: true.
-func registerPluginProvidedResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, collector *stats.Collector) {
+// RegisterPluginResources registers resources from plugins that
+// declare provides.resources: true. Called both during initial server
+// setup and after background plugin loading completes.
+func RegisterPluginResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, collector *stats.Collector) {
 	for name, manifest := range mgr.Manifests() {
 		if !manifest.ProvidesResources() {
 			continue

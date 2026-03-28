@@ -56,6 +56,16 @@ func (h *Handle) Start(ctx context.Context) error {
 	return nil
 }
 
+// IsReady returns true if the handle can accept tool calls.
+// Non-persistent (oneshot) plugins are always ready; persistent
+// plugins are ready once Start has been called and succeeded.
+func (h *Handle) IsReady() bool {
+	if h.manifest.Execution != "persistent" {
+		return true
+	}
+	return h.process != nil && h.process.State() == StateRunning
+}
+
 // Stop gracefully shuts down the plugin process.
 func (h *Handle) Stop(ctx context.Context) error {
 	if h.process == nil {

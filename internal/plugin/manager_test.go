@@ -316,6 +316,7 @@ func TestManagerLoadAndCallTool(t *testing.T) {
 	if err := m.LoadAll(ctx); err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
+	m.StartPending(ctx)
 	defer m.ShutdownAll(ctx)
 
 	// Find tool owner
@@ -989,6 +990,7 @@ func TestLoadAllParallelMultiplePlugins(t *testing.T) {
 	if err := m.LoadAll(ctx); err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
+	m.StartPending(ctx)
 	defer m.ShutdownAll(ctx)
 
 	loaded := m.LoadedPlugins()
@@ -1024,12 +1026,13 @@ exit 1
 	}
 
 	ctx := context.Background()
-	// LoadAll should not return an error — failures are logged and skipped
 	if err := m.LoadAll(ctx); err != nil {
 		t.Fatalf("LoadAll: %v", err)
 	}
+	m.StartPending(ctx)
 	defer m.ShutdownAll(ctx)
 
+	// bad-one fails during Start and is removed from handles
 	loaded := m.LoadedPlugins()
 	if len(loaded) != 2 {
 		t.Fatalf("loaded %d plugins, want 2: %v", len(loaded), loaded)
