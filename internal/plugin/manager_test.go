@@ -973,3 +973,101 @@ func TestDependencyLevelsEmpty(t *testing.T) {
 		t.Errorf("got %d levels, want 0", len(levels))
 	}
 }
+
+func TestLoadAllParallelMultiplePlugins(t *testing.T) {
+	dir := t.TempDir()
+	createPluginInDir(t, dir, "alpha", echoScript)
+	createPluginInDir(t, dir, "beta", echoScript)
+	createPluginInDir(t, dir, "gamma", echoScript)
+
+	m := newTestManager(t)
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	ctx := context.Background()
+	if err := m.LoadAll(ctx); err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	defer m.ShutdownAll(ctx)
+
+	loaded := m.LoadedPlugins()
+	if len(loaded) != 3 {
+		t.Fatalf("loaded %d plugins, want 3: %v", len(loaded), loaded)
+	}
+
+	// Verify each plugin is callable
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		owner, handle := m.CallTool(ctx, name+"_test")
+		if owner != name {
+			t.Errorf("owner of %s_test = %q, want %q", name, owner, name)
+		}
+		if handle == nil {
+			t.Errorf("handle for %s is nil", name)
+		}
+	}
+}
+
+func TestLoadAllParallelOneFailsOthersSucceed(t *testing.T) {
+	dir := t.TempDir()
+
+	// good plugins use echoScript, bad plugin exits immediately
+	createPluginInDir(t, dir, "good-one", echoScript)
+	createPluginInDir(t, dir, "good-two", echoScript)
+	createPluginInDir(t, dir, "bad-one", `#!/bin/bash
+exit 1
+`)
+
+	m := newTestManager(t)
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	ctx := context.Background()
+	// LoadAll should not return an error — failures are logged and skipped
+	if err := m.LoadAll(ctx); err != nil {
+		t.Fatalf("LoadAll: %v", err)
+	}
+	defer m.ShutdownAll(ctx)
+
+	loaded := m.LoadedPlugins()
+	if len(loaded) != 2 {
+		t.Fatalf("loaded %d plugins, want 2: %v", len(loaded), loaded)
+	}
+
+	// Good plugins should be callable
+	for _, name := range []string{"good-one", "good-two"} {
+		if h := m.Handle(name); h == nil {
+			t.Errorf("expected handle for %s", name)
+		}
+	}
+
+	// Bad plugin should not be loaded
+	if h := m.Handle("bad-one"); h != nil {
+		t.Error("bad-one should not have a handle")
+	}
+}
+
+func TestPreparePluginDoesNotStart(t *testing.T) {
+	dir := setupTestPlugin(t, "nostart", echoScript)
+
+	m := newTestManager(t)
+	if err := m.Discover([]string{dir}, ""); err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	handle, err := m.preparePlugin("nostart")
+	if err != nil {
+		t.Fatalf("preparePlugin: %v", err)
+	}
+
+	// Handle should exist but process should not have been created
+	if handle.process != nil {
+		t.Error("expected nil process before Start()")
+	}
+
+	// Handle should not be in the loaded list
+	if m.Handle("nostart") != nil {
+		t.Error("preparePlugin should not store the handle in Manager")
+	}
+}
