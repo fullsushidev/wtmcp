@@ -58,14 +58,17 @@ type SPNEGORoundTripper struct {
 	spn              string
 	next             http.RoundTripper
 	proactiveTimeout time.Duration
-	skipHosts        sync.Map // hostname -> time.Time (expiry after skipHostTTL)
+	proactive        bool     // false = reactive-only (skip proactive SPNEGO)
+	skipHosts        sync.Map // hostname -> skipEntry (expiry after TTL)
 }
 
 // NewSPNEGORoundTripper creates a new round tripper that adds SPNEGO headers.
 // If spn is empty, the SPN is derived from each request's hostname.
 // proactiveTimeout caps the time spent on proactive GSSAPI token generation;
-// use 0 for the default (2s).
-func NewSPNEGORoundTripper(spn string, next http.RoundTripper, proactiveTimeout time.Duration) http.RoundTripper {
+// use 0 for the default (2s). When proactive is false, SPNEGO tokens are
+// only sent after a 401 Negotiate challenge (useful for plugins that auth
+// via SSO/SAML redirects rather than direct Kerberos).
+func NewSPNEGORoundTripper(spn string, next http.RoundTripper, proactiveTimeout time.Duration, proactive bool) http.RoundTripper {
 	if next == nil {
 		next = http.DefaultTransport
 	}
@@ -76,6 +79,7 @@ func NewSPNEGORoundTripper(spn string, next http.RoundTripper, proactiveTimeout 
 		spn:              spn,
 		next:             next,
 		proactiveTimeout: proactiveTimeout,
+		proactive:        proactive,
 	}
 }
 
@@ -94,21 +98,23 @@ func (s *SPNEGORoundTripper) RoundTrip(req *http.Request) (*http.Response, error
 	}
 
 	// Proactive: try to attach Negotiate token on first request.
-	// Skip if this host previously failed (cached with TTL).
+	// Skip if proactive is disabled or this host previously failed.
 	authReq := req.Clone(req.Context())
 	hostname := req.URL.Hostname()
 
-	skip := false
-	if v, ok := s.skipHosts.Load(hostname); ok {
-		e := v.(skipEntry)
-		ttl := skipHostTTL
-		if e.timeout {
-			ttl = skipHostTimeoutTTL
-		}
-		if time.Since(e.when) < ttl {
-			skip = true
-		} else {
-			s.skipHosts.Delete(hostname)
+	skip := !s.proactive
+	if !skip {
+		if v, ok := s.skipHosts.Load(hostname); ok {
+			e := v.(skipEntry)
+			ttl := skipHostTTL
+			if e.timeout {
+				ttl = skipHostTimeoutTTL
+			}
+			if time.Since(e.when) < ttl {
+				skip = true
+			} else {
+				s.skipHosts.Delete(hostname)
+			}
 		}
 	}
 	if !skip {

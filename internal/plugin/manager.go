@@ -475,13 +475,14 @@ func (m *Manager) preparePlugin(name string) (*Handle, error) {
 	switch {
 	case m.isKerberosAuth(manifest):
 		spn := config.ResolveVars(manifest.Services.Auth.SPN, vars)
-		client, err := proxy.NewKerberosClient(spn, pa.AllowPrivateIPs, pa.TLS, m.cfg.HTTP.Timeout)
+		proactive := manifest.Services.Auth.SPNEGOProactive == nil || *manifest.Services.Auth.SPNEGOProactive
+		client, err := proxy.NewKerberosClient(spn, proactive, pa.AllowPrivateIPs, pa.TLS, m.cfg.HTTP.Timeout)
 		if err != nil {
 			return nil, fmt.Errorf("[%s] create kerberos client: %w", name, err)
 		}
 		pa.Client = client
 		pa.IsKerberos = true
-		log.Printf("[%s] using kerberos client (spn=%q)", name, spn)
+		log.Printf("[%s] using kerberos client (spn=%q, proactive=%v)", name, spn, proactive)
 	case pa.TLS.HasConfig():
 		transport, err := proxy.SafeTransportWithTLS(pa.AllowPrivateIPs, pa.TLS)
 		if err != nil {

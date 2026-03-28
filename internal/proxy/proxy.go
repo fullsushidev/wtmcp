@@ -103,8 +103,10 @@ func (p *Proxy) UnregisterPlugin(name string) {
 // NewKerberosClient creates an HTTP client with a cookie jar and
 // SPNEGORoundTripper for Kerberos-authenticated plugins. If spn is
 // empty, the SPN is derived dynamically from each request's hostname.
-// The TLS config enables custom CA certs alongside Kerberos auth.
-func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig, timeout time.Duration) (*http.Client, error) {
+// When proactive is false, SPNEGO tokens are only sent after a 401
+// challenge (reactive-only mode). The TLS config enables custom CA
+// certs alongside Kerberos auth.
+func NewKerberosClient(spn string, proactive bool, allowPrivateIPs bool, tlsCfg TLSConfig, timeout time.Duration) (*http.Client, error) {
 	transport, err := SafeTransportWithTLS(allowPrivateIPs, tlsCfg)
 	if err != nil {
 		return nil, fmt.Errorf("create TLS transport: %w", err)
@@ -112,7 +114,7 @@ func NewKerberosClient(spn string, allowPrivateIPs bool, tlsCfg TLSConfig, timeo
 	jar, _ := cookiejar.New(nil) // cookiejar.New only errors with non-nil options
 	return &http.Client{
 		Jar:           jar,
-		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport, 0),
+		Transport:     kerberos.NewSPNEGORoundTripper(spn, transport, 0, proactive),
 		Timeout:       timeout,
 		CheckRedirect: StripAuthOnCrossDomainRedirect,
 	}, nil
