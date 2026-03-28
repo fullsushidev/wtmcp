@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LeGambiArt/wtmcp/internal/auth"
@@ -191,14 +192,25 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 		}
 	}
 
-	// Pass 2: load everything else
+	// Pass 2: load remaining plugins in parallel by dependency level.
+	//
+	// Filter out auth providers (already loaded) and disabled plugins,
+	// then compute dependency levels. For each level, follow the
+	// four-step ordering invariant:
+	//   1. Prepare all plugins sequentially (map writes, proxy registration)
+	//   2. Start all persistent plugins in parallel (goroutines + WaitGroup)
+	//   3. Wait for all starts to complete
+	//   4. Collect results sequentially (store handles, cleanup failures)
+	//
+	// This invariant ensures no concurrent map access, so no mutex is
+	// needed on Manager fields.
+	var pass2 []string
 	for _, name := range sorted {
 		manifest := m.manifests[name]
 		if manifest.ProvidesAuth() {
-			continue // already loaded
+			continue
 		}
 
-		// Check if the plugin's credential group has an env.d error
 		if manifest.CredentialGroup != "" {
 			if errMsg, ok := m.envErrors[manifest.CredentialGroup]; ok {
 				m.disabled[name] = DisabledPlugin{
@@ -212,7 +224,6 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 			}
 		}
 
-		// Check if the plugin's auth provider is disabled
 		if reason := m.checkDisabledProvider(manifest); reason != "" {
 			m.disabled[name] = DisabledPlugin{
 				Name:     name,
@@ -223,12 +234,84 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 			continue
 		}
 
-		if err := m.Load(ctx, name); err != nil {
-			log.Printf("failed to load plugin %s: %v", name, err)
-		}
+		pass2 = append(pass2, name)
+	}
+
+	levels := m.dependencyLevels(pass2)
+	for _, level := range levels {
+		m.startLevel(ctx, level)
 	}
 
 	return nil
+}
+
+// startResult holds the outcome of a parallel plugin start.
+type startResult struct {
+	name   string
+	handle *Handle
+	err    error
+}
+
+// startLevel loads all plugins in a single dependency level. Plugins
+// are prepared sequentially then started in parallel.
+func (m *Manager) startLevel(ctx context.Context, names []string) {
+	// Step 1: prepare all plugins sequentially (fast, map writes).
+	type prepared struct {
+		name   string
+		handle *Handle
+	}
+	var batch []prepared
+	for _, name := range names {
+		handle, err := m.preparePlugin(name)
+		if err != nil {
+			log.Printf("failed to prepare plugin %s: %v", name, err)
+			continue
+		}
+
+		// Non-persistent plugins don't need Start(); store directly.
+		if handle.manifest.Execution != "persistent" {
+			m.handles[name] = handle
+			log.Printf("loaded plugin %s (v%s, %s)", name, handle.manifest.Version, handle.manifest.Execution)
+			continue
+		}
+
+		batch = append(batch, prepared{name: name, handle: handle})
+	}
+
+	if len(batch) == 0 {
+		return
+	}
+
+	// Step 2: start all persistent plugins in parallel.
+	results := make([]startResult, len(batch))
+	var wg sync.WaitGroup
+	for i, p := range batch {
+		wg.Add(1)
+		go func(idx int, name string, handle *Handle) {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					results[idx] = startResult{name: name, err: fmt.Errorf("panic: %v", r)}
+				}
+			}()
+			err := handle.Start(ctx)
+			results[idx] = startResult{name: name, handle: handle, err: err}
+		}(i, p.name, p.handle)
+	}
+
+	// Step 3: wait for all starts to complete.
+	wg.Wait()
+
+	// Step 4: collect results sequentially (map writes, proxy cleanup).
+	for _, r := range results {
+		if r.err != nil {
+			log.Printf("failed to load plugin %s: %v", r.name, r.err)
+			m.proxy.UnregisterPlugin(r.name)
+			continue
+		}
+		m.handles[r.name] = r.handle
+		log.Printf("loaded plugin %s (v%s, %s)", r.name, r.handle.manifest.Version, r.handle.manifest.Execution)
+	}
 }
 
 // Load starts a single plugin by name.
