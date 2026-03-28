@@ -886,3 +886,90 @@ func TestEmptyAllowlistUsesDefault(t *testing.T) {
 		t.Error("'beta' should be disabled via blocklist when allowlist is empty")
 	}
 }
+
+func TestDependencyLevelsAllIndependent(t *testing.T) {
+	m := newTestManager(t)
+	m.manifests["aa"] = &Manifest{Name: "aa", Priority: 10}
+	m.manifests["bb"] = &Manifest{Name: "bb", Priority: 20}
+	m.manifests["cc"] = &Manifest{Name: "cc", Priority: 30}
+
+	sorted, err := m.topologicalSort()
+	if err != nil {
+		t.Fatalf("topologicalSort: %v", err)
+	}
+
+	levels := m.dependencyLevels(sorted)
+	if len(levels) != 1 {
+		t.Fatalf("got %d levels, want 1: %v", len(levels), levels)
+	}
+	if len(levels[0]) != 3 {
+		t.Errorf("level 0 has %d plugins, want 3", len(levels[0]))
+	}
+}
+
+func TestDependencyLevelsChain(t *testing.T) {
+	m := newTestManager(t)
+	m.manifests["aa"] = &Manifest{Name: "aa", Priority: 10}
+	m.manifests["bb"] = &Manifest{Name: "bb", DependsOn: []string{"aa"}, Priority: 20}
+	m.manifests["cc"] = &Manifest{Name: "cc", DependsOn: []string{"bb"}, Priority: 30}
+
+	sorted, err := m.topologicalSort()
+	if err != nil {
+		t.Fatalf("topologicalSort: %v", err)
+	}
+
+	levels := m.dependencyLevels(sorted)
+	if len(levels) != 3 {
+		t.Fatalf("got %d levels, want 3: %v", len(levels), levels)
+	}
+	if levels[0][0] != "aa" {
+		t.Errorf("level 0 = %v, want [aa]", levels[0])
+	}
+	if levels[1][0] != "bb" {
+		t.Errorf("level 1 = %v, want [bb]", levels[1])
+	}
+	if levels[2][0] != "cc" {
+		t.Errorf("level 2 = %v, want [cc]", levels[2])
+	}
+}
+
+func TestDependencyLevelsMixed(t *testing.T) {
+	m := newTestManager(t)
+	// aa, bb independent (level 0)
+	// cc depends on aa (level 1)
+	// dd depends on cc (level 2)
+	m.manifests["aa"] = &Manifest{Name: "aa", Priority: 10}
+	m.manifests["bb"] = &Manifest{Name: "bb", Priority: 20}
+	m.manifests["cc"] = &Manifest{Name: "cc", DependsOn: []string{"aa"}, Priority: 30}
+	m.manifests["dd"] = &Manifest{Name: "dd", DependsOn: []string{"cc"}, Priority: 40}
+
+	sorted, err := m.topologicalSort()
+	if err != nil {
+		t.Fatalf("topologicalSort: %v", err)
+	}
+
+	levels := m.dependencyLevels(sorted)
+	if len(levels) != 3 {
+		t.Fatalf("got %d levels, want 3: %v", len(levels), levels)
+	}
+	// Level 0 should have aa and bb
+	if len(levels[0]) != 2 {
+		t.Errorf("level 0 has %d plugins, want 2: %v", len(levels[0]), levels[0])
+	}
+	// Level 1 should have cc
+	if len(levels[1]) != 1 || levels[1][0] != "cc" {
+		t.Errorf("level 1 = %v, want [cc]", levels[1])
+	}
+	// Level 2 should have dd
+	if len(levels[2]) != 1 || levels[2][0] != "dd" {
+		t.Errorf("level 2 = %v, want [dd]", levels[2])
+	}
+}
+
+func TestDependencyLevelsEmpty(t *testing.T) {
+	m := newTestManager(t)
+	levels := m.dependencyLevels(nil)
+	if len(levels) != 0 {
+		t.Errorf("got %d levels, want 0", len(levels))
+	}
+}

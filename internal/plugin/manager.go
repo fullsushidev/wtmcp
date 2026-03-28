@@ -733,6 +733,38 @@ func (m *Manager) topologicalSort() ([]string, error) {
 	return sorted, nil
 }
 
+// dependencyLevels groups plugin names by their topological depth so
+// that all plugins in the same level can be started in parallel. Level 0
+// contains plugins with no dependencies; level N contains plugins whose
+// deepest dependency is at level N-1.
+//
+// The sorted input must be a valid topological ordering (from
+// topologicalSort), guaranteeing that each plugin's dependencies appear
+// before it. Within each level, the original sorted order is preserved.
+func (m *Manager) dependencyLevels(sorted []string) [][]string {
+	depth := make(map[string]int, len(sorted))
+	for _, name := range sorted {
+		d := 0
+		for _, dep := range m.manifests[name].DependsOn {
+			if ld, ok := depth[dep]; ok && ld+1 > d {
+				d = ld + 1
+			}
+		}
+		depth[name] = d
+	}
+
+	// Group by depth, preserving sorted order within each level.
+	var levels [][]string
+	for _, name := range sorted {
+		d := depth[name]
+		for len(levels) <= d {
+			levels = append(levels, nil)
+		}
+		levels[d] = append(levels[d], name)
+	}
+	return levels
+}
+
 func (m *Manager) sortedByPriority() []string {
 	type entry struct {
 		name     string
