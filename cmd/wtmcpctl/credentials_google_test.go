@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -86,10 +87,8 @@ func TestValidateGoogleCredentialsFile(t *testing.T) {
 			tmpDir := t.TempDir()
 			tmpFile := filepath.Join(tmpDir, "credentials.json")
 
-			if tt.content != "" {
-				if err := os.WriteFile(tmpFile, []byte(tt.content), 0o600); err != nil {
-					t.Fatalf("failed to write test file: %v", err)
-				}
+			if err := os.WriteFile(tmpFile, []byte(tt.content), 0o600); err != nil {
+				t.Fatalf("failed to write test file: %v", err)
 			}
 
 			// Test validation
@@ -100,7 +99,7 @@ func TestValidateGoogleCredentialsFile(t *testing.T) {
 					t.Errorf("validateGoogleCredentialsFile() expected error, got nil")
 					return
 				}
-				if tt.errContains != "" && !contains(err.Error(), tt.errContains) {
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
 					t.Errorf("validateGoogleCredentialsFile() error = %v, want error containing %q", err, tt.errContains)
 				}
 			} else if err != nil {
@@ -118,7 +117,7 @@ func TestValidateGoogleCredentialsFile_NotFound(t *testing.T) {
 	if err == nil {
 		t.Error("validateGoogleCredentialsFile() expected error for non-existent file, got nil")
 	}
-	if !contains(err.Error(), "not found") {
+	if !strings.Contains(err.Error(), "not found") {
 		t.Errorf("validateGoogleCredentialsFile() error = %v, want error containing 'not found'", err)
 	}
 }
@@ -186,7 +185,7 @@ func TestCredentialsDirForGoogle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("credentialsDirForGoogle() error = %v", err)
 		}
-		if !contains(dir, ".config/wtmcp/credentials/google") {
+		if !strings.Contains(dir, ".config/wtmcp/credentials/google") {
 			t.Errorf("credentialsDirForGoogle() = %q, want path containing .config/wtmcp/credentials/google", dir)
 		}
 	})
@@ -236,18 +235,35 @@ func TestCopyFile(t *testing.T) {
 			t.Error("Expected error for non-existent source file, got nil")
 		}
 	})
-}
 
-// contains is a helper to check if a string contains a substring.
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(substr) == 0 || stringContains(s, substr))
-}
-
-func stringContains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
+	t.Run("source path with tilde expansion", func(t *testing.T) {
+		// Create a fake home directory with a source file
+		fakeHome := t.TempDir()
+		srcFile := filepath.Join(fakeHome, "creds.json")
+		if err := os.WriteFile(srcFile, content, 0o600); err != nil {
+			t.Fatalf("Failed to create source file: %v", err)
 		}
-	}
-	return false
+
+		// Override HOME so ~/creds.json resolves to fakeHome/creds.json
+		origHome := os.Getenv("HOME")
+		t.Setenv("HOME", fakeHome)
+		defer func() {
+			if origHome != "" {
+				_ = os.Setenv("HOME", origHome)
+			}
+		}()
+
+		dstPath := filepath.Join(tmpDir, "tilde-dest.json")
+		if err := copyFile("~/creds.json", dstPath); err != nil {
+			t.Fatalf("copyFile with tilde source failed: %v", err)
+		}
+
+		got, err := os.ReadFile(dstPath) //nolint:gosec // test file path
+		if err != nil {
+			t.Fatalf("Failed to read destination file: %v", err)
+		}
+		if string(got) != string(content) {
+			t.Errorf("Content mismatch: got %q, want %q", got, content)
+		}
+	})
 }
