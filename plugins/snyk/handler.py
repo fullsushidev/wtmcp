@@ -62,6 +62,7 @@ def http(method, path, query=None, body=None, headers=None, url=None):
     body = resp.get("body", {})
     if resp.get("body_encoding") == "base64" and isinstance(body, str):
         import base64
+
         body = json.loads(base64.b64decode(body))
     elif isinstance(body, str):
         try:
@@ -72,6 +73,7 @@ def http(method, path, query=None, body=None, headers=None, url=None):
 
 
 # ---------- REST API helpers ----------
+
 
 def _rest_get(path, params=None):
     """GET from the Snyk REST API with versioning."""
@@ -123,6 +125,7 @@ def _v1_request(method, path, body=None):
 
 
 # ---------- Tool implementations ----------
+
 
 def snyk_list_orgs(params):
     items = _rest_get_paginated("orgs")
@@ -178,15 +181,17 @@ def snyk_list_issues(params):
     issues = []
     for i in items:
         attrs = i.get("attributes") or {}
-        issues.append({
-            "id": i.get("id"),
-            "title": attrs.get("title"),
-            "severity": attrs.get("effective_severity_level") or attrs.get("severity"),
-            "status": attrs.get("status"),
-            "type": attrs.get("type"),
-            "ignored": attrs.get("ignored"),
-            "key": attrs.get("key"),
-        })
+        issues.append(
+            {
+                "id": i.get("id"),
+                "title": attrs.get("title"),
+                "severity": attrs.get("effective_severity_level") or attrs.get("severity"),
+                "status": attrs.get("status"),
+                "type": attrs.get("type"),
+                "ignored": attrs.get("ignored"),
+                "key": attrs.get("key"),
+            }
+        )
 
     return {"count": len(issues), "issues": issues}
 
@@ -271,6 +276,7 @@ TOOLS = {
 
 # ---------- Main loop ----------
 
+
 def _init(msg):
     global config
     config = msg.get("config", {})
@@ -299,11 +305,13 @@ def main():
             tool = msg.get("tool")
             handler_fn = TOOLS.get(tool)
             if not handler_fn:
-                _send({
-                    "id": msg_id,
-                    "type": "tool_result",
-                    "error": {"code": "unknown_tool", "message": f"Unknown: {tool}"},
-                })
+                _send(
+                    {
+                        "id": msg_id,
+                        "type": "tool_result",
+                        "error": {"code": "unknown_tool", "message": f"Unknown: {tool}"},
+                    }
+                )
                 continue
 
             try:
@@ -311,11 +319,13 @@ def main():
                 _send({"id": msg_id, "type": "tool_result", "result": result})
             except Exception as e:
                 log(f"error in {tool}: {e}")
-                _send({
-                    "id": msg_id,
-                    "type": "tool_result",
-                    "error": {"code": "handler_error", "message": str(e)},
-                })
+                _send(
+                    {
+                        "id": msg_id,
+                        "type": "tool_result",
+                        "error": {"code": "handler_error", "message": str(e)},
+                    }
+                )
             continue
 
         log(f"unknown message type: {msg_type}")
