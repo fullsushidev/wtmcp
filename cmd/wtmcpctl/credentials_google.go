@@ -221,10 +221,12 @@ func validateGoogleCredentialsFile(path string) error {
 	fmt.Printf("  ✓ Valid JSON\n")
 	fmt.Printf("  ✓ Desktop app credentials (installed type)\n")
 	fmt.Printf("  ✓ client_id: %s\n", creds.Installed.ClientID)
-	fmt.Printf("  ✓ client_secret: %s...%s\n",
-		creds.Installed.ClientSecret[:min(4, len(creds.Installed.ClientSecret))],
-		creds.Installed.ClientSecret[max(0, len(creds.Installed.ClientSecret)-4):],
-	)
+	secret := creds.Installed.ClientSecret
+	if len(secret) > 12 {
+		fmt.Printf("  ✓ client_secret: %s...%s\n", secret[:4], secret[len(secret)-4:])
+	} else {
+		fmt.Printf("  ✓ client_secret: ****\n")
+	}
 
 	return nil
 }

@@ -93,7 +93,13 @@ func promptYesNo(prompt string) bool {
 }
 
 // openBrowser opens the specified URL in the default browser.
+// All current callers pass hardcoded HTTPS URLs; do not call with
+// user-controlled input without additional validation.
 func openBrowser(url string) error {
+	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") {
+		return fmt.Errorf("refusing to open non-HTTP URL: %s", url)
+	}
+
 	var cmd *exec.Cmd
 
 	switch runtime.GOOS {
