@@ -4,6 +4,9 @@ import json
 
 import pytest
 from helpers import (
+    _MAX_WIKI_PARSE_DEPTH,
+    _MAX_WIKI_PARSE_LEN,
+    _is_safe_url,
     _looks_like_wiki_markup,
     _parse_inline_markup,
     adf_to_text,
@@ -746,8 +749,9 @@ class TestParseInlineMarkup:
 
     def test_image_as_link(self):
         nodes = _parse_inline_markup("!screenshot.png!")
-        assert nodes[0]["text"] == "screenshot.png"
-        assert nodes[0]["marks"][0]["type"] == "link"
+        # Relative image URLs without / prefix are rejected by allowlist
+        assert nodes[0]["text"] == "!screenshot.png!"
+        assert "marks" not in nodes[0]
 
     def test_linebreak(self):
         nodes = _parse_inline_markup("before\\\\after")
@@ -772,9 +776,22 @@ class TestParseInlineMarkup:
         assert len(nodes) == 1
         assert nodes[0]["text"] == "This is !important! news"
 
-    def test_image_with_path(self):
+    def test_image_with_relative_path(self):
+        """Relative image paths without / prefix are rejected by allowlist."""
         nodes = _parse_inline_markup("!images/photo.jpg!")
-        assert nodes[0]["text"] == "images/photo.jpg"
+        assert nodes[0]["text"] == "!images/photo.jpg!"
+        assert "marks" not in nodes[0]
+
+    def test_image_with_absolute_path(self):
+        """Image paths starting with / are allowed."""
+        nodes = _parse_inline_markup("!/uploads/photo.jpg!")
+        assert nodes[0]["text"] == "/uploads/photo.jpg"
+        assert nodes[0]["marks"][0]["type"] == "link"
+
+    def test_image_with_url(self):
+        """Image URLs with https:// are allowed."""
+        nodes = _parse_inline_markup("!https://example.com/photo.jpg!")
+        assert nodes[0]["text"] == "https://example.com/photo.jpg"
         assert nodes[0]["marks"][0]["type"] == "link"
 
     def test_link_unsafe_scheme_javascript(self):
@@ -812,6 +829,178 @@ class TestParseInlineMarkup:
         nodes = _parse_inline_markup("[click|vbscript:MsgBox]")
         assert len(nodes) == 1
         assert "marks" not in nodes[0]
+
+    def test_link_unsafe_scheme_file(self):
+        """file: URLs should be rejected by allowlist."""
+        nodes = _parse_inline_markup("[click|file:///etc/passwd]")
+        assert len(nodes) == 1
+        assert "marks" not in nodes[0]
+
+    def test_link_unsafe_scheme_blob(self):
+        """blob: URLs should be rejected by allowlist."""
+        nodes = _parse_inline_markup("[click|blob:http://example.com/uuid]")
+        assert len(nodes) == 1
+        assert "marks" not in nodes[0]
+
+    def test_link_whitespace_injected_scheme(self):
+        """Whitespace-injected schemes should be rejected."""
+        nodes = _parse_inline_markup("[click|java\tscript:alert(1)]")
+        assert len(nodes) == 1
+        assert "marks" not in nodes[0]
+
+    def test_link_anchor(self):
+        """Anchor links (#heading) should be allowed."""
+        nodes = _parse_inline_markup("[Section|#heading]")
+        assert nodes[0]["marks"] == [{"type": "link", "attrs": {"href": "#heading"}}]
+
+    def test_link_empty_url(self):
+        """Empty URL should be handled gracefully."""
+        nodes = _parse_inline_markup("[click|]")
+        assert len(nodes) >= 1
+        # Empty URL doesn't match allowlist, so emitted as plain text
+        for n in nodes:
+            assert "marks" not in n or n["marks"][0]["type"] != "link"
+
+    def test_link_scheme_only(self):
+        """URL with only scheme should be allowed."""
+        nodes = _parse_inline_markup("[click|https://]")
+        assert nodes[0]["marks"] == [{"type": "link", "attrs": {"href": "https://"}}]
+
+    def test_bare_link_routes_through_safe_url(self):
+        """Bare links should also route through _is_safe_url."""
+        nodes = _parse_inline_markup("[https://example.com]")
+        assert nodes[0]["marks"] == [{"type": "link", "attrs": {"href": "https://example.com"}}]
+
+
+# --- URL safety function ---
+
+
+class TestIsSafeUrl:
+    def test_https(self):
+        assert _is_safe_url("https://example.com") is True
+
+    def test_http(self):
+        assert _is_safe_url("http://example.com") is True
+
+    def test_mailto(self):
+        assert _is_safe_url("mailto:user@example.com") is True
+
+    def test_relative(self):
+        assert _is_safe_url("/wiki/page") is True
+
+    def test_anchor(self):
+        assert _is_safe_url("#section") is True
+
+    def test_javascript(self):
+        assert _is_safe_url("javascript:alert(1)") is False
+
+    def test_data(self):
+        assert _is_safe_url("data:text/html,<script>") is False
+
+    def test_vbscript(self):
+        assert _is_safe_url("vbscript:MsgBox") is False
+
+    def test_file(self):
+        assert _is_safe_url("file:///etc/passwd") is False
+
+    def test_blob(self):
+        assert _is_safe_url("blob:http://example.com") is False
+
+    def test_bare_path(self):
+        assert _is_safe_url("page.html") is False
+
+    def test_empty(self):
+        assert _is_safe_url("") is False
+
+    def test_protocol_relative(self):
+        assert _is_safe_url("//evil.com/payload") is False
+
+    def test_https_case_insensitive(self):
+        assert _is_safe_url("HTTPS://example.com") is True
+
+    def test_mailto_case_insensitive(self):
+        assert _is_safe_url("MAILTO:user@example.com") is True
+
+    def test_javascript_case_insensitive(self):
+        assert _is_safe_url("JavaScript:alert(1)") is False
+
+
+# --- Input length cap ---
+
+
+class TestWikiParserLengthCap:
+    def test_oversized_input_wiki_to_adf(self):
+        """wiki_to_adf falls back to single paragraph for oversized input."""
+        large = "h1. Title\n" * (_MAX_WIKI_PARSE_LEN // 10 + 1)
+        result = wiki_to_adf(large)
+        assert result["version"] == 1
+        assert result["type"] == "doc"
+        assert len(result["content"]) == 1
+        assert result["content"][0]["type"] == "paragraph"
+        assert result["content"][0]["content"][0]["text"] == large
+
+    def test_oversized_input_text_to_adf(self):
+        """text_to_adf skips wiki parsing for oversized input."""
+        large = "h1. Title\n" * (_MAX_WIKI_PARSE_LEN // 10 + 1)
+        result = text_to_adf(large)
+        assert result["type"] == "doc"
+        # Falls through to plain-text splitter, not wiki parser
+        for block in result["content"]:
+            assert block["type"] == "paragraph"
+
+    def test_normal_input_still_parsed(self):
+        """Input under the cap is still parsed as wiki markup."""
+        result = text_to_adf("h1. Title\n\nSome text")
+        assert result["content"][0]["type"] == "heading"
+
+
+# --- Recursion depth cap ---
+
+
+class TestWikiParserDepthCap:
+    def test_deeply_nested_quotes(self):
+        """Deeply nested {quote} blocks hit depth cap gracefully."""
+        # Build nesting deeper than _MAX_WIKI_PARSE_DEPTH
+        depth = _MAX_WIKI_PARSE_DEPTH + 5
+        text = "{quote}\n" * depth + "inner text" + "\n{quote}" * depth
+        result = wiki_to_adf(text)
+        assert result["version"] == 1
+        assert result["type"] == "doc"
+        # Should not raise RecursionError — verify content is present
+        adf_text = str(result)
+        assert "inner text" in adf_text
+
+    def test_deeply_nested_unclosed_quotes(self):
+        """Deeply nested unclosed {quote} blocks are handled."""
+        depth = _MAX_WIKI_PARSE_DEPTH + 5
+        text = "{quote}\n" * depth + "inner text"
+        result = wiki_to_adf(text)
+        assert result["version"] == 1
+        adf_text = str(result)
+        assert "inner text" in adf_text
+
+    def test_deeply_nested_panels(self):
+        """Deeply nested {panel} blocks hit depth cap gracefully."""
+        depth = _MAX_WIKI_PARSE_DEPTH + 5
+        text = "{panel}\n" * depth + "panel text" + "\n{panel}" * depth
+        result = wiki_to_adf(text)
+        assert result["version"] == 1
+        adf_text = str(result)
+        assert "panel text" in adf_text
+
+    def test_deeply_nested_lists(self):
+        """Deeply nested lists are capped and content preserved."""
+        # Build a list with depth > _MAX_LIST_DEPTH
+        lines = []
+        for i in range(25):
+            lines.append("*" * (i + 1) + f" item {i}")
+        text = "\n".join(lines)
+        result = wiki_to_adf(text)
+        assert result["version"] == 1
+        # All items should be present in the output
+        adf_text = str(result)
+        for i in range(25):
+            assert f"item {i}" in adf_text
 
 
 # --- Wiki to ADF block parsing ---

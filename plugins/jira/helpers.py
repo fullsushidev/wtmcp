@@ -117,12 +117,16 @@ def extract_brief_issue(issue):
     }
 
 
-_UNSAFE_URL_RE = re.compile(r"^(?:javascript|data|vbscript):", re.IGNORECASE)
+_SAFE_URL_RE = re.compile(r"^(?:https?://|mailto:|/(?!/)|#)", re.IGNORECASE)
+
+_MAX_WIKI_PARSE_LEN = 100_000
+_MAX_WIKI_PARSE_DEPTH = 20
+_MAX_LIST_DEPTH = 20
 
 
 def _is_safe_url(url):
-    """Check that a URL does not use a dangerous scheme (javascript, data, vbscript)."""
-    return not _UNSAFE_URL_RE.match(url)
+    """Check that a URL uses a known-safe scheme."""
+    return bool(_SAFE_URL_RE.match(url))
 
 
 def _looks_like_wiki_markup(text):
@@ -164,7 +168,10 @@ def _parse_inline_markup(text):
                 nodes.append({"type": "text", "text": m.group("link")})
         elif m.group("bare_link"):
             url = m.group("bare_url")
-            nodes.append({"type": "text", "text": url, "marks": [{"type": "link", "attrs": {"href": url}}]})
+            if _is_safe_url(url):
+                nodes.append({"type": "text", "text": url, "marks": [{"type": "link", "attrs": {"href": url}}]})
+            else:
+                nodes.append({"type": "text", "text": m.group("bare_link")})
         elif m.group("mention"):
             nodes.append({"type": "mention", "attrs": {"id": m.group("mention_id")}})
         elif m.group("image"):
@@ -208,6 +215,14 @@ def _build_list_tree(items, list_type):
     """
 
     def _build(items, current_depth):
+        if current_depth > _MAX_LIST_DEPTH:
+            flat_items = []
+            for _depth, text in items:
+                flat_items.append(
+                    {"type": "listItem", "content": [{"type": "paragraph", "content": _parse_inline_markup(text)}]}
+                )
+            return {"type": list_type, "content": flat_items}
+
         list_items = []
         i = 0
         while i < len(items):
@@ -272,7 +287,7 @@ def _parse_table_rows(lines):
     return {"type": "table", "content": rows}
 
 
-def _parse_wiki_blocks(text):
+def _parse_wiki_blocks(text, _depth=0):
     """Parse wiki markup text into a list of ADF block nodes.
 
     Uses a line-by-line state machine for block-level constructs,
@@ -312,7 +327,12 @@ def _parse_wiki_blocks(text):
         if state == "QUOTE":
             if _WIKI_QUOTE_END_RE.match(line):
                 inner = "\n".join(block_buffer)
-                inner_blocks = _parse_wiki_blocks(inner) if inner.strip() else []
+                if inner.strip() and _depth < _MAX_WIKI_PARSE_DEPTH:
+                    inner_blocks = _parse_wiki_blocks(inner, _depth + 1)
+                elif inner.strip():
+                    inner_blocks = [{"type": "paragraph", "content": _parse_inline_markup(inner)}]
+                else:
+                    inner_blocks = []
                 if not inner_blocks:
                     inner_blocks = [{"type": "paragraph", "content": []}]
                 blocks.append({"type": "blockquote", "content": inner_blocks})
@@ -326,7 +346,12 @@ def _parse_wiki_blocks(text):
         if state == "PANEL":
             if _WIKI_PANEL_END_RE.match(line):
                 inner = "\n".join(block_buffer)
-                inner_blocks = _parse_wiki_blocks(inner) if inner.strip() else []
+                if inner.strip() and _depth < _MAX_WIKI_PARSE_DEPTH:
+                    inner_blocks = _parse_wiki_blocks(inner, _depth + 1)
+                elif inner.strip():
+                    inner_blocks = [{"type": "paragraph", "content": _parse_inline_markup(inner)}]
+                else:
+                    inner_blocks = []
                 if not inner_blocks:
                     inner_blocks = [{"type": "paragraph", "content": []}]
                 node = {"type": "panel", "attrs": {"panelType": "info"}, "content": inner_blocks}
@@ -447,11 +472,21 @@ def _parse_wiki_blocks(text):
         blocks.append(node)
     elif state == "QUOTE":
         inner = "\n".join(block_buffer)
-        inner_blocks = _parse_wiki_blocks(inner) if inner.strip() else [{"type": "paragraph", "content": []}]
+        if inner.strip() and _depth < _MAX_WIKI_PARSE_DEPTH:
+            inner_blocks = _parse_wiki_blocks(inner, _depth + 1)
+        elif inner.strip():
+            inner_blocks = [{"type": "paragraph", "content": _parse_inline_markup(inner)}]
+        else:
+            inner_blocks = [{"type": "paragraph", "content": []}]
         blocks.append({"type": "blockquote", "content": inner_blocks})
     elif state == "PANEL":
         inner = "\n".join(block_buffer)
-        inner_blocks = _parse_wiki_blocks(inner) if inner.strip() else [{"type": "paragraph", "content": []}]
+        if inner.strip() and _depth < _MAX_WIKI_PARSE_DEPTH:
+            inner_blocks = _parse_wiki_blocks(inner, _depth + 1)
+        elif inner.strip():
+            inner_blocks = [{"type": "paragraph", "content": _parse_inline_markup(inner)}]
+        else:
+            inner_blocks = [{"type": "paragraph", "content": []}]
         blocks.append({"type": "panel", "attrs": {"panelType": "info"}, "content": inner_blocks})
 
     _flush_para()
@@ -460,6 +495,12 @@ def _parse_wiki_blocks(text):
 
 def wiki_to_adf(text):
     """Convert Jira wiki markup text to an ADF document."""
+    if len(text) > _MAX_WIKI_PARSE_LEN:
+        return {
+            "version": 1,
+            "type": "doc",
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": text}]}],
+        }
     blocks = _parse_wiki_blocks(text)
     if not blocks:
         blocks = [{"type": "paragraph", "content": []}]
@@ -502,8 +543,11 @@ def text_to_adf(text: str | dict | None) -> dict:
         except (json.JSONDecodeError, ValueError):
             pass
 
-    # Wiki markup detection — convert before plain text fallback
-    if isinstance(text, str) and _looks_like_wiki_markup(text):
+    # Wiki markup detection — convert before plain text fallback.
+    # Length guard here so oversized text falls through to the
+    # plain-text paragraph splitter (splits on \n) instead of
+    # wiki_to_adf()'s single-paragraph fallback.
+    if isinstance(text, str) and len(text) <= _MAX_WIKI_PARSE_LEN and _looks_like_wiki_markup(text):
         return wiki_to_adf(text)
 
     # Plain text — split into paragraphs
