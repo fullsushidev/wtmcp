@@ -733,6 +733,26 @@ class TestParseInlineMarkup:
         assert nodes[0]["text"] == "sub"
         assert nodes[0]["marks"] == [{"type": "subsup", "attrs": {"type": "sub"}}]
 
+    def test_sup_boundary_guard(self):
+        """Superscript with spaces around content should not match."""
+        nodes = _parse_inline_markup("^ not sup ^")
+        assert len(nodes) == 1
+        assert nodes[0] == {"type": "text", "text": "^ not sup ^"}
+
+    def test_sub_boundary_guard(self):
+        """Subscript with spaces around content should not match."""
+        nodes = _parse_inline_markup("~ not sub ~")
+        assert len(nodes) == 1
+        assert nodes[0] == {"type": "text", "text": "~ not sub ~"}
+
+    def test_mention_and_subscript_tilde(self):
+        """Tilde used in mentions and subscript should not conflict."""
+        nodes = _parse_inline_markup("[~user] and ~sub~")
+        assert nodes[0] == {"type": "mention", "attrs": {"id": "user"}}
+        assert nodes[1] == {"type": "text", "text": " and "}
+        assert nodes[2]["text"] == "sub"
+        assert nodes[2]["marks"] == [{"type": "subsup", "attrs": {"type": "sub"}}]
+
     def test_link_with_text(self):
         nodes = _parse_inline_markup("[Example|https://example.com]")
         assert nodes[0]["text"] == "Example"
@@ -1139,6 +1159,28 @@ class TestWikiToAdf:
     def test_panel_unclosed(self):
         result = wiki_to_adf("{panel}\nunclosed panel")
         assert result["content"][0]["type"] == "panel"
+
+    def test_panel_with_parameters(self):
+        """Panel with parameters should not error."""
+        result = wiki_to_adf("{panel:title=Warning}\ncontent\n{panel}")
+        block = result["content"][0]
+        assert block["type"] == "panel"
+        assert block["attrs"]["panelType"] == "info"
+        assert block["content"][0]["content"][0]["text"] == "content"
+
+    def test_code_block_no_inline_parsing(self):
+        """Inline markup inside {code} blocks should NOT be parsed."""
+        result = wiki_to_adf("{code}\n*bold* and _italic_\n{code}")
+        block = result["content"][0]
+        assert block["type"] == "codeBlock"
+        assert block["content"][0]["text"] == "*bold* and _italic_"
+
+    def test_mixed_list_types(self):
+        """Different list types should produce separate list blocks."""
+        result = wiki_to_adf("* bullet\n# ordered")
+        assert len(result["content"]) == 2
+        assert result["content"][0]["type"] == "bulletList"
+        assert result["content"][1]["type"] == "orderedList"
 
     # Mixed content
     def test_heading_then_paragraph(self):

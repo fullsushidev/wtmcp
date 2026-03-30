@@ -16,6 +16,9 @@ _USER_ALIASES = frozenset({"me", "myself", "currentuser"})
 _WIKI_HEADING_RE = re.compile(r"^h([1-6])\.\s+(.*)")
 _WIKI_LIST_UL_RE = re.compile(r"^(\*+)\s+(.*)")
 _WIKI_LIST_OL_RE = re.compile(r"^(#+)\s+(.*)")
+# {code} and {quote} use identical start/end delimiters in Jira wiki
+# syntax. The state machine disambiguates: in NORMAL state a match
+# opens the block; in CODE/QUOTE state it closes it.
 _WIKI_CODE_START_RE = re.compile(r"^\{code(?::(\w+))?\}\s*$")
 _WIKI_CODE_END_RE = re.compile(r"^\{code\}\s*$")
 _WIKI_QUOTE_START_RE = re.compile(r"^\{quote\}\s*$")
@@ -24,7 +27,9 @@ _WIKI_BQ_RE = re.compile(r"^bq\.\s+(.*)")
 _WIKI_RULE_RE = re.compile(r"^----\s*$")
 _WIKI_TABLE_HEADER_RE = re.compile(r"^\|\|")
 _WIKI_TABLE_ROW_RE = re.compile(r"^\|[^|]")
-_WIKI_PANEL_START_RE = re.compile(r"^\{panel(?::([^}]*))?\}\s*$")
+# Panel parameters (title, borderStyle, bgColor) are intentionally
+# ignored — no clean mapping to ADF panel types (info, note, etc.).
+_WIKI_PANEL_START_RE = re.compile(r"^\{panel(?::[^}]*)?\}\s*$")
 _WIKI_PANEL_END_RE = re.compile(r"^\{panel\}\s*$")
 
 _WIKI_BLOCK_DETECT_RE = re.compile(
@@ -50,8 +55,8 @@ _WIKI_INLINE_RE = re.compile(
     r"|(?P<italic>_(?=\S)(?P<italic_text>.+?)(?<=\S)_)"
     r"|(?P<strike>-(?=\S)(?P<strike_text>.+?)(?<=\S)-)"
     r"|(?P<underline>\+(?=\S)(?P<underline_text>.+?)(?<=\S)\+)"
-    r"|(?P<sup>\^(?P<sup_text>.+?)\^)"
-    r"|(?P<sub>~(?P<sub_text>.+?)~)"
+    r"|(?P<sup>\^(?=\S)(?P<sup_text>.+?)(?<=\S)\^)"
+    r"|(?P<sub>~(?=\S)(?P<sub_text>.+?)(?<=\S)~)"
     r"|(?P<linebreak>\\\\)"
 )
 
