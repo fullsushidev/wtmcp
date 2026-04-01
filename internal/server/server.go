@@ -373,7 +373,10 @@ func excludedToolNames() []string {
 func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config, name string, index *ToolIndex, collector *stats.Collector) error {
 	progressive := cfg.Tools.Discovery == "progressive"
 
-	// Collect old tool names, context URIs, and provided resource URIs
+	// Collect old tool names, context URIs, and provided resource URIs.
+	// Check both loaded plugins (Manifests) and disabled plugins
+	// (EnvDisabledPlugins) so that [DISABLED] stub tools are properly
+	// removed when a previously disabled plugin is re-enabled.
 	var oldToolNames []string
 	var oldContextURIs []string
 	var oldResourceURIs []string
@@ -390,6 +393,10 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 					oldResourceURIs = append(oldResourceURIs, r.URI)
 				}
 			}
+		}
+	} else if dp, ok := mgr.EnvDisabledPlugins()[name]; ok {
+		for _, t := range dp.Manifest.Tools {
+			oldToolNames = append(oldToolNames, t.Name)
 		}
 	}
 
