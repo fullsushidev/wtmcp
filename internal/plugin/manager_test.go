@@ -1094,3 +1094,74 @@ func TestPreparePluginDoesNotStart(t *testing.T) {
 		t.Error("preparePlugin should not store the handle in Manager")
 	}
 }
+
+func TestSanitizeReason(t *testing.T) {
+	tests := []struct {
+		name    string
+		workdir string
+		reason  string
+		want    string
+	}{
+		{
+			name:    "strips workdir prefix",
+			workdir: "/home/user/.config/wtmcp",
+			reason:  "[keylime] read ca_cert /home/user/.config/wtmcp/credentials/keylime/cacert.crt: no such file",
+			want:    "[keylime] read ca_cert credentials/keylime/cacert.crt: no such file",
+		},
+		{
+			name:    "strips multiple occurrences",
+			workdir: "/home/user/.config/wtmcp",
+			reason:  "stat /home/user/.config/wtmcp/env.d/jira.env: /home/user/.config/wtmcp/env.d/jira.env has mode 0644",
+			want:    "stat env.d/jira.env: env.d/jira.env has mode 0644",
+		},
+		{
+			name:    "no workdir is no-op",
+			workdir: "",
+			reason:  "some error message",
+			want:    "some error message",
+		},
+		{
+			name:    "no match is no-op",
+			workdir: "/home/user/.config/wtmcp",
+			reason:  "auth provider disabled",
+			want:    "auth provider disabled",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := &Manager{workdir: tt.workdir}
+			got := m.sanitizeReason(tt.reason)
+			if got != tt.want {
+				t.Errorf("sanitizeReason() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDisablePlugin(t *testing.T) {
+	m := newTestManager(t)
+	m.manifests["test-plug"] = &Manifest{
+		Name: "test-plug",
+		Tools: []ToolDef{
+			{Name: "test_plug_get", Description: "Get things", Access: "read"},
+		},
+	}
+
+	m.disablePlugin("test-plug", "CA cert not found")
+
+	disabled := m.DisabledPlugins()
+	dp, ok := disabled["test-plug"]
+	if !ok {
+		t.Fatal("test-plug should be in disabled map")
+	}
+	if dp.Reason != "CA cert not found" {
+		t.Errorf("reason = %q, want %q", dp.Reason, "CA cert not found")
+	}
+	if dp.Manifest == nil {
+		t.Fatal("disabled plugin should have manifest")
+	}
+	if len(dp.Manifest.Tools) != 1 {
+		t.Errorf("manifest should have 1 tool, got %d", len(dp.Manifest.Tools))
+	}
+}
