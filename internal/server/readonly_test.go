@@ -108,7 +108,7 @@ func TestReadOnly_DisabledPluginWriteToolsExcluded(t *testing.T) {
 			{Name: "broken_write", Description: "Write tool", Access: "write"},
 		},
 	})
-	mgr.SetEnvDisabledPlugin("broken", "missing credentials")
+	mgr.SetDisabledPlugin("broken", "missing credentials")
 
 	cfg := config.DefaultConfig()
 	cfg.ReadOnly = true

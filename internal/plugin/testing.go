@@ -19,8 +19,8 @@ func (m *Manager) SetHandle(name string) {
 	m.handles[name] = &Handle{}
 }
 
-// SetEnvDisabledPlugin marks a plugin as env-disabled for testing.
-func (m *Manager) SetEnvDisabledPlugin(name, reason string) {
+// SetDisabledPlugin marks a plugin as disabled for testing.
+func (m *Manager) SetDisabledPlugin(name, reason string) {
 	if m.disabled == nil {
 		m.disabled = make(map[string]DisabledPlugin)
 	}

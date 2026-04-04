@@ -19,7 +19,7 @@ func TestReloadDisabledPlugin_StubToolsRemoved(t *testing.T) {
 			{Name: "broken_create", Description: "Create things", Access: "write"},
 		},
 	})
-	mgr.SetEnvDisabledPlugin("broken", "env.d/broken.env: permissions too broad")
+	mgr.SetDisabledPlugin("broken", "env.d/broken.env: permissions too broad")
 
 	cfg := config.DefaultConfig()
 	index := NewToolIndex(mgr, false)
@@ -44,7 +44,7 @@ func TestReloadDisabledPlugin_StubToolsRemoved(t *testing.T) {
 		for _, tt := range manifest.Tools {
 			oldToolNames = append(oldToolNames, tt.Name)
 		}
-	} else if dp, ok := mgr.EnvDisabledPlugins()["broken"]; ok {
+	} else if dp, ok := mgr.DisabledPlugins()["broken"]; ok {
 		for _, tt := range dp.Manifest.Tools {
 			oldToolNames = append(oldToolNames, tt.Name)
 		}
@@ -99,7 +99,7 @@ func TestReloadDisabledPlugin_ManifestsPathStillWorks(t *testing.T) {
 		for _, tt := range manifest.Tools {
 			oldToolNames = append(oldToolNames, tt.Name)
 		}
-	} else if dp, ok := mgr.EnvDisabledPlugins()["healthy"]; ok {
+	} else if dp, ok := mgr.DisabledPlugins()["healthy"]; ok {
 		for _, tt := range dp.Manifest.Tools {
 			oldToolNames = append(oldToolNames, tt.Name)
 		}

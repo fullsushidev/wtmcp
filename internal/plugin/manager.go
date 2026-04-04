@@ -212,24 +212,13 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 
 		if manifest.CredentialGroup != "" {
 			if errMsg, ok := m.envErrors[manifest.CredentialGroup]; ok {
-				m.disabled[name] = DisabledPlugin{
-					Name:     name,
-					Reason:   errMsg,
-					Manifest: manifest,
-				}
-				log.Printf("plugin %s disabled: credential group %q: %s",
-					name, manifest.CredentialGroup, errMsg)
+				m.disablePlugin(name, errMsg)
 				continue
 			}
 		}
 
 		if reason := m.checkDisabledProvider(manifest); reason != "" {
-			m.disabled[name] = DisabledPlugin{
-				Name:     name,
-				Reason:   reason,
-				Manifest: manifest,
-			}
-			log.Printf("plugin %s disabled: %s", name, reason)
+			m.disablePlugin(name, reason)
 			continue
 		}
 
@@ -616,15 +605,51 @@ func (m *Manager) Manifests() map[string]*Manifest {
 	return m.manifests
 }
 
-// EnvDisabledPlugins returns a snapshot of plugins that were
-// discovered but could not be loaded due to env.d configuration
-// issues (e.g., bad permissions on credential files).
-func (m *Manager) EnvDisabledPlugins() map[string]DisabledPlugin {
+// DisabledPlugins returns a snapshot of plugins that were discovered
+// but could not be loaded (e.g., bad env.d permissions, TLS/cert
+// errors, missing dependencies, process start failures). Thread-safe.
+func (m *Manager) DisabledPlugins() map[string]DisabledPlugin {
+	m.handlesMu.RLock()
+	defer m.handlesMu.RUnlock()
 	snapshot := make(map[string]DisabledPlugin, len(m.disabled))
 	for k, v := range m.disabled {
 		snapshot[k] = v
 	}
 	return snapshot
+}
+
+// disablePlugin marks a plugin as disabled with an actionable reason.
+// This is the single entry point for all failure paths — env.d errors,
+// prepare failures, start failures, dependency issues. The plugin's
+// tools are registered as [DISABLED] stubs so the LLM can inform the
+// user and suggest fixes.
+//
+// Caller must NOT hold handlesMu.
+func (m *Manager) disablePlugin(name, reason string) {
+	manifest := m.manifests[name]
+	m.handlesMu.Lock()
+	m.disabled[name] = DisabledPlugin{
+		Name:     name,
+		Reason:   m.sanitizeReason(reason),
+		Manifest: manifest,
+	}
+	delete(m.handles, name)
+	m.handlesMu.Unlock()
+
+	if m.proxy != nil {
+		m.proxy.UnregisterPlugin(name)
+	}
+	log.Printf("plugin %s disabled: %s", name, reason)
+}
+
+// sanitizeReason strips the workdir prefix from paths in error
+// messages to avoid leaking the full filesystem layout (including
+// username) in [DISABLED] stubs visible to the LLM.
+func (m *Manager) sanitizeReason(reason string) string {
+	if m.workdir == "" {
+		return reason
+	}
+	return strings.ReplaceAll(reason, m.workdir+"/", "")
 }
 
 // ConfigDisabledPlugins returns plugins that were skipped during

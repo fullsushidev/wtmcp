@@ -42,7 +42,7 @@ func New(version string, manager *plugin.Manager, cfg *config.Config, index *Too
 		log.Println("read-only mode: write tools will not be registered")
 	}
 
-	disabled := manager.EnvDisabledPlugins()
+	disabled := manager.DisabledPlugins()
 
 	// Register tools from all plugin manifests. In progressive
 	// mode, non-primary tools get the defer_loading flag.
@@ -216,7 +216,7 @@ func registerManagementTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg 
 		func(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var plugins []map[string]any
 
-			disabled := mgr.EnvDisabledPlugins()
+			disabled := mgr.DisabledPlugins()
 			for name, manifest := range mgr.Manifests() {
 				if dp, ok := disabled[name]; ok {
 					plugins = append(plugins, map[string]any{
@@ -375,7 +375,7 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 
 	// Collect old tool names, context URIs, and provided resource URIs.
 	// Check both loaded plugins (Manifests) and disabled plugins
-	// (EnvDisabledPlugins) so that [DISABLED] stub tools are properly
+	// (DisabledPlugins) so that [DISABLED] stub tools are properly
 	// removed when a previously disabled plugin is re-enabled.
 	var oldToolNames []string
 	var oldContextURIs []string
@@ -394,7 +394,7 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 				}
 			}
 		}
-	} else if dp, ok := mgr.EnvDisabledPlugins()[name]; ok {
+	} else if dp, ok := mgr.DisabledPlugins()[name]; ok {
 		for _, t := range dp.Manifest.Tools {
 			oldToolNames = append(oldToolNames, t.Name)
 		}
