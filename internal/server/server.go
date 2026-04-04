@@ -422,8 +422,13 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 		srv.DeleteResources(oldResourceURIs...)
 	}
 
-	// Re-register from refreshed manifest
-	if manifest, ok := mgr.Manifests()[name]; ok {
+	// Re-register tools. Check disabled first — a plugin can be in
+	// both m.manifests (discovered) and m.disabled (failed to load),
+	// so checking manifests first would skip the disabled branch.
+	if dp, ok := mgr.DisabledPlugins()[name]; ok {
+		single := map[string]plugin.DisabledPlugin{name: dp}
+		registerDisabledPluginTools(srv, single, progressive, cfg.ReadOnly)
+	} else if manifest, ok := mgr.Manifests()[name]; ok {
 		outputFormat := cfg.Output.Format
 		if manifest.Output.Format != "" {
 			outputFormat = manifest.Output.Format

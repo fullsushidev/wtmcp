@@ -568,7 +568,11 @@ func (m *Manager) Reload(ctx context.Context, name string) error {
 			return err
 		}
 	}
-	return m.Load(ctx, name)
+	if err := m.Load(ctx, name); err != nil {
+		m.disablePlugin(name, err.Error())
+		return err
+	}
+	return nil
 }
 
 // ShutdownAll stops all loaded plugins.
