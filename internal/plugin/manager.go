@@ -234,7 +234,7 @@ func (m *Manager) LoadAll(ctx context.Context) error {
 		for _, name := range level {
 			handle, err := m.preparePlugin(name)
 			if err != nil {
-				log.Printf("failed to prepare plugin %s: %v", name, err)
+				m.disablePlugin(name, err.Error())
 				continue
 			}
 
