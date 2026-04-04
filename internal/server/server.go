@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -449,6 +450,44 @@ func ReloadPlugin(ctx context.Context, srv *mcpserver.MCPServer, mgr *plugin.Man
 	registerToolSearch(srv, index)
 
 	return nil
+}
+
+// SwapStartFailedTools replaces normally-registered tools with
+// [DISABLED] stubs for plugins that failed during StartPending.
+// Tools are registered as normal in New() before StartPending runs;
+// this function reconciles the tool list after startup completes.
+//
+// Call this after mgr.StartPending() returns (or after WaitLoaded).
+func SwapStartFailedTools(srv *mcpserver.MCPServer, mgr *plugin.Manager, cfg *config.Config) {
+	progressive := cfg.Tools.Discovery == "progressive"
+
+	for name, dp := range mgr.DisabledPlugins() {
+		// Only swap tools that are currently registered as normal
+		// (not already [DISABLED]). Check the first tool's description.
+		if len(dp.Manifest.Tools) == 0 {
+			continue
+		}
+		tools := srv.ListTools()
+		firstTool := dp.Manifest.Tools[0].Name
+		st, exists := tools[firstTool]
+		if !exists {
+			continue // not registered (e.g., was disabled before New())
+		}
+		if strings.Contains(st.Tool.Description, "[DISABLED]") {
+			continue // already a stub
+		}
+
+		// Delete normal tools and re-register as disabled stubs
+		var toolNames []string
+		for _, t := range dp.Manifest.Tools {
+			toolNames = append(toolNames, t.Name)
+		}
+		srv.DeleteTools(toolNames...)
+
+		single := map[string]plugin.DisabledPlugin{name: dp}
+		registerDisabledPluginTools(srv, single, progressive, cfg.ReadOnly)
+		log.Printf("swapped tools for failed plugin %s to [DISABLED] stubs", name)
+	}
 }
 
 func registerContextResources(srv *mcpserver.MCPServer, mgr *plugin.Manager, collector *stats.Collector) {

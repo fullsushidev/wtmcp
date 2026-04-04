@@ -200,8 +200,10 @@ func run() error {
 	// return "plugin still loading" until their init completes.
 	go func() {
 		mgr.StartPending(ctx)
-		// Post-load: register plugin-provided resources and rebuild
-		// the tool search index now that plugins are loaded.
+		// Post-load: swap tools for plugins that failed to start
+		// from normal registrations to [DISABLED] stubs, register
+		// plugin-provided resources, and rebuild the tool index.
+		server.SwapStartFailedTools(srv, mgr, cfg)
 		server.RegisterPluginResources(srv, mgr, collector)
 		index.Rebuild(mgr)
 		log.Printf("all plugins loaded (%d)", len(mgr.LoadedPlugins()))

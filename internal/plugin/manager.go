@@ -338,12 +338,19 @@ func (m *Manager) startLevel(ctx context.Context, names []string) {
 	wg.Wait()
 
 	// Collect results sequentially (map writes, proxy cleanup).
+	// Failed plugins are added to m.disabled so their tools appear
+	// as [DISABLED] stubs after SwapStartFailedTools runs.
 	m.handlesMu.Lock()
 	for _, r := range results {
 		if r.err != nil {
-			log.Printf("failed to load plugin %s (%s): %v", r.name, r.duration.Round(time.Millisecond), r.err)
+			log.Printf("failed to start plugin %s (%s): %v", r.name, r.duration.Round(time.Millisecond), r.err)
 			m.proxy.UnregisterPlugin(r.name)
 			delete(m.handles, r.name)
+			m.disabled[r.name] = DisabledPlugin{
+				Name:     r.name,
+				Reason:   m.sanitizeReason(r.err.Error()),
+				Manifest: m.manifests[r.name],
+			}
 			continue
 		}
 		log.Printf("loaded plugin %s (v%s, %s, %s)", r.name,
