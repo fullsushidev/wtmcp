@@ -359,7 +359,7 @@ func TestManagerTopologicalSort(t *testing.T) {
 	m.manifests["bb-derived"] = &Manifest{Name: "bb-derived", DependsOn: []string{"aa-base"}, Priority: 20}
 	m.manifests["cc-top"] = &Manifest{Name: "cc-top", DependsOn: []string{"bb-derived"}, Priority: 30}
 
-	sorted, err := m.topologicalSort()
+	sorted, _, err := m.topologicalSort()
 	if err != nil {
 		t.Fatalf("topologicalSort: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestManagerCircularDependency(t *testing.T) {
 	m.manifests["aa"] = &Manifest{Name: "aa", DependsOn: []string{"bb"}}
 	m.manifests["bb"] = &Manifest{Name: "bb", DependsOn: []string{"aa"}}
 
-	_, err := m.topologicalSort()
+	_, _, err := m.topologicalSort()
 	if err == nil {
 		t.Error("expected circular dependency error")
 	}
@@ -402,7 +402,7 @@ func TestManagerMissingDependencySkips(t *testing.T) {
 	m.manifests["aa"] = &Manifest{Name: "aa", DependsOn: []string{"missing"}}
 	m.manifests["bb"] = &Manifest{Name: "bb", Priority: 10}
 
-	sorted, err := m.topologicalSort()
+	sorted, skipped, err := m.topologicalSort()
 	if err != nil {
 		t.Fatalf("topologicalSort should not error: %v", err)
 	}
@@ -413,6 +413,13 @@ func TestManagerMissingDependencySkips(t *testing.T) {
 	}
 	if sorted[0] != "bb" {
 		t.Errorf("sorted[0] = %q, want bb", sorted[0])
+	}
+
+	// Verify skipped map has root-cause reason
+	if reason, ok := skipped["aa"]; !ok {
+		t.Error("aa should be in skipped map")
+	} else if !strings.Contains(reason, "missing") {
+		t.Errorf("reason should mention missing dep, got %q", reason)
 	}
 }
 
@@ -427,7 +434,7 @@ func TestManagerTransitiveDependencySkips(t *testing.T) {
 	m.manifests["aa"] = &Manifest{Name: "aa", DependsOn: []string{"bb"}, Priority: 10}
 	m.manifests["dd"] = &Manifest{Name: "dd", Priority: 40}
 
-	sorted, err := m.topologicalSort()
+	sorted, skipped, err := m.topologicalSort()
 	if err != nil {
 		t.Fatalf("topologicalSort: %v", err)
 	}
@@ -437,6 +444,19 @@ func TestManagerTransitiveDependencySkips(t *testing.T) {
 	}
 	if sorted[0] != "dd" {
 		t.Errorf("sorted[0] = %q, want dd", sorted[0])
+	}
+
+	// All three should be skipped with root-cause reasons
+	if len(skipped) != 3 {
+		t.Fatalf("got %d skipped, want 3: %v", len(skipped), skipped)
+	}
+	// cc: direct missing dep
+	if !strings.Contains(skipped["cc"], "missing") {
+		t.Errorf("cc reason should mention 'missing', got %q", skipped["cc"])
+	}
+	// bb: transitive, should mention cc and root cause
+	if !strings.Contains(skipped["bb"], "cc") {
+		t.Errorf("bb reason should mention 'cc', got %q", skipped["bb"])
 	}
 }
 
@@ -894,7 +914,7 @@ func TestDependencyLevelsAllIndependent(t *testing.T) {
 	m.manifests["bb"] = &Manifest{Name: "bb", Priority: 20}
 	m.manifests["cc"] = &Manifest{Name: "cc", Priority: 30}
 
-	sorted, err := m.topologicalSort()
+	sorted, _, err := m.topologicalSort()
 	if err != nil {
 		t.Fatalf("topologicalSort: %v", err)
 	}
@@ -914,7 +934,7 @@ func TestDependencyLevelsChain(t *testing.T) {
 	m.manifests["bb"] = &Manifest{Name: "bb", DependsOn: []string{"aa"}, Priority: 20}
 	m.manifests["cc"] = &Manifest{Name: "cc", DependsOn: []string{"bb"}, Priority: 30}
 
-	sorted, err := m.topologicalSort()
+	sorted, _, err := m.topologicalSort()
 	if err != nil {
 		t.Fatalf("topologicalSort: %v", err)
 	}
@@ -944,7 +964,7 @@ func TestDependencyLevelsMixed(t *testing.T) {
 	m.manifests["cc"] = &Manifest{Name: "cc", DependsOn: []string{"aa"}, Priority: 30}
 	m.manifests["dd"] = &Manifest{Name: "dd", DependsOn: []string{"cc"}, Priority: 40}
 
-	sorted, err := m.topologicalSort()
+	sorted, _, err := m.topologicalSort()
 	if err != nil {
 		t.Fatalf("topologicalSort: %v", err)
 	}

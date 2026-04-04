@@ -186,9 +186,14 @@ func (m *Manager) Discover(dirs []string, userDir string) error {
 // handles are prepared. Call StartPending to launch the plugin
 // processes in the background (the slow phase).
 func (m *Manager) LoadAll(ctx context.Context) error {
-	sorted, err := m.topologicalSort()
+	sorted, skipped, err := m.topologicalSort()
 	if err != nil {
 		return fmt.Errorf("dependency resolution: %w", err)
+	}
+
+	// Disable plugins that were skipped due to dependency issues.
+	for name, reason := range skipped {
+		m.disablePlugin(name, reason)
 	}
 
 	// Pass 1: load auth-providing plugins fully (fast, typically 0-1).
@@ -841,10 +846,12 @@ func (m *Manager) resolveAuth(manifest *Manifest) auth.Provider {
 	return provider
 }
 
-func (m *Manager) topologicalSort() ([]string, error) {
+func (m *Manager) topologicalSort() ([]string, map[string]string, error) {
 	// Pre-filter: skip plugins with unresolvable or skipped
 	// dependencies. Propagate transitively until stable.
+	// Track root-cause reasons so disabled stubs are actionable.
 	skipped := make(map[string]bool)
+	reasons := make(map[string]string) // name → root-cause reason
 	changed := true
 	for changed {
 		changed = false
@@ -854,15 +861,14 @@ func (m *Manager) topologicalSort() ([]string, error) {
 			}
 			for _, dep := range manifest.DependsOn {
 				if _, exists := m.manifests[dep]; !exists {
-					log.Printf("WARNING: plugin %s depends on %s which is not available — skipping",
-						name, dep)
+					reasons[name] = fmt.Sprintf("requires unavailable plugin %q", dep)
 					skipped[name] = true
 					changed = true
 					break
 				}
 				if skipped[dep] {
-					log.Printf("WARNING: plugin %s depends on skipped plugin %s — skipping",
-						name, dep)
+					// Use root cause from the dependency, not "depends on skipped"
+					reasons[name] = fmt.Sprintf("requires plugin %q which is disabled: %s", dep, reasons[dep])
 					skipped[name] = true
 					changed = true
 					break
@@ -913,11 +919,11 @@ func (m *Manager) topologicalSort() ([]string, error) {
 			continue
 		}
 		if err := visit(name); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
-	return sorted, nil
+	return sorted, reasons, nil
 }
 
 // dependencyLevels groups plugin names by their topological depth so
