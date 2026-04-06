@@ -1,4 +1,7 @@
-.PHONY: all build plugins test lint fmt vet clean help
+.PHONY: all build plugins test lint fmt vet tidy clean help
+
+# Go toolchain version — must match CI (prevents go.mod bumps from newer local Go)
+GO_TOOLCHAIN_VERSION := 1.24.3
 
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
 BUILD_DATE := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -55,6 +58,10 @@ vet:
 	@echo "Running go vet..."
 	go vet ./...
 
+# Tidy modules (pinned to CI toolchain)
+tidy:
+	GOTOOLCHAIN=go$(GO_TOOLCHAIN_VERSION) go mod tidy
+
 # Install pre-commit hooks
 hooks:
 	@echo "Installing pre-commit hooks..."
@@ -90,6 +97,7 @@ help:
 	@echo "  lint           - Run golangci-lint"
 	@echo "  fmt            - Format code with gofmt"
 	@echo "  vet            - Run go vet"
+	@echo "  tidy           - Run go mod tidy (pinned toolchain)"
 	@echo "  hooks          - Install pre-commit hooks"
 	@echo "  pre-commit     - Run pre-commit on all files"
 	@echo "  clean          - Remove build artifacts"
