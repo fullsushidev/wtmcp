@@ -19,6 +19,7 @@ context_files:
 
 tools:
   - name: gdocs_get_document
+    access: read
     description: "Get a Google Doc's full content and structure"
     params:
       document_id_or_url:
@@ -27,6 +28,7 @@ tools:
         description: "Document ID or Google Docs URL"
 
   - name: gdocs_get_document_text
+    access: read
     description: "Get a Google Doc as plain text content"
     params:
       document_id_or_url:
@@ -42,6 +44,8 @@ tools:
         description: "Custom output path (default: ./docs/<title>.txt)"
 
   - name: gdocs_get_document_markdown
+    access: read
+    visibility: primary
     description: "Get a Google Doc converted to Markdown format"
     params:
       document_id_or_url:
@@ -57,6 +61,7 @@ tools:
         description: "Custom output path (default: ./docs/<title>.md)"
 
   - name: gdocs_summarize_document
+    access: read
     description: "Get a concise summary of a Google Doc's content and structure"
     params:
       document_id_or_url:
@@ -69,6 +74,7 @@ tools:
         description: "Include document structure analysis (headings, lists, tables)"
 
   - name: gdocs_extract_and_get_from_text
+    access: read
     description: "Extract Google Docs links from text and fetch their content"
     params:
       text:
@@ -81,8 +87,9 @@ tools:
         description: "Maximum number of documents to fetch"
 
   - name: gdocs_write_text
-    description: "Write or append text to a Google Doc with optional markdown formatting"
     access: write
+    visibility: primary
+    description: "Write or append text to a Google Doc with optional markdown formatting"
     params:
       document_id_or_url:
         type: string
@@ -94,11 +101,11 @@ tools:
         description: "Text content to write"
       is_markdown:
         type: boolean
-        default: false
+        default: true
         description: "Parse text as markdown and apply rich formatting (headings, bold, italic, underline, links)"
       append_to_end:
         type: boolean
-        default: false
+        default: true
         description: "Append text to the end of the document"
       insert_index:
         type: integer
@@ -106,29 +113,8 @@ tools:
         description: "Character index for insertion (used if append_to_end is false)"
 
   - name: gdocs_write_markdown
-    description: "Write Markdown-formatted text to a Google Doc with rich formatting (headings, bold, italic, links, etc.)"
     access: write
-    params:
-      document_id_or_url:
-        type: string
-        required: true
-        description: "Document ID or Google Docs URL"
-      markdown:
-        type: string
-        required: true
-        description: "Markdown content to write"
-      append_to_end:
-        type: boolean
-        default: false
-        description: "Append text to the end of the document"
-      insert_index:
-        type: integer
-        default: 0
-        description: "Character index for insertion (used if append_to_end is false)"
-
-  - name: gdocs_write_markdown
     description: "Write Markdown-formatted text to a Google Doc with rich formatting (headings, bold, italic, links, etc.)"
-    access: write
     params:
       document_id_or_url:
         type: string
@@ -148,8 +134,9 @@ tools:
         description: "Character index for insertion (used if append_to_end is false)"
 
   - name: gdocs_create_document
-    description: "Create a new Google Doc with a specified title"
     access: write
+    visibility: primary
+    description: "Create a new Google Doc with a specified title"
     params:
       title:
         type: string
