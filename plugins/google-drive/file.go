@@ -8,13 +8,15 @@ import (
 	"strings"
 )
 
+var reUnsafeFileChars = regexp.MustCompile(`[<>:"/\\|?*]`)
+
 // saveExportFile saves exported content to a local file.
 // If outputPath is empty, saves to ./drive/<title>.md.
 func saveExportFile(title, outputPath, content string) (string, error) {
 	baseDir := "drive"
 
 	if outputPath == "" {
-		safeTitle := regexp.MustCompile(`[<>:"/\\|?*]`).ReplaceAllString(title, "_")
+		safeTitle := reUnsafeFileChars.ReplaceAllString(title, "_")
 		safeTitle = filepath.Base(safeTitle)
 		outputPath = filepath.Join(baseDir, safeTitle+".md")
 	}

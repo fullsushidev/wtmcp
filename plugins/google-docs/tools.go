@@ -14,20 +14,29 @@ import (
 	"google.golang.org/api/docs/v1"
 )
 
+// Pre-compiled regexps used across tool functions.
+var (
+	reDocURL        = regexp.MustCompile(`/document/d/([A-Za-z0-9_-]+)`)
+	reDocIDParam    = regexp.MustCompile(`[?&]id=([A-Za-z0-9_-]+)`)
+	reDocIDPlain    = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+	reUnsafeChars   = regexp.MustCompile(`[<>:"/\\|?*]`)
+	reDocsURL       = regexp.MustCompile(`https?://docs\.google\.com/document/[\w\-/\?=&#%.]+`)
+	reOrderedList   = regexp.MustCompile(`^(\s*)\d+\.\s+(.+)$`)
+	reUnorderedList = regexp.MustCompile(`^(\s*)([-*+])\s+(.+)$`)
+	reDateChip      = regexp.MustCompile(`@date\((\d{4}-\d{2}-\d{2})\)`)
+	rePersonChip    = regexp.MustCompile(`@\(([^)]+)\)`)
+	reLinkInline    = regexp.MustCompile(`\[([^\]]+)\]\(([^\)]+)\)`)
+)
+
 // extractDocumentID extracts a Google Docs document ID from a URL.
 func extractDocumentID(input string) string {
-	// Try to extract from URL patterns
-	re := regexp.MustCompile(`/document/d/([A-Za-z0-9_-]+)`)
-	if m := re.FindStringSubmatch(input); len(m) > 1 {
+	if m := reDocURL.FindStringSubmatch(input); len(m) > 1 {
 		return m[1]
 	}
-	// Try ?id= query parameter
-	re2 := regexp.MustCompile(`[?&]id=([A-Za-z0-9_-]+)`)
-	if m := re2.FindStringSubmatch(input); len(m) > 1 {
+	if m := reDocIDParam.FindStringSubmatch(input); len(m) > 1 {
 		return m[1]
 	}
-	// If no URL pattern matches, assume it's already a document ID
-	if regexp.MustCompile(`^[A-Za-z0-9_-]+$`).MatchString(input) {
+	if reDocIDPlain.MatchString(input) {
 		return input
 	}
 	return ""
@@ -39,7 +48,7 @@ func saveDocumentFile(title, outputPath, content, ext string) (string, error) {
 	baseDir := "docs"
 
 	if outputPath == "" {
-		safeTitle := regexp.MustCompile(`[<>:"/\\|?*]`).ReplaceAllString(title, "_")
+		safeTitle := reUnsafeChars.ReplaceAllString(title, "_")
 		safeTitle = filepath.Base(safeTitle)
 		outputPath = filepath.Join(baseDir, safeTitle+ext)
 	}
@@ -511,8 +520,7 @@ func toolExtractAndGet(params, _ json.RawMessage) (any, error) {
 		p.MaxDocs = 5
 	}
 
-	re := regexp.MustCompile(`https?://docs\.google\.com/document/[\w\-/\?=&#%.]+`)
-	urls := re.FindAllString(p.Text, -1)
+	urls := reDocsURL.FindAllString(p.Text, -1)
 
 	var results []any
 	seen := make(map[string]bool)
@@ -638,7 +646,7 @@ func parseMarkdown(markdown string) []markdownSegment {
 		}
 
 		// Check for ordered list (e.g., "1. Item", "2. Item") with optional leading indent
-		if orderedListMatch := regexp.MustCompile(`^(\s*)\d+\.\s+(.+)$`).FindStringSubmatch(line); orderedListMatch != nil {
+		if orderedListMatch := reOrderedList.FindStringSubmatch(line); orderedListMatch != nil {
 			depth := indentDepth(orderedListMatch[1])
 			listItemText := orderedListMatch[2]
 			inlineSegs := parseInlineFormatting(listItemText + "\n")
@@ -651,7 +659,7 @@ func parseMarkdown(markdown string) []markdownSegment {
 		}
 
 		// Check for unordered list (e.g., "- Item", "* Item", "+ Item") with optional leading indent
-		if unorderedListMatch := regexp.MustCompile(`^(\s*)([-*+])\s+(.+)$`).FindStringSubmatch(line); unorderedListMatch != nil {
+		if unorderedListMatch := reUnorderedList.FindStringSubmatch(line); unorderedListMatch != nil {
 			depth := indentDepth(unorderedListMatch[1])
 			listItemText := unorderedListMatch[3]
 			inlineSegs := parseInlineFormatting(listItemText + "\n")
@@ -677,7 +685,7 @@ func parseInlineFormatting(text string) []markdownSegment {
 
 	for pos < len(text) {
 		// Check for @date(YYYY-MM-DD) - must come before @today check
-		if dateMatch := regexp.MustCompile(`@date\((\d{4}-\d{2}-\d{2})\)`).FindStringSubmatchIndex(text[pos:]); dateMatch != nil {
+		if dateMatch := reDateChip.FindStringSubmatchIndex(text[pos:]); dateMatch != nil {
 			// Add text before date field
 			if dateMatch[0] > 0 {
 				segments = append(segments, parseSimpleFormatting(text[pos:pos+dateMatch[0]])...)
@@ -705,7 +713,7 @@ func parseInlineFormatting(text string) []markdownSegment {
 		}
 
 		// Check for @(name or email) - person smart chip
-		if personMatch := regexp.MustCompile(`@\(([^)]+)\)`).FindStringSubmatchIndex(text[pos:]); personMatch != nil {
+		if personMatch := rePersonChip.FindStringSubmatchIndex(text[pos:]); personMatch != nil {
 			// Add text before person field
 			if personMatch[0] > 0 {
 				segments = append(segments, parseSimpleFormatting(text[pos:pos+personMatch[0]])...)
@@ -722,7 +730,7 @@ func parseInlineFormatting(text string) []markdownSegment {
 		}
 
 		// Check for link: [text](url)
-		if linkMatch := regexp.MustCompile(`\[([^\]]+)\]\(([^\)]+)\)`).FindStringSubmatchIndex(text[pos:]); linkMatch != nil {
+		if linkMatch := reLinkInline.FindStringSubmatchIndex(text[pos:]); linkMatch != nil {
 			// Add text before link
 			if linkMatch[0] > 0 {
 				segments = append(segments, parseSimpleFormatting(text[pos:pos+linkMatch[0]])...)
