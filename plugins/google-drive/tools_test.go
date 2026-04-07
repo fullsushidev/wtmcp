@@ -196,19 +196,29 @@ func TestBuildSearchQuery(t *testing.T) {
 }
 
 func TestSaveExportFile(t *testing.T) {
-	dir := t.TempDir()
+	// chdir to a temp dir so the "drive/" base directory is created there
+	origDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	tmpDir := t.TempDir()
+	if err := os.Chdir(tmpDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(origDir) })
 
 	t.Run("saves with explicit path", func(t *testing.T) {
-		outPath := filepath.Join(dir, "test.md")
+		outPath := filepath.Join("drive", "test.md")
 		got, err := saveExportFile("", outPath, "hello world")
 		if err != nil {
 			t.Fatalf("saveExportFile: %v", err)
 		}
-		if got != outPath {
-			t.Errorf("path = %q, want %q", got, outPath)
+		wantAbs := filepath.Join(tmpDir, outPath)
+		if got != wantAbs {
+			t.Errorf("path = %q, want %q", got, wantAbs)
 		}
 
-		data, err := os.ReadFile(outPath) //nolint:gosec // test file path
+		data, err := os.ReadFile(got) //nolint:gosec // test file path
 		if err != nil {
 			t.Fatalf("read: %v", err)
 		}
@@ -218,13 +228,14 @@ func TestSaveExportFile(t *testing.T) {
 	})
 
 	t.Run("creates parent directories", func(t *testing.T) {
-		outPath := filepath.Join(dir, "sub", "dir", "test.md")
+		outPath := filepath.Join("drive", "sub", "dir", "test.md")
 		_, err := saveExportFile("", outPath, "nested")
 		if err != nil {
 			t.Fatalf("saveExportFile: %v", err)
 		}
 
-		data, err := os.ReadFile(outPath) //nolint:gosec // test file path
+		absPath := filepath.Join(tmpDir, outPath)
+		data, err := os.ReadFile(absPath) //nolint:gosec // test file path
 		if err != nil {
 			t.Fatalf("read: %v", err)
 		}
@@ -234,19 +245,38 @@ func TestSaveExportFile(t *testing.T) {
 	})
 
 	t.Run("file permissions are 0600", func(t *testing.T) {
-		outPath := filepath.Join(dir, "perms.md")
+		outPath := filepath.Join("drive", "perms.md")
 		_, err := saveExportFile("", outPath, "secret")
 		if err != nil {
 			t.Fatalf("saveExportFile: %v", err)
 		}
 
-		info, err := os.Stat(outPath)
+		absPath := filepath.Join(tmpDir, outPath)
+		info, err := os.Stat(absPath)
 		if err != nil {
 			t.Fatalf("stat: %v", err)
 		}
 		perm := info.Mode().Perm()
 		if perm != 0o600 {
 			t.Errorf("permissions = %o, want 0600", perm)
+		}
+	})
+
+	t.Run("rejects path traversal", func(t *testing.T) {
+		_, err := saveExportFile("", "../../etc/evil.md", "pwned")
+		if err == nil {
+			t.Fatal("expected error for path traversal, got nil")
+		}
+	})
+
+	t.Run("sanitizes title with special characters", func(t *testing.T) {
+		got, err := saveExportFile("../../etc/evil", "", "content")
+		if err != nil {
+			t.Fatalf("saveExportFile: %v", err)
+		}
+		// Slashes and dots are sanitized by regex, filepath.Base strips remaining components
+		if !strings.HasPrefix(got, filepath.Join(tmpDir, "drive")+string(os.PathSeparator)) {
+			t.Errorf("path %q escapes drive directory", got)
 		}
 	})
 }

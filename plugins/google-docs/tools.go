@@ -36,29 +36,38 @@ func extractDocumentID(input string) string {
 // saveDocumentFile saves document content to a local file.
 // If outputPath is empty, saves to ./docs/<title>.<ext>.
 func saveDocumentFile(title, outputPath, content, ext string) (string, error) {
+	baseDir := "docs"
+
 	if outputPath == "" {
-		docsDir := "docs"
-		if err := os.MkdirAll(docsDir, 0o750); err != nil {
-			return "", fmt.Errorf("create docs dir: %w", err)
-		}
 		safeTitle := regexp.MustCompile(`[<>:"/\\|?*]`).ReplaceAllString(title, "_")
-		outputPath = filepath.Join(docsDir, safeTitle+ext)
+		safeTitle = filepath.Base(safeTitle)
+		outputPath = filepath.Join(baseDir, safeTitle+ext)
 	}
 
-	dir := filepath.Dir(outputPath)
+	// Validate that the resolved path stays within the base directory.
+	// This must happen before any filesystem side effects.
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve base dir: %w", err)
+	}
+	absOutput, err := filepath.Abs(outputPath)
+	if err != nil {
+		return "", fmt.Errorf("resolve output path: %w", err)
+	}
+	if !strings.HasPrefix(absOutput, absBase+string(os.PathSeparator)) {
+		return "", fmt.Errorf("output path escapes base directory: %s", outputPath)
+	}
+
+	dir := filepath.Dir(absOutput)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return "", fmt.Errorf("create output dir: %w", err)
 	}
 
-	if err := os.WriteFile(outputPath, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(absOutput, []byte(content), 0o600); err != nil {
 		return "", err
 	}
 
-	abs, err := filepath.Abs(outputPath)
-	if err != nil {
-		return outputPath, err
-	}
-	return abs, nil
+	return absOutput, nil
 }
 
 // extractText extracts plain text from document content.
