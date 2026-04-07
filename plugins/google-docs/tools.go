@@ -249,7 +249,7 @@ func summarizeDocument(doc *docs.Document, includeStructure bool) map[string]any
 	}
 
 	// Count elements
-	var paragraphs, headings, lists, tables, images int
+	var paragraphs, headings, lists, tables int
 	var wordCount int
 	headingsList := []string{}
 
@@ -298,8 +298,8 @@ func summarizeDocument(doc *docs.Document, includeStructure bool) map[string]any
 	// Extract text preview (first 500 characters)
 	fullText := extractText(doc)
 	preview := fullText
-	if len(preview) > 500 {
-		preview = preview[:500] + "..."
+	if runes := []rune(preview); len(runes) > 500 {
+		preview = string(runes[:500]) + "..."
 	}
 
 	summary["stats"] = map[string]int{
@@ -307,7 +307,6 @@ func summarizeDocument(doc *docs.Document, includeStructure bool) map[string]any
 		"headings":   headings,
 		"lists":      lists,
 		"tables":     tables,
-		"images":     images,
 		"word_count": wordCount,
 		"characters": len(fullText),
 	}
@@ -1194,6 +1193,8 @@ func toolWriteText(params, _ json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("document body is empty or invalid")
 		}
 		insertIndex = doc.Body.Content[len(doc.Body.Content)-1].EndIndex - 1
+	} else if insertIndex < 1 {
+		return nil, fmt.Errorf("insert_index must be >= 1 (got %d); set append_to_end=true to append", insertIndex)
 	}
 
 	var requests []*docs.Request
@@ -1275,6 +1276,8 @@ func toolWriteMarkdown(params, _ json.RawMessage) (any, error) {
 			return nil, fmt.Errorf("document body is empty or invalid")
 		}
 		insertIndex = doc.Body.Content[len(doc.Body.Content)-1].EndIndex - 1
+	} else if insertIndex < 1 {
+		return nil, fmt.Errorf("insert_index must be >= 1 (got %d); set append_to_end=true to append", insertIndex)
 	}
 
 	// Parse markdown and convert to requests
