@@ -50,7 +50,7 @@ Convert a Google Doc to Markdown format with formatting preserved.
 
 **Parameters:**
 - `document_id_or_url` (required): Document ID or URL
-- `save_to_file` (default: true): Save to local file
+- `save_to_file` (default: false): Save to local file
 - `output_path` (optional): Custom output path (default: `./docs/<title>.md`)
 
 **Returns:** Markdown content with metadata
@@ -110,12 +110,6 @@ Write or append text to a Google Doc with optional markdown formatting. When mar
 - Nested lists: indent by 4 spaces (or 1 tab) per nesting level
 - Date smart chips: `@today` (current date) or `@date(YYYY-MM-DD)` (specific date)
 - Person smart chips: `@(email)` (e.g., `@(user@example.com)`)
-
-**Escaping special syntax:**
-To insert literal text that looks like smart chip syntax, use backslash escaping:
-- `\@today` → displays as "@today" (not a date field)
-- `\@date(2025-01-01)` → displays as "@date(2025-01-01)" (not a date field)
-- `\@(John Doe)` → displays as "@(John Doe)" (not a person field)
 
 When `is_markdown` is false, text is inserted as plain text without formatting.
 
@@ -229,16 +223,6 @@ Date chips display according to the user's Google Docs date format preferences.
 | `@(email)` | Inserts person by email | `Contact @(user@example.com)` |
 
 Person chips link to the person's profile and show their avatar in Google Docs.
-
-**Escaping Smart Chip Syntax:**
-
-To insert literal text that looks like smart chip syntax, use backslash escaping:
-
-```markdown
-\@today → displays as "@today" (not a date field)
-\@date(2025-01-01) → displays as "@date(2025-01-01)" (not a date field)
-\@(John Doe) → displays as "@(John Doe)" (not a person field)
-```
 
 ### Complete Example
 
