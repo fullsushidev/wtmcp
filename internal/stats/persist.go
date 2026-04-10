@@ -101,6 +101,8 @@ func (c *Collector) saveLocked() {
 		c.startedAt = &now
 	}
 
+	c.pruneLocked()
+
 	snap := Snapshot{
 		Tokenizer:  c.tokenizer.Name(),
 		StartedAt:  c.startedAt,
@@ -207,6 +209,20 @@ func (c *Collector) load() error {
 	}
 
 	return nil
+}
+
+// pruneLocked removes daily buckets older than retentionDays.
+// 0 means no pruning. Must be called with c.mu held.
+func (c *Collector) pruneLocked() {
+	if c.retentionDays <= 0 {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -c.retentionDays).Format("2006-01-02")
+	for dateKey := range c.dailyAggregates {
+		if dateKey < cutoff {
+			delete(c.dailyAggregates, dateKey)
+		}
+	}
 }
 
 // atomicWrite writes data to path using temp+fsync+rename.

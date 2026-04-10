@@ -184,6 +184,7 @@ func run() error {
 	var collector *stats.Collector
 	if cfg.Stats.Enabled {
 		collector = stats.NewCollector(stats.CharsTokenizer{}, cfg.Stats.LogCalls)
+		collector.SetRetentionDays(cfg.Stats.RetentionDays)
 		if cfg.Stats.Persist {
 			statsPath := filepath.Join(cfg.Cache.Dir, "stats.json")
 			if err := collector.SetPersistPath(statsPath); err != nil {

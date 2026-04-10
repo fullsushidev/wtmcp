@@ -93,10 +93,11 @@ type ToolsConfig struct {
 
 // StatsConfig controls tool usage stats collection.
 type StatsConfig struct {
-	Enabled   bool   `yaml:"enabled"`
-	Tokenizer string `yaml:"tokenizer"`
-	LogCalls  bool   `yaml:"log_calls"`
-	Persist   bool   `yaml:"persist"`
+	Enabled       bool   `yaml:"enabled"`
+	Tokenizer     string `yaml:"tokenizer"`
+	LogCalls      bool   `yaml:"log_calls"`
+	Persist       bool   `yaml:"persist"`
+	RetentionDays int    `yaml:"retention_days"`
 }
 
 // ProvidersConfig controls which auth providers are active.
@@ -138,9 +139,10 @@ func DefaultConfig() *Config {
 			Discovery: "full",
 		},
 		Stats: StatsConfig{
-			Enabled:   true,
-			Tokenizer: "chars",
-			Persist:   true,
+			Enabled:       true,
+			Tokenizer:     "chars",
+			Persist:       true,
+			RetentionDays: 90,
 		},
 	}
 }
@@ -174,6 +176,9 @@ func Load(configPath, workdir string) (*Config, error) {
 
 	if cfg.Stats.Tokenizer != "chars" {
 		return nil, fmt.Errorf("stats.tokenizer must be 'chars', got %q", cfg.Stats.Tokenizer)
+	}
+	if cfg.Stats.RetentionDays < 0 {
+		return nil, fmt.Errorf("stats.retention_days must be >= 0, got %d", cfg.Stats.RetentionDays)
 	}
 
 	if cfg.HTTP.Timeout > 0 && cfg.Plugins.ToolCallTimeout > 0 &&

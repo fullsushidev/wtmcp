@@ -314,6 +314,80 @@ func TestPersist_DailyAggregates_BackwardCompat(t *testing.T) {
 	}
 }
 
+func TestPersist_RetentionPruning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stats.json")
+
+	c := NewCollector(CharsTokenizer{}, false)
+	c.SetRetentionDays(30)
+	if err := c.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// Record calls on old and recent dates.
+	old := time.Date(2025, 1, 1, 10, 0, 0, 0, time.Local)
+	recent := time.Now()
+
+	c.Record("tool", "plugin", old, nil, "ok", false)
+	c.Record("tool", "plugin", recent, nil, "ok", false)
+
+	// Save triggers pruning.
+	c.Close()
+
+	// Load and verify old data was pruned.
+	c2 := NewCollector(CharsTokenizer{}, false)
+	c2.SetRetentionDays(30)
+	if err := c2.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// Only recent day should remain in daily data.
+	result := c2.SummaryForRange(old, old)
+	if len(result) != 0 {
+		t.Errorf("expected old daily data to be pruned, got %d entries", len(result))
+	}
+
+	result = c2.SummaryForRange(recent, recent)
+	if len(result) != 1 {
+		t.Fatalf("expected recent daily data to survive, got %d entries", len(result))
+	}
+	if result[0].CallCount != 1 {
+		t.Errorf("recent CallCount = %d, want 1", result[0].CallCount)
+	}
+
+	// All-time totals should still include both calls.
+	summary := c2.Summary()
+	if summary[0].CallCount != 2 {
+		t.Errorf("all-time CallCount = %d, want 2", summary[0].CallCount)
+	}
+}
+
+func TestPersist_RetentionZero_NoPruning(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stats.json")
+
+	c := NewCollector(CharsTokenizer{}, false)
+	c.SetRetentionDays(0) // disabled
+	if err := c.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	old := time.Date(2020, 1, 1, 10, 0, 0, 0, time.Local)
+	c.Record("tool", "plugin", old, nil, "ok", false)
+	c.Close()
+
+	c2 := NewCollector(CharsTokenizer{}, false)
+	c2.SetRetentionDays(0)
+	if err := c2.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	result := c2.SummaryForRange(old, old)
+	if len(result) != 1 {
+		t.Errorf("expected old data to survive with retention=0, got %d", len(result))
+	}
+}
+
 func TestPersist_Accumulates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stats.json")

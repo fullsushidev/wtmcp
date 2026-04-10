@@ -52,11 +52,13 @@ var statsResetCmd = &cobra.Command{
 }
 
 // Valid stats config keys and their allowed values.
+// nil means any value is accepted (validated by type).
 var statsConfigKeys = map[string][]string{
-	"enabled":   {"true", "false"},
-	"tokenizer": {"chars"},
-	"log_calls": {"true", "false"},
-	"persist":   {"true", "false"},
+	"enabled":        {"true", "false"},
+	"tokenizer":      {"chars"},
+	"log_calls":      {"true", "false"},
+	"persist":        {"true", "false"},
+	"retention_days": nil,
 }
 
 func init() {
@@ -338,10 +340,11 @@ func runStatsConfig(_ *cobra.Command, _ []string) error {
 	}
 
 	cfg := result.Config.Stats
-	fmt.Printf("enabled:    %v\n", cfg.Enabled)
-	fmt.Printf("tokenizer:  %s\n", cfg.Tokenizer)
-	fmt.Printf("log_calls:  %v\n", cfg.LogCalls)
-	fmt.Printf("persist:    %v\n", cfg.Persist)
+	fmt.Printf("enabled:         %v\n", cfg.Enabled)
+	fmt.Printf("tokenizer:       %s\n", cfg.Tokenizer)
+	fmt.Printf("log_calls:       %v\n", cfg.LogCalls)
+	fmt.Printf("persist:         %v\n", cfg.Persist)
+	fmt.Printf("retention_days:  %d\n", cfg.RetentionDays)
 	return nil
 }
 
@@ -358,16 +361,18 @@ func runStatsConfigSet(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown key %q; valid keys: %v", key, keys)
 	}
 
-	// Validate value.
-	valid := false
-	for _, v := range validValues {
-		if value == v {
-			valid = true
-			break
+	// Validate value. nil validValues means any value is accepted.
+	if validValues != nil {
+		valid := false
+		for _, v := range validValues {
+			if value == v {
+				valid = true
+				break
+			}
 		}
-	}
-	if !valid {
-		return fmt.Errorf("invalid value %q for stats.%s; valid values: %v", value, key, validValues)
+		if !valid {
+			return fmt.Errorf("invalid value %q for stats.%s; valid values: %v", value, key, validValues)
+		}
 	}
 
 	result, err := getDiscoveryResult()

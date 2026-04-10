@@ -130,6 +130,7 @@ type Collector struct {
 	persistPath     string
 	persistTmr      *time.Timer
 	startedAt       *time.Time
+	retentionDays   int
 }
 
 // NewCollector creates a Collector with the given tokenizer.
@@ -435,6 +436,14 @@ func (c *Collector) TotalTokens() (input, output int) {
 // TokenizerName returns the name of the configured tokenizer.
 func (c *Collector) TokenizerName() string {
 	return c.tokenizer.Name()
+}
+
+// SetRetentionDays sets the number of days of daily data to keep.
+// 0 means no pruning. Must be >= 0.
+func (c *Collector) SetRetentionDays(days int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.retentionDays = days
 }
 
 // AggregateDailyRange merges daily ToolSummary buckets for the given
