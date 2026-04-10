@@ -54,6 +54,7 @@ type ToolSummary struct {
 	TotalOutputTokens int    `json:"total_output_tokens"`
 	AvgInputTokens    int    `json:"avg_input_tokens"`
 	AvgOutputTokens   int    `json:"avg_output_tokens"`
+	TotalDurationMs   int64  `json:"total_duration_ms"`
 	AvgDurationMs     int64  `json:"avg_duration_ms"`
 	MaxOutputTokens   int    `json:"max_output_tokens"`
 }
@@ -102,6 +103,7 @@ func (a *runningAggregate) toSummary(toolName string) ToolSummary {
 		ErrorCount:        a.ErrorCount,
 		TotalInputTokens:  a.TotalInputTokens,
 		TotalOutputTokens: a.TotalOutputTokens,
+		TotalDurationMs:   a.TotalDurationMs,
 		MaxOutputTokens:   a.MaxOutputTokens,
 	}
 	if a.CallCount > 0 {

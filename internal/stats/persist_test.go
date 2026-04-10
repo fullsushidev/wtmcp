@@ -166,6 +166,48 @@ func TestPersist_NoPersistPath(_ *testing.T) {
 	c.Close() // Should not panic without persist path.
 }
 
+func TestPersist_TotalDurationMs_NoDrift(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stats.json")
+
+	// Record calls with a known total duration to detect rounding drift.
+	c := NewCollector(CharsTokenizer{}, false)
+	if err := c.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// 3 calls with durations that produce a non-zero remainder when
+	// divided by 3 (total=7ms from integer truncation perspective).
+	c.Record("tool", "plugin", time.Now(), nil, "ok", false)
+	c.Record("tool", "plugin", time.Now(), nil, "ok", false)
+	c.Record("tool", "plugin", time.Now(), nil, "ok", false)
+	c.Close()
+
+	// Get the initial TotalDurationMs.
+	c2 := NewCollector(CharsTokenizer{}, false)
+	if err := c2.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+	s1 := c2.Summary()
+	initialDuration := s1[0].TotalDurationMs
+
+	// Simulate multiple save/load cycles with no new calls.
+	// TotalDurationMs should not drift.
+	for i := range 5 {
+		c2.Close()
+		c3 := NewCollector(CharsTokenizer{}, false)
+		if err := c3.SetPersistPath(path); err != nil {
+			t.Fatal(err)
+		}
+		s := c3.Summary()
+		if s[0].TotalDurationMs != initialDuration {
+			t.Errorf("cycle %d: TotalDurationMs = %d, want %d (drift detected)",
+				i, s[0].TotalDurationMs, initialDuration)
+		}
+		c2 = c3
+	}
+}
+
 func TestPersist_Accumulates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stats.json")

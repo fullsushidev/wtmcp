@@ -136,13 +136,20 @@ func (c *Collector) load() error {
 
 	// Restore aggregates from persisted summaries.
 	for name, ts := range snap.Aggregates {
+		// Prefer TotalDurationMs when available (new format).
+		// Fall back to AvgDurationMs * CallCount for old snapshots
+		// (lossy due to integer division, but correct when total is 0).
+		totalDur := ts.TotalDurationMs
+		if totalDur == 0 && ts.AvgDurationMs > 0 {
+			totalDur = ts.AvgDurationMs * int64(ts.CallCount)
+		}
 		c.aggregates[name] = &runningAggregate{
 			PluginName:        ts.PluginName,
 			CallCount:         ts.CallCount,
 			ErrorCount:        ts.ErrorCount,
 			TotalInputTokens:  ts.TotalInputTokens,
 			TotalOutputTokens: ts.TotalOutputTokens,
-			TotalDurationMs:   ts.AvgDurationMs * int64(ts.CallCount),
+			TotalDurationMs:   totalDur,
 			MaxOutputTokens:   ts.MaxOutputTokens,
 		}
 	}
