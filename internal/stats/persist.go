@@ -13,11 +13,12 @@ const debounceInterval = 5 * time.Second
 
 // Snapshot is the persisted format — aggregates only, no raw entries.
 type Snapshot struct {
-	Tokenizer  string                   `json:"tokenizer"`
-	StartedAt  *time.Time               `json:"started_at,omitempty"`
-	Aggregates map[string]ToolSummary   `json:"aggregates"`
-	Schemas    map[string]SchemaEntry   `json:"schemas"`
-	Resources  map[string]ResourceEntry `json:"resources"`
+	Tokenizer       string                            `json:"tokenizer"`
+	StartedAt       *time.Time                        `json:"started_at,omitempty"`
+	Aggregates      map[string]ToolSummary            `json:"aggregates"`
+	DailyAggregates map[string]map[string]ToolSummary `json:"daily_aggregates,omitempty"`
+	Schemas         map[string]SchemaEntry            `json:"schemas"`
+	Resources       map[string]ResourceEntry          `json:"resources"`
 }
 
 // SetPersistPath enables persistence to the given file path.
@@ -111,6 +112,18 @@ func (c *Collector) saveLocked() {
 	for name, agg := range c.aggregates {
 		snap.Aggregates[name] = agg.toSummary(name)
 	}
+
+	if len(c.dailyAggregates) > 0 {
+		snap.DailyAggregates = make(map[string]map[string]ToolSummary, len(c.dailyAggregates))
+		for dateKey, dayAggs := range c.dailyAggregates {
+			toolSummaries := make(map[string]ToolSummary, len(dayAggs))
+			for toolName, agg := range dayAggs {
+				toolSummaries[toolName] = agg.toSummary(toolName)
+			}
+			snap.DailyAggregates[dateKey] = toolSummaries
+		}
+	}
+
 	for name, s := range c.schemas {
 		snap.Schemas[name] = s
 	}
@@ -161,6 +174,27 @@ func (c *Collector) load() error {
 			TotalDurationMs:   totalDur,
 			MaxOutputTokens:   ts.MaxOutputTokens,
 		}
+	}
+
+	// Restore daily aggregates.
+	for dateKey, dayTools := range snap.DailyAggregates {
+		dayAggs := make(map[string]*runningAggregate, len(dayTools))
+		for toolName, ts := range dayTools {
+			totalDur := ts.TotalDurationMs
+			if totalDur == 0 && ts.AvgDurationMs > 0 {
+				totalDur = ts.AvgDurationMs * int64(ts.CallCount)
+			}
+			dayAggs[toolName] = &runningAggregate{
+				PluginName:        ts.PluginName,
+				CallCount:         ts.CallCount,
+				ErrorCount:        ts.ErrorCount,
+				TotalInputTokens:  ts.TotalInputTokens,
+				TotalOutputTokens: ts.TotalOutputTokens,
+				TotalDurationMs:   totalDur,
+				MaxOutputTokens:   ts.MaxOutputTokens,
+			}
+		}
+		c.dailyAggregates[dateKey] = dayAggs
 	}
 
 	for name, s := range snap.Schemas {

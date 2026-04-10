@@ -116,19 +116,20 @@ func (a *runningAggregate) toSummary(toolName string) ToolSummary {
 
 // Collector accumulates tool call stats (thread-safe).
 type Collector struct {
-	mu          sync.Mutex
-	closed      atomic.Bool
-	entries     []Entry
-	head        int
-	full        bool
-	aggregates  map[string]*runningAggregate
-	schemas     map[string]SchemaEntry
-	resources   map[string]*ResourceEntry
-	tokenizer   Tokenizer
-	logCalls    bool
-	persistPath string
-	persistTmr  *time.Timer
-	startedAt   *time.Time
+	mu              sync.Mutex
+	closed          atomic.Bool
+	entries         []Entry
+	head            int
+	full            bool
+	aggregates      map[string]*runningAggregate
+	dailyAggregates map[string]map[string]*runningAggregate // date -> tool -> aggregate
+	schemas         map[string]SchemaEntry
+	resources       map[string]*ResourceEntry
+	tokenizer       Tokenizer
+	logCalls        bool
+	persistPath     string
+	persistTmr      *time.Timer
+	startedAt       *time.Time
 }
 
 // NewCollector creates a Collector with the given tokenizer.
@@ -137,12 +138,13 @@ func NewCollector(tok Tokenizer, logCalls bool) *Collector {
 		tok = CharsTokenizer{}
 	}
 	return &Collector{
-		entries:    make([]Entry, maxEntries),
-		aggregates: make(map[string]*runningAggregate),
-		schemas:    make(map[string]SchemaEntry),
-		resources:  make(map[string]*ResourceEntry),
-		tokenizer:  tok,
-		logCalls:   logCalls,
+		entries:         make([]Entry, maxEntries),
+		aggregates:      make(map[string]*runningAggregate),
+		dailyAggregates: make(map[string]map[string]*runningAggregate),
+		schemas:         make(map[string]SchemaEntry),
+		resources:       make(map[string]*ResourceEntry),
+		tokenizer:       tok,
+		logCalls:        logCalls,
 	}
 }
 
@@ -207,6 +209,29 @@ func (c *Collector) Record(
 	agg.TotalDurationMs += durationMs
 	if outputTokens > agg.MaxOutputTokens {
 		agg.MaxOutputTokens = outputTokens
+	}
+
+	// Update daily bucket (local timezone).
+	dateKey := start.Format("2006-01-02")
+	dayAggs, ok := c.dailyAggregates[dateKey]
+	if !ok {
+		dayAggs = make(map[string]*runningAggregate)
+		c.dailyAggregates[dateKey] = dayAggs
+	}
+	dagg, ok := dayAggs[toolName]
+	if !ok {
+		dagg = &runningAggregate{PluginName: pluginName}
+		dayAggs[toolName] = dagg
+	}
+	dagg.CallCount++
+	if isError {
+		dagg.ErrorCount++
+	}
+	dagg.TotalInputTokens += inputTokens
+	dagg.TotalOutputTokens += outputTokens
+	dagg.TotalDurationMs += durationMs
+	if outputTokens > dagg.MaxOutputTokens {
+		dagg.MaxOutputTokens = outputTokens
 	}
 
 	c.scheduleSave()
@@ -410,6 +435,78 @@ func (c *Collector) TotalTokens() (input, output int) {
 // TokenizerName returns the name of the configured tokenizer.
 func (c *Collector) TokenizerName() string {
 	return c.tokenizer.Name()
+}
+
+// AggregateDailyRange merges daily ToolSummary buckets for the given
+// date range (inclusive, "2006-01-02" format). Empty since/until means
+// no lower/upper bound. Returns sorted by tool name.
+//
+// This is a shared function used by both the Collector and the CLI
+// to ensure identical merge logic. Averages are recomputed from
+// summed totals (never averaged from daily averages).
+func AggregateDailyRange(daily map[string]map[string]ToolSummary, since, until string) []ToolSummary {
+	merged := make(map[string]*runningAggregate)
+
+	for dateKey, toolMap := range daily {
+		if since != "" && dateKey < since {
+			continue
+		}
+		if until != "" && dateKey > until {
+			continue
+		}
+		for toolName, ts := range toolMap {
+			m, ok := merged[toolName]
+			if !ok {
+				m = &runningAggregate{PluginName: ts.PluginName}
+				merged[toolName] = m
+			}
+			m.CallCount += ts.CallCount
+			m.ErrorCount += ts.ErrorCount
+			m.TotalInputTokens += ts.TotalInputTokens
+			m.TotalOutputTokens += ts.TotalOutputTokens
+			m.TotalDurationMs += ts.TotalDurationMs
+			if ts.MaxOutputTokens > m.MaxOutputTokens {
+				m.MaxOutputTokens = ts.MaxOutputTokens
+			}
+		}
+	}
+
+	result := make([]ToolSummary, 0, len(merged))
+	for name, agg := range merged {
+		result = append(result, agg.toSummary(name))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].ToolName < result[j].ToolName
+	})
+	return result
+}
+
+// SummaryForRange returns per-tool stats aggregated across the given
+// date range (inclusive). Delegates to AggregateDailyRange.
+func (c *Collector) SummaryForRange(since, until time.Time) []ToolSummary {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Convert internal dailyAggregates to ToolSummary maps.
+	daily := make(map[string]map[string]ToolSummary, len(c.dailyAggregates))
+	for dateKey, dayAggs := range c.dailyAggregates {
+		toolSummaries := make(map[string]ToolSummary, len(dayAggs))
+		for toolName, agg := range dayAggs {
+			toolSummaries[toolName] = agg.toSummary(toolName)
+		}
+		daily[dateKey] = toolSummaries
+	}
+
+	sinceStr := ""
+	untilStr := ""
+	if !since.IsZero() {
+		sinceStr = since.Format("2006-01-02")
+	}
+	if !until.IsZero() {
+		untilStr = until.Format("2006-01-02")
+	}
+
+	return AggregateDailyRange(daily, sinceStr, untilStr)
 }
 
 // StartedAt returns when stats accumulation began (nil if unknown).

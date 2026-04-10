@@ -246,6 +246,74 @@ func TestPersist_TotalDurationMs_NoDrift(t *testing.T) {
 	}
 }
 
+func TestPersist_DailyAggregates_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stats.json")
+
+	c := NewCollector(CharsTokenizer{}, false)
+	if err := c.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	day1 := time.Date(2026, 4, 1, 10, 0, 0, 0, time.Local)
+	day2 := time.Date(2026, 4, 2, 10, 0, 0, 0, time.Local)
+
+	c.Record("tool", "plugin", day1, nil, "ok", false)
+	c.Record("tool", "plugin", day1, nil, "ok", false)
+	c.Record("tool", "plugin", day2, nil, "ok", false)
+	c.Close()
+
+	// Load and verify daily data survived.
+	c2 := NewCollector(CharsTokenizer{}, false)
+	if err := c2.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	result := c2.SummaryForRange(day1, day1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 tool for day1, got %d", len(result))
+	}
+	if result[0].CallCount != 2 {
+		t.Errorf("day1 CallCount = %d, want 2", result[0].CallCount)
+	}
+
+	result = c2.SummaryForRange(day2, day2)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 tool for day2, got %d", len(result))
+	}
+	if result[0].CallCount != 1 {
+		t.Errorf("day2 CallCount = %d, want 1", result[0].CallCount)
+	}
+}
+
+func TestPersist_DailyAggregates_BackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stats.json")
+
+	// Old snapshot without daily_aggregates.
+	oldJSON := `{"tokenizer":"chars","aggregates":{"tool":{"tool_name":"tool","plugin_name":"p","call_count":5}},"schemas":{},"resources":{}}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewCollector(CharsTokenizer{}, false)
+	if err := c.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// All-time should work.
+	summary := c.Summary()
+	if len(summary) != 1 || summary[0].CallCount != 5 {
+		t.Errorf("all-time summary broken: %v", summary)
+	}
+
+	// Daily range should return empty (no daily data).
+	result := c.SummaryForRange(time.Time{}, time.Time{})
+	if len(result) != 0 {
+		t.Errorf("expected empty daily range for old snapshot, got %d", len(result))
+	}
+}
+
 func TestPersist_Accumulates(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "stats.json")

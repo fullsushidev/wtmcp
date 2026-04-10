@@ -222,3 +222,148 @@ func TestCollector_Nil_Tokenizer_Defaults(t *testing.T) {
 		t.Errorf("default tokenizer should be chars, got %q", c.TokenizerName())
 	}
 }
+
+func TestCollector_DailyBucketing_SameDay(t *testing.T) {
+	c := NewCollector(CharsTokenizer{}, false)
+	now := time.Now()
+
+	c.Record("tool", "plugin", now, nil, "ok", false)
+	c.Record("tool", "plugin", now, nil, "ok", false)
+
+	result := c.SummaryForRange(now, now)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(result))
+	}
+	if result[0].CallCount != 2 {
+		t.Errorf("CallCount = %d, want 2", result[0].CallCount)
+	}
+}
+
+func TestCollector_DailyBucketing_DifferentDays(t *testing.T) {
+	c := NewCollector(CharsTokenizer{}, false)
+	day1 := time.Date(2026, 4, 1, 10, 0, 0, 0, time.Local)
+	day2 := time.Date(2026, 4, 2, 10, 0, 0, 0, time.Local)
+
+	c.Record("tool", "plugin", day1, nil, "ok", false)
+	c.Record("tool", "plugin", day1, nil, "ok", false)
+	c.Record("tool", "plugin", day2, nil, "ok", false)
+
+	// Query day1 only.
+	result := c.SummaryForRange(day1, day1)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(result))
+	}
+	if result[0].CallCount != 2 {
+		t.Errorf("day1 CallCount = %d, want 2", result[0].CallCount)
+	}
+
+	// Query day2 only.
+	result = c.SummaryForRange(day2, day2)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(result))
+	}
+	if result[0].CallCount != 1 {
+		t.Errorf("day2 CallCount = %d, want 1", result[0].CallCount)
+	}
+
+	// Query both days.
+	result = c.SummaryForRange(day1, day2)
+	if result[0].CallCount != 3 {
+		t.Errorf("both days CallCount = %d, want 3", result[0].CallCount)
+	}
+}
+
+func TestCollector_DailyBucketing_EmptyRange(t *testing.T) {
+	c := NewCollector(CharsTokenizer{}, false)
+	day := time.Date(2026, 4, 1, 10, 0, 0, 0, time.Local)
+	c.Record("tool", "plugin", day, nil, "ok", false)
+
+	// Query a range with no data.
+	other := time.Date(2026, 5, 1, 0, 0, 0, 0, time.Local)
+	result := c.SummaryForRange(other, other)
+	if len(result) != 0 {
+		t.Errorf("expected 0 results for empty range, got %d", len(result))
+	}
+}
+
+func TestCollector_DailyBucketing_InvariantMatchesAllTime(t *testing.T) {
+	c := NewCollector(CharsTokenizer{}, false)
+	day1 := time.Date(2026, 4, 1, 10, 0, 0, 0, time.Local)
+	day2 := time.Date(2026, 4, 2, 10, 0, 0, 0, time.Local)
+	day3 := time.Date(2026, 4, 3, 10, 0, 0, 0, time.Local)
+
+	c.Record("tool_a", "p", day1, []byte("in"), "output1", false)
+	c.Record("tool_a", "p", day2, []byte("in"), "output2", false)
+	c.Record("tool_b", "p", day2, []byte("in"), "output3", true)
+	c.Record("tool_a", "p", day3, []byte("in"), "output4", false)
+
+	// All-time totals from Summary().
+	allTime := c.Summary()
+	allTimeCalls := 0
+	for _, ts := range allTime {
+		allTimeCalls += ts.CallCount
+	}
+
+	// Sum of all daily buckets via SummaryForRange (no bounds).
+	daily := c.SummaryForRange(time.Time{}, time.Time{})
+	dailyCalls := 0
+	for _, ts := range daily {
+		dailyCalls += ts.CallCount
+	}
+
+	if allTimeCalls != dailyCalls {
+		t.Errorf("invariant broken: all-time calls=%d, daily sum=%d",
+			allTimeCalls, dailyCalls)
+	}
+}
+
+func TestAggregateDailyRange(t *testing.T) {
+	daily := map[string]map[string]ToolSummary{
+		"2026-04-01": {
+			"tool_a": {ToolName: "tool_a", PluginName: "p", CallCount: 3, TotalInputTokens: 30, TotalOutputTokens: 60, TotalDurationMs: 900, MaxOutputTokens: 25},
+		},
+		"2026-04-02": {
+			"tool_a": {ToolName: "tool_a", PluginName: "p", CallCount: 2, TotalInputTokens: 20, TotalOutputTokens: 40, TotalDurationMs: 400, MaxOutputTokens: 30},
+			"tool_b": {ToolName: "tool_b", PluginName: "p", CallCount: 1, ErrorCount: 1, TotalDurationMs: 100},
+		},
+		"2026-04-03": {
+			"tool_a": {ToolName: "tool_a", PluginName: "p", CallCount: 1, TotalInputTokens: 10, TotalOutputTokens: 20, TotalDurationMs: 200, MaxOutputTokens: 20},
+		},
+	}
+
+	// Full range.
+	result := AggregateDailyRange(daily, "", "")
+	if len(result) != 2 {
+		t.Fatalf("expected 2 tools, got %d", len(result))
+	}
+
+	// tool_a: 3+2+1=6 calls, 30+20+10=60 input, max=30
+	a := result[0] // sorted: tool_a before tool_b
+	if a.CallCount != 6 {
+		t.Errorf("tool_a CallCount = %d, want 6", a.CallCount)
+	}
+	if a.TotalInputTokens != 60 {
+		t.Errorf("tool_a TotalInputTokens = %d, want 60", a.TotalInputTokens)
+	}
+	if a.MaxOutputTokens != 30 {
+		t.Errorf("tool_a MaxOutputTokens = %d, want 30", a.MaxOutputTokens)
+	}
+	// Avg recomputed from totals: 1500ms / 6 = 250ms
+	if a.AvgDurationMs != 250 {
+		t.Errorf("tool_a AvgDurationMs = %d, want 250 (recomputed from totals)", a.AvgDurationMs)
+	}
+
+	// Filtered range: only 2026-04-02.
+	result = AggregateDailyRange(daily, "2026-04-02", "2026-04-02")
+	if len(result) != 2 {
+		t.Fatalf("expected 2 tools for 04-02, got %d", len(result))
+	}
+	for _, ts := range result {
+		if ts.ToolName == "tool_a" && ts.CallCount != 2 {
+			t.Errorf("filtered tool_a CallCount = %d, want 2", ts.CallCount)
+		}
+		if ts.ToolName == "tool_b" && ts.CallCount != 1 {
+			t.Errorf("filtered tool_b CallCount = %d, want 1", ts.CallCount)
+		}
+	}
+}
