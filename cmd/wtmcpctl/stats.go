@@ -153,7 +153,11 @@ func sortSummaries(s []stats.ToolSummary, by string) {
 }
 
 func printStatsPlain(snap *stats.Snapshot, summaries []stats.ToolSummary, showSchemas, showResources bool) {
-	fmt.Printf("# tokenizer: %s\n", snap.Tokenizer)
+	if snap.StartedAt != nil {
+		fmt.Printf("# tokenizer: %s, since: %s\n", snap.Tokenizer, snap.StartedAt.Format("2006-01-02"))
+	} else {
+		fmt.Printf("# tokenizer: %s\n", snap.Tokenizer)
+	}
 
 	var totalCalls, totalErrors, totalIn, totalOut int
 	for _, ts := range summaries {
@@ -191,7 +195,12 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 		w = 100
 	}
 
-	fmt.Printf("Tool Usage Stats (tokenizer: %s)\n\n", snap.Tokenizer)
+	if snap.StartedAt != nil {
+		fmt.Printf("Tool Usage Stats (tokenizer: %s, since %s)\n\n",
+			snap.Tokenizer, snap.StartedAt.Format("2006-01-02"))
+	} else {
+		fmt.Printf("Tool Usage Stats (tokenizer: %s)\n\n", snap.Tokenizer)
+	}
 
 	// Main calls table.
 	var totalCalls, totalErrors, totalIn, totalOut int

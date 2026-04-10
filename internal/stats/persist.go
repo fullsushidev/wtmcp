@@ -14,6 +14,7 @@ const debounceInterval = 5 * time.Second
 // Snapshot is the persisted format — aggregates only, no raw entries.
 type Snapshot struct {
 	Tokenizer  string                   `json:"tokenizer"`
+	StartedAt  *time.Time               `json:"started_at,omitempty"`
 	Aggregates map[string]ToolSummary   `json:"aggregates"`
 	Schemas    map[string]SchemaEntry   `json:"schemas"`
 	Resources  map[string]ResourceEntry `json:"resources"`
@@ -94,8 +95,14 @@ func (c *Collector) saveLocked() {
 		return
 	}
 
+	if c.startedAt == nil {
+		now := time.Now()
+		c.startedAt = &now
+	}
+
 	snap := Snapshot{
 		Tokenizer:  c.tokenizer.Name(),
+		StartedAt:  c.startedAt,
 		Aggregates: make(map[string]ToolSummary, len(c.aggregates)),
 		Schemas:    make(map[string]SchemaEntry, len(c.schemas)),
 		Resources:  make(map[string]ResourceEntry, len(c.resources)),
@@ -133,6 +140,8 @@ func (c *Collector) load() error {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	c.startedAt = snap.StartedAt
 
 	// Restore aggregates from persisted summaries.
 	for name, ts := range snap.Aggregates {

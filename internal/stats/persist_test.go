@@ -62,6 +62,12 @@ func TestPersist_RoundTrip(t *testing.T) {
 	if resources[0].ReadCount != 1 {
 		t.Errorf("ReadCount = %d, want 1", resources[0].ReadCount)
 	}
+
+	// Verify StartedAt restored.
+	started := c2.StartedAt()
+	if started == nil {
+		t.Error("StartedAt should be set after save/load")
+	}
 }
 
 func TestPersist_NoFile(t *testing.T) {
@@ -76,6 +82,38 @@ func TestPersist_NoFile(t *testing.T) {
 	// Should have no data — load of nonexistent file is not an error.
 	if len(c.Summary()) != 0 {
 		t.Error("expected empty summary when no file exists")
+	}
+}
+
+func TestPersist_StartedAt_BackwardCompat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "stats.json")
+
+	// Write an old-format snapshot without started_at.
+	oldJSON := `{"tokenizer":"chars","aggregates":{"tool":{"tool_name":"tool","plugin_name":"p","call_count":1}},"schemas":{},"resources":{}}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewCollector(CharsTokenizer{}, false)
+	if err := c.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+
+	// StartedAt should be nil when loading an old snapshot.
+	if c.StartedAt() != nil {
+		t.Error("StartedAt should be nil for old snapshots without the field")
+	}
+
+	// After a save, StartedAt should be set.
+	c.Close()
+
+	c2 := NewCollector(CharsTokenizer{}, false)
+	if err := c2.SetPersistPath(path); err != nil {
+		t.Fatal(err)
+	}
+	if c2.StartedAt() == nil {
+		t.Error("StartedAt should be set after save")
 	}
 }
 

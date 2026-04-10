@@ -128,6 +128,7 @@ type Collector struct {
 	logCalls    bool
 	persistPath string
 	persistTmr  *time.Timer
+	startedAt   *time.Time
 }
 
 // NewCollector creates a Collector with the given tokenizer.
@@ -409,4 +410,11 @@ func (c *Collector) TotalTokens() (input, output int) {
 // TokenizerName returns the name of the configured tokenizer.
 func (c *Collector) TokenizerName() string {
 	return c.tokenizer.Name()
+}
+
+// StartedAt returns when stats accumulation began (nil if unknown).
+func (c *Collector) StartedAt() *time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.startedAt
 }
