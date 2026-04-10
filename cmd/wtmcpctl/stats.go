@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
@@ -67,6 +68,9 @@ func init() {
 	statsCmd.Flags().StringP("sort", "s", "calls", "Sort by: calls, tokens, errors, name")
 	statsCmd.Flags().BoolP("plain", "p", false, "Plain text output (no colors or borders)")
 	statsCmd.Flags().Bool("json", false, "Raw JSON output")
+	statsCmd.Flags().String("since", "", "Show stats from this date (YYYY-MM-DD)")
+	statsCmd.Flags().String("until", "", "Show stats until this date (YYYY-MM-DD)")
+	statsCmd.Flags().IntP("days", "d", 0, "Show stats for the last N days (today = 1)")
 
 	statsConfigCmd.AddCommand(statsConfigSetCmd)
 	statsCmd.AddCommand(statsConfigCmd, statsResetCmd)
@@ -78,6 +82,54 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	showSchemas, _ := cmd.Flags().GetBool("schemas")
 	showResources, _ := cmd.Flags().GetBool("resources")
 	sortBy, _ := cmd.Flags().GetString("sort")
+	sinceStr, _ := cmd.Flags().GetString("since")
+	untilStr, _ := cmd.Flags().GetString("until")
+	days, _ := cmd.Flags().GetInt("days")
+
+	// Validate date flag combinations.
+	if days > 0 && (sinceStr != "" || untilStr != "") {
+		return fmt.Errorf("--days cannot be combined with --since or --until")
+	}
+	if days < 0 {
+		return fmt.Errorf("--days must be >= 1")
+	}
+
+	// Resolve date range.
+	var filterSince, filterUntil string
+	var dateRange string
+
+	if days > 0 {
+		now := time.Now()
+		filterSince = now.AddDate(0, 0, -(days - 1)).Format("2006-01-02")
+		filterUntil = now.Format("2006-01-02")
+	}
+	if sinceStr != "" {
+		if _, err := time.Parse("2006-01-02", sinceStr); err != nil {
+			return fmt.Errorf("invalid --since date %q (expected YYYY-MM-DD): %w", sinceStr, err)
+		}
+		filterSince = sinceStr
+	}
+	if untilStr != "" {
+		if _, err := time.Parse("2006-01-02", untilStr); err != nil {
+			return fmt.Errorf("invalid --until date %q (expected YYYY-MM-DD): %w", untilStr, err)
+		}
+		filterUntil = untilStr
+	}
+	if filterSince != "" && filterUntil != "" && filterSince > filterUntil {
+		return fmt.Errorf("--since (%s) must be before --until (%s)", filterSince, filterUntil)
+	}
+
+	filtering := filterSince != "" || filterUntil != ""
+	if filtering {
+		switch {
+		case filterSince != "" && filterUntil != "":
+			dateRange = filterSince + " to " + filterUntil
+		case filterSince != "":
+			dateRange = "since " + filterSince
+		default:
+			dateRange = "until " + filterUntil
+		}
+	}
 
 	snap, err := loadSnapshot()
 	if err != nil {
@@ -95,16 +147,25 @@ func runStats(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Build sorted tool summaries.
-	summaries := make([]stats.ToolSummary, 0, len(snap.Aggregates))
-	for _, ts := range snap.Aggregates {
-		summaries = append(summaries, ts)
+	var summaries []stats.ToolSummary
+	switch {
+	case filtering && snap.DailyAggregates != nil:
+		summaries = stats.AggregateDailyRange(snap.DailyAggregates, filterSince, filterUntil)
+	case filtering:
+		fmt.Println("No daily data available for date filtering (stats were collected before daily bucketing was enabled).")
+		return nil
+	default:
+		summaries = make([]stats.ToolSummary, 0, len(snap.Aggregates))
+		for _, ts := range snap.Aggregates {
+			summaries = append(summaries, ts)
+		}
 	}
 	sortSummaries(summaries, sortBy)
 
 	if plain {
-		printStatsPlain(snap, summaries, showSchemas, showResources)
+		printStatsPlain(snap, summaries, showSchemas, showResources, dateRange)
 	} else {
-		printStatsTable(snap, summaries, showSchemas, showResources)
+		printStatsTable(snap, summaries, showSchemas, showResources, dateRange)
 	}
 	return nil
 }
@@ -154,11 +215,14 @@ func sortSummaries(s []stats.ToolSummary, by string) {
 	}
 }
 
-func printStatsPlain(snap *stats.Snapshot, summaries []stats.ToolSummary, showSchemas, showResources bool) {
+func printStatsPlain(snap *stats.Snapshot, summaries []stats.ToolSummary, showSchemas, showResources bool, dateRange string) {
 	if snap.StartedAt != nil {
 		fmt.Printf("# tokenizer: %s, since: %s\n", snap.Tokenizer, snap.StartedAt.Format("2006-01-02"))
 	} else {
 		fmt.Printf("# tokenizer: %s\n", snap.Tokenizer)
+	}
+	if dateRange != "" {
+		fmt.Printf("# range: %s\n", dateRange)
 	}
 
 	var totalCalls, totalErrors, totalIn, totalOut int
@@ -191,16 +255,19 @@ func printStatsPlain(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 	}
 }
 
-func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSchemas, showResources bool) {
+func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSchemas, showResources bool, dateRange string) {
 	w, _, _ := term.GetSize(os.Stdout.Fd())
 	if w <= 0 {
 		w = 100
 	}
 
-	if snap.StartedAt != nil {
+	switch {
+	case dateRange != "":
+		fmt.Printf("Tool Usage Stats (tokenizer: %s, %s)\n\n", snap.Tokenizer, dateRange)
+	case snap.StartedAt != nil:
 		fmt.Printf("Tool Usage Stats (tokenizer: %s, since %s)\n\n",
 			snap.Tokenizer, snap.StartedAt.Format("2006-01-02"))
-	} else {
+	default:
 		fmt.Printf("Tool Usage Stats (tokenizer: %s)\n\n", snap.Tokenizer)
 	}
 
@@ -239,8 +306,13 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 		fmt.Println(t)
 	}
 
-	fmt.Printf("\nTotals: %s calls, %s errors, %s input tokens, %s output tokens\n",
-		fmtInt(totalCalls), fmtInt(totalErrors), fmtInt(totalIn), fmtInt(totalOut))
+	if dateRange != "" {
+		fmt.Printf("\nTotals (%s): %s calls, %s errors, %s input tokens, %s output tokens\n",
+			dateRange, fmtInt(totalCalls), fmtInt(totalErrors), fmtInt(totalIn), fmtInt(totalOut))
+	} else {
+		fmt.Printf("\nTotals: %s calls, %s errors, %s input tokens, %s output tokens\n",
+			fmtInt(totalCalls), fmtInt(totalErrors), fmtInt(totalIn), fmtInt(totalOut))
+	}
 
 	// Schema overhead table.
 	if showSchemas && len(snap.Schemas) > 0 {
