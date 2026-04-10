@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/lipgloss/table"
@@ -199,11 +200,11 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 		rows = append(rows, []string{
 			ts.PluginName,
 			ts.ToolName,
-			strconv.Itoa(ts.CallCount),
-			strconv.Itoa(ts.ErrorCount),
-			strconv.Itoa(ts.TotalInputTokens),
-			strconv.Itoa(ts.TotalOutputTokens),
-			strconv.FormatInt(ts.AvgDurationMs, 10),
+			fmtInt(ts.CallCount),
+			fmtInt(ts.ErrorCount),
+			fmtInt(ts.TotalInputTokens),
+			fmtInt(ts.TotalOutputTokens),
+			fmtInt64(ts.AvgDurationMs),
 		})
 		totalCalls += ts.CallCount
 		totalErrors += ts.ErrorCount
@@ -227,8 +228,8 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 		fmt.Println(t)
 	}
 
-	fmt.Printf("\nTotals: %d calls, %d errors, %d input tokens, %d output tokens\n",
-		totalCalls, totalErrors, totalIn, totalOut)
+	fmt.Printf("\nTotals: %s calls, %s errors, %s input tokens, %s output tokens\n",
+		fmtInt(totalCalls), fmtInt(totalErrors), fmtInt(totalIn), fmtInt(totalOut))
 
 	// Schema overhead table.
 	if showSchemas && len(snap.Schemas) > 0 {
@@ -256,8 +257,8 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 		for _, ps := range byPlugin {
 			schemaRows = append(schemaRows, []string{
 				ps.name,
-				strconv.Itoa(ps.tools),
-				strconv.Itoa(ps.tokens),
+				fmtInt(ps.tools),
+				fmtInt(ps.tokens),
 			})
 		}
 		sort.Slice(schemaRows, func(i, j int) bool {
@@ -265,8 +266,8 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 		})
 		schemaRows = append(schemaRows, []string{
 			"Total",
-			strconv.Itoa(len(snap.Schemas)),
-			strconv.Itoa(totalSchemaTokens),
+			fmtInt(len(snap.Schemas)),
+			fmtInt(totalSchemaTokens),
 		})
 
 		st := table.New().
@@ -294,9 +295,9 @@ func printStatsTable(snap *stats.Snapshot, summaries []stats.ToolSummary, showSc
 				re.URI,
 				re.PluginName,
 				re.ResourceType,
-				strconv.Itoa(re.ContentBytes),
-				strconv.Itoa(re.ContentTokens),
-				strconv.Itoa(re.ReadCount),
+				fmtInt(re.ContentBytes),
+				fmtInt(re.ContentTokens),
+				fmtInt(re.ReadCount),
 			})
 		}
 		sort.Slice(resRows, func(i, j int) bool {
@@ -440,6 +441,54 @@ func runStatsReset(_ *cobra.Command, _ []string) error {
 
 	fmt.Printf("Stats cleared (deleted %s)\n", statsPath)
 	return nil
+}
+
+// --- number formatting ---
+
+// fmtInt formats an integer with comma separators (e.g., 1234567 -> "1,234,567").
+func fmtInt(n int) string {
+	if n < 0 {
+		return "-" + fmtInt(-n)
+	}
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	r := len(s) % 3
+	if r > 0 {
+		b.WriteString(s[:r])
+	}
+	for i := r; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
+// fmtInt64 formats an int64 with comma separators.
+func fmtInt64(n int64) string {
+	if n < 0 {
+		return "-" + fmtInt64(-n)
+	}
+	s := strconv.FormatInt(n, 10)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	r := len(s) % 3
+	if r > 0 {
+		b.WriteString(s[:r])
+	}
+	for i := r; i < len(s); i += 3 {
+		if b.Len() > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
 }
 
 // --- shell completion ---
