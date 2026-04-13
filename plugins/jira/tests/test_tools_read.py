@@ -106,8 +106,10 @@ class TestSearch:
     def test_full_mode(self):
         with _mock_cache_get(None), _mock_http(200, SEARCH_RESPONSE), _mock_cache_set():
             result = tools_read.search({"jql": "project = PROJ", "brief": False})
-            # Full mode returns raw issues
-            assert result["issues"][0]["fields"]["status"]["name"] == "Open"
+            # Full mode returns clean extracted fields
+            assert result["issues"][0]["status"] == "Open"
+            assert result["issues"][0]["key"] == "PROJ-1"
+            assert "fields" not in result["issues"][0]
 
     def test_truncated_warning(self):
         truncated = {"total": 100, "issues": SEARCH_RESPONSE["issues"]}
@@ -390,8 +392,10 @@ class TestGetIssues:
         response = {"issues": [SAMPLE_ISSUES[0]]}
         with _mock_cache_get(None), _mock_http(200, response), _mock_cache_set():
             result = tools_read.get_issues({"issue_keys": "PROJ-1", "brief": False})
-            # Full mode returns raw issue data
-            assert "fields" in result["issues"][0]
+            # Full mode returns clean extracted fields
+            assert result["issues"][0]["key"] == "PROJ-1"
+            assert result["issues"][0]["status"] == "Open"
+            assert "fields" not in result["issues"][0]
 
     def test_empty_keys(self):
         result = tools_read.get_issues({"issue_keys": ""})

@@ -5,6 +5,7 @@ import hashlib
 import handler
 from helpers import (
     extract_brief_issue,
+    extract_issue_fields,
     extract_user_fields,
     http_error,
     is_user_alias,
@@ -114,7 +115,7 @@ def _search_cloud(jql, max_results, start_at, fields, brief):
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in all_issues]
     else:
-        result["issues"] = all_issues
+        result["issues"] = [extract_issue_fields(i, fields) for i in all_issues]
 
     return result
 
@@ -148,7 +149,7 @@ def _search_server(jql, max_results, start_at, fields, brief):
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]
     else:
-        result["issues"] = issues
+        result["issues"] = [extract_issue_fields(i, fields) for i in issues]
 
     return result
 
@@ -196,7 +197,7 @@ def get_issues(params):
     for k in keys:
         issue = fetched.get(k)
         if issue:
-            results.append(extract_brief_issue(issue) if brief else issue)
+            results.append(extract_brief_issue(issue) if brief else extract_issue_fields(issue, fields))
         else:
             results.append({"key": k, "error": "Issue not found or not accessible"})
 
