@@ -38,8 +38,21 @@ For issues, use `github_get_issue` then `github_get_comments`.
 ## Pagination
 
 Tools that return lists support `max_results` and `start_at`.
+`github_my_work` defaults to 20 results per page. When results
+are truncated, the response includes `truncated: true` and the
+`total` count. Use `start_at` to fetch subsequent pages.
+
 GitHub's search API is limited to 1000 results total (10 pages
 of 100).
+
+## URLs
+
+List tools do not include URLs to keep output compact. Construct
+them from the item fields:
+- PRs: `https://github.com/{repo}/pull/{number}`
+- Issues: `https://github.com/{repo}/issues/{number}`
+
+Detail tools (`github_get_pr`, `github_get_issue`) return full URLs.
 
 ## Limitations
 

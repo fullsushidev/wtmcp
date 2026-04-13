@@ -69,7 +69,6 @@ def _extract_search_item(item):
         "author": (item.get("user") or {}).get("login", ""),
         "updated": item.get("updated_at"),
         "labels": [lb.get("name", "") for lb in (item.get("labels") or [])],
-        "url": item.get("html_url", ""),
     }
 
     # Best-effort involvement detection
@@ -135,7 +134,7 @@ def my_work(params):
     org = params.get("org", "")
     repo = params.get("repo", "")
     sort = params.get("sort", "updated")
-    max_results = min(int(params.get("max_results", 50)), 100)
+    max_results = min(int(params.get("max_results", 20)), 100)
     start_at = max(int(params.get("start_at", 0)), 0)
 
     if org:

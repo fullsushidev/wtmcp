@@ -38,7 +38,7 @@ tools:
       List all open items involving you: issues assigned, PRs to
       review, things you're mentioned in. This is your unified task
       list. Each item includes its type (issue/pr), repo, number,
-      and title.
+      and title. Use start_at for pagination.
     params:
       org:
         type: string
@@ -52,7 +52,7 @@ tools:
         description: "Sort by: created, updated, comments"
       max_results:
         type: integer
-        default: 50
+        default: 20
       start_at:
         type: integer
         default: 0
