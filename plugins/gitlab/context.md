@@ -132,6 +132,14 @@ gitlab_get_todos()
 gitlab_get_todos(target_type="MergeRequest")
 ```
 
+**Pagination — fetch next page:**
+```
+gitlab_get_todos(page=2)
+```
+
+The response includes `page`, `total_pages`, `total_items`, and
+`has_next_page` to help navigate results.
+
 ### IDs and IIDs
 
 - **IID** (Internal ID): project-scoped number shown in the UI

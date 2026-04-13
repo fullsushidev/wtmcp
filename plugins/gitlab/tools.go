@@ -612,6 +612,7 @@ type getTodosParams struct {
 	State      string `json:"state"`
 	TargetType string `json:"target_type"`
 	MaxResults int    `json:"max_results"`
+	Page       int64  `json:"page"`
 }
 
 func toolGetTodos(params, _ json.RawMessage) (any, error) {
@@ -625,6 +626,9 @@ func toolGetTodos(params, _ json.RawMessage) (any, error) {
 	if p.MaxResults == 0 {
 		p.MaxResults = 20
 	}
+	if p.Page < 1 {
+		p.Page = 1
+	}
 
 	client, err := resolveInstance(p.Instance)
 	if err != nil {
@@ -637,7 +641,7 @@ func toolGetTodos(params, _ json.RawMessage) (any, error) {
 	}
 
 	opts := &gogitlab.ListTodosOptions{
-		ListOptions: gogitlab.ListOptions{PerPage: perPage},
+		ListOptions: gogitlab.ListOptions{PerPage: perPage, Page: p.Page},
 		State:       &p.State,
 	}
 	if p.Action != "" {
@@ -657,12 +661,12 @@ func toolGetTodos(params, _ json.RawMessage) (any, error) {
 		opts.Type = &p.TargetType
 	}
 
-	todos, _, err := client.Todos.ListTodos(opts)
+	todos, resp, err := client.Todos.ListTodos(opts)
 	if err != nil {
 		return nil, fmt.Errorf("list todos: %w", err)
 	}
 
-	var result []map[string]any
+	var items []map[string]any
 	for _, t := range todos {
 		td := map[string]any{
 			"id":          t.ID,
@@ -689,9 +693,24 @@ func toolGetTodos(params, _ json.RawMessage) (any, error) {
 				"state": t.Target.State,
 			}
 		}
-		result = append(result, td)
+		items = append(items, td)
 	}
-	return map[string]any{"todos": result, "total": len(result), "state": p.State}, nil
+
+	out := map[string]any{
+		"todos": items,
+		"count": len(items),
+		"state": p.State,
+	}
+	if resp != nil {
+		out["page"] = resp.CurrentPage
+		out["total_pages"] = resp.TotalPages
+		out["total_items"] = resp.TotalItems
+		out["has_next_page"] = resp.NextPage > 0
+		if resp.NextPage > 0 {
+			out["next_page"] = resp.NextPage
+		}
+	}
+	return out, nil
 }
 
 // --- gitlab_list_merge_requests ---

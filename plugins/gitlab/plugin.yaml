@@ -198,7 +198,7 @@ tools:
       List your GitLab to-do items — MR reviews, assigned issues,
       mentions, and other actionable items across all projects. This
       is your unified task list. Filter by action, target type, or
-      state.
+      state. Paginated — use page parameter to navigate results.
     params:
       instance:
         type: string
@@ -220,6 +220,10 @@ tools:
       max_results:
         type: integer
         default: 20
+      page:
+        type: integer
+        default: 1
+        description: "Page number for pagination"
 
   - name: gitlab_my_issues
     access: read
