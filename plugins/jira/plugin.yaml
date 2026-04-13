@@ -48,7 +48,9 @@ tools:
     description: >
       Search Jira issues using JQL. Returns brief per-issue summaries
       (key, summary, status, assignee, priority) by default. Set
-      brief=false to get full issue data. Results are cached.
+      brief=false to get clean extracted values for the requested
+      fields. Use the fields parameter to control which fields are
+      returned. Results are cached.
     params:
       jql:
         type: string
@@ -76,8 +78,9 @@ tools:
     visibility: primary
     description: >
       Get one or more Jira issues by key. Returns brief per-issue
-      summaries by default. Set brief=false for full data. Fetches
-      in batches via JQL for efficiency.
+      summaries by default. Set brief=false to get clean extracted
+      values for the requested fields. Fetches in batches via JQL
+      for efficiency.
     params:
       issue_keys:
         type: string

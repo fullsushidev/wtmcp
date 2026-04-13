@@ -161,4 +161,14 @@ jira_add_attachment(issue_key="PROJ-123",
 
 Search and sprint tools return compact summaries by default
 (`brief: true`): key, summary, status, assignee, priority.
-Set `brief: false` for full Jira issue data when needed.
+
+Set `brief: false` to get clean extracted values for the fields
+specified in the `fields` parameter. Dict-valued fields (status,
+priority, assignee) are flattened to their display name. ADF
+content (description on Cloud) is converted to plain text. Array
+fields (labels, components) pass through as lists.
+
+Use the `fields` parameter to control which fields are returned:
+```
+fields: "summary,status,labels,description,created"
+```
