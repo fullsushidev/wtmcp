@@ -13,6 +13,7 @@ from helpers import (
     calculate_sprint_metrics,
     escape_jql,
     extract_brief_issue,
+    extract_issue_fields,
     extract_nested_field,
     extract_sprint_summary,
     extract_user_fields,
@@ -154,6 +155,110 @@ class TestExtractBriefIssue:
         issue = {"key": "X-1", "fields": {"status": "Open"}}
         result = extract_brief_issue(issue)
         assert result["status"] == ""
+
+
+# --- extract_issue_fields ---
+
+
+class TestExtractIssueFields:
+    def test_default_fields(self):
+        issue = _make_issue()
+        result = extract_issue_fields(issue, "summary,status,assignee,priority")
+        assert result == {
+            "key": "TEST-1",
+            "summary": "Fix bug",
+            "status": "Open",
+            "assignee": "Jane",
+            "priority": "High",
+        }
+
+    def test_key_always_included(self):
+        result = extract_issue_fields({"key": "X-1", "fields": {}}, "summary")
+        assert "key" in result
+        assert result["key"] == "X-1"
+
+    def test_custom_fields(self):
+        issue = {
+            "key": "X-1",
+            "fields": {
+                "summary": "Test",
+                "labels": ["urgent", "p1"],
+                "created": "2026-01-01T10:00:00.000+0000",
+            },
+        }
+        result = extract_issue_fields(issue, "summary,labels,created")
+        assert result["summary"] == "Test"
+        assert result["labels"] == ["urgent", "p1"]
+        assert result["created"] == "2026-01-01T10:00:00.000+0000"
+
+    def test_dotted_path(self):
+        issue = {"key": "X-1", "fields": {"status": {"name": "Open", "id": "1"}}}
+        result = extract_issue_fields(issue, "status.name")
+        assert result["status.name"] == "Open"
+
+    def test_missing_fields(self):
+        result = extract_issue_fields({"key": "X-1", "fields": {}}, "summary,nonexistent")
+        assert result["summary"] is None
+        assert result["nonexistent"] is None
+
+    def test_empty_fields_str(self):
+        result = extract_issue_fields({"key": "X-1", "fields": {"summary": "Hi"}}, "")
+        assert result == {"key": "X-1"}
+
+    def test_none_fields_str(self):
+        result = extract_issue_fields({"key": "X-1", "fields": {"summary": "Hi"}}, None)
+        assert result == {"key": "X-1"}
+
+    def test_whitespace_in_field_names(self):
+        issue = _make_issue()
+        result = extract_issue_fields(issue, "summary, status , priority")
+        assert result["summary"] == "Fix bug"
+        assert result["status"] == "Open"
+        assert result["priority"] == "High"
+
+    def test_adf_description(self):
+        adf_doc = {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "paragraph",
+                    "content": [{"type": "text", "text": "Hello world"}],
+                }
+            ],
+        }
+        issue = {"key": "X-1", "fields": {"description": adf_doc}}
+        result = extract_issue_fields(issue, "description")
+        assert result["description"] == "Hello world"
+
+    def test_array_fields_passthrough(self):
+        issue = {
+            "key": "X-1",
+            "fields": {
+                "components": [{"name": "Backend"}, {"name": "API"}],
+                "labels": ["bug", "critical"],
+            },
+        }
+        result = extract_issue_fields(issue, "components,labels")
+        # components is a list of dicts — extract_nested_field returns as-is
+        assert isinstance(result["labels"], list)
+        assert result["labels"] == ["bug", "critical"]
+
+    def test_dict_flattening(self):
+        issue = {
+            "key": "X-1",
+            "fields": {
+                "status": {
+                    "self": "https://...",
+                    "name": "In Progress",
+                    "id": "3",
+                    "statusCategory": {"name": "In Progress"},
+                },
+            },
+        }
+        result = extract_issue_fields(issue, "status")
+        # Dict should be flattened to .name
+        assert result["status"] == "In Progress"
 
 
 # --- extract_user_fields ---

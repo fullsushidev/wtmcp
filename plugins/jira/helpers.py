@@ -122,6 +122,56 @@ def extract_brief_issue(issue):
     }
 
 
+def extract_issue_fields(issue, fields_str):
+    """Extract clean field values from a Jira issue response.
+
+    Returns a dict with 'key' plus the extracted value for each field
+    in the comma-separated fields_str. Dict-valued fields (status,
+    priority, assignee, etc.) are flattened to their .displayName,
+    .name, or .value. ADF documents (description on Cloud) are
+    converted to plain text. Array fields (labels, components) pass
+    through as-is.
+
+    Args:
+        issue: Raw Jira issue dict from the API
+        fields_str: Comma-separated field names (e.g., "summary,status")
+
+    Returns:
+        Flat dict: {"key": "PROJ-1", "summary": "...", "status": "..."}
+    """
+    result = {"key": issue.get("key", "")}
+    if not fields_str:
+        return result
+
+    fields_data = issue.get("fields", {})
+    for field_name in fields_str.split(","):
+        field_name = field_name.strip()
+        if not field_name:
+            continue
+
+        if "." in field_name:
+            # Dotted path — delegate to extract_nested_field.
+            result[field_name] = extract_nested_field(fields_data, field_name)
+            continue
+
+        value = fields_data.get(field_name)
+        if isinstance(value, dict):
+            if value.get("type") == "doc":
+                # ADF document (Cloud description/comment) → plain text.
+                value = adf_to_text(value)
+            elif "displayName" in value:
+                # User fields (assignee, reporter, creator).
+                value = value["displayName"]
+            elif "name" in value:
+                # Named objects (status, priority, issuetype).
+                value = value["name"]
+            elif "value" in value:
+                # Custom select fields.
+                value = value["value"]
+        result[field_name] = value
+    return result
+
+
 _SAFE_URL_RE = re.compile(r"^(?:https?://|mailto:|/(?!/)|#)", re.IGNORECASE)
 
 _MAX_WIKI_PARSE_LEN = 100_000
