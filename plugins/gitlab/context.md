@@ -140,6 +140,10 @@ gitlab_get_todos(page=2)
 The response includes `page`, `total_pages`, `total_items`, and
 `has_next_page` to help navigate results.
 
+The `body` field is truncated to 200 characters for compactness.
+For full content, use the detail tools (`gitlab_get_merge_request`,
+`gitlab_get_issue_details`).
+
 ### IDs and IIDs
 
 - **IID** (Internal ID): project-scoped number shown in the UI

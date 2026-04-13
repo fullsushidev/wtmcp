@@ -668,30 +668,34 @@ func toolGetTodos(params, _ json.RawMessage) (any, error) {
 
 	var items []map[string]any
 	for _, t := range todos {
+		body := t.Body
+		if runes := []rune(body); len(runes) > 200 {
+			body = string(runes[:200]) + "..."
+		}
+
 		td := map[string]any{
-			"id":          t.ID,
 			"action_name": t.ActionName,
 			"target_type": t.TargetType,
-			"target_url":  t.TargetURL,
-			"body":        t.Body,
-			"state":       t.State,
+			"body":        body,
 			"created_at":  timeStr(t.CreatedAt),
 		}
+
+		// Keep target_url for types where it's not reconstructable
+		// (Commit, Epic, Alert, Design). Omit for Issue/MergeRequest.
+		if t.TargetType != "Issue" && t.TargetType != "MergeRequest" {
+			td["target_url"] = t.TargetURL
+		}
+
 		if t.Project != nil {
-			td["project"] = map[string]any{
-				"name": t.Project.Name,
-				"path": t.Project.PathWithNamespace,
-			}
+			td["project_path"] = t.Project.PathWithNamespace
 		}
 		if t.Author != nil {
 			td["author"] = t.Author.Username
 		}
 		if t.Target != nil {
-			td["target"] = map[string]any{
-				"iid":   t.Target.IID,
-				"title": t.Target.Title,
-				"state": t.Target.State,
-			}
+			td["target_iid"] = t.Target.IID
+			td["target_title"] = t.Target.Title
+			td["target_state"] = t.Target.State
 		}
 		items = append(items, td)
 	}
