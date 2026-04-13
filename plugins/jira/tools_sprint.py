@@ -4,11 +4,14 @@ import handler
 from helpers import (
     escape_jql,
     extract_brief_issue,
+    extract_issue_fields,
     extract_sprint_summary,
     http_error,
     natural_sort_key,
     parse_sprint_field,
 )
+
+_BRIEF_FIELDS = "summary,status,assignee,priority"
 
 
 def list_available_sprints(params):
@@ -115,7 +118,7 @@ def get_sprint_issues(params):
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]
     else:
-        result["issues"] = issues
+        result["issues"] = [extract_issue_fields(i, _BRIEF_FIELDS) for i in issues]
     return result
 
 
@@ -153,7 +156,7 @@ def search_by_sprint(params):
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]
     else:
-        result["issues"] = issues
+        result["issues"] = [extract_issue_fields(i, _BRIEF_FIELDS) for i in issues]
     return result
 
 
@@ -260,7 +263,7 @@ def get_issues_for_board(params):
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]
     else:
-        result["issues"] = issues
+        result["issues"] = [extract_issue_fields(i, _BRIEF_FIELDS) for i in issues]
     return result
 
 
@@ -286,7 +289,7 @@ def get_all_issues_for_sprint_in_board(params):
     if brief:
         result["issues"] = [extract_brief_issue(i) for i in issues]
     else:
-        result["issues"] = issues
+        result["issues"] = [extract_issue_fields(i, _BRIEF_FIELDS) for i in issues]
     return result
 
 

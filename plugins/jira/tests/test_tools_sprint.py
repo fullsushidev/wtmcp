@@ -73,7 +73,9 @@ class TestGetSprintIssues:
     def test_full_mode(self):
         with _mock_http(200, SEARCH_ISSUES):
             result = tools_sprint.get_sprint_issues({"sprint_name": "Sprint 2", "brief": False})
-            assert "fields" in result["issues"][0]
+            assert result["issues"][0]["key"] == "PROJ-1"
+            assert result["issues"][0]["status"] == "Open"
+            assert "fields" not in result["issues"][0]
 
     def test_truncated(self):
         truncated = {"total": 500, "issues": SEARCH_ISSUES["issues"]}
@@ -215,7 +217,9 @@ class TestGetIssuesForBoard:
     def test_full_mode(self):
         with _mock_http(200, SEARCH_ISSUES):
             result = tools_sprint.get_issues_for_board({"board_id": "10", "brief": False})
-            assert "fields" in result["issues"][0]
+            assert result["issues"][0]["key"] == "PROJ-1"
+            assert result["issues"][0]["status"] == "Open"
+            assert "fields" not in result["issues"][0]
 
 
 # --- jira_get_all_issues_for_sprint_in_board ---
