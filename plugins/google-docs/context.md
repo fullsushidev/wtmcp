@@ -252,7 +252,7 @@ Attendees: @(Alice Smith), @(bob@company.com)
 | Bold (`**text**`) | ✅ Yes | |
 | Italic (`*text*`, `_text_`) | ✅ Yes | Both asterisk and underscore |
 | Underline (`__text__`) | ✅ Yes | Double underscore |
-| Links (`[text](url)`) | ✅ Yes | |
+| Links (`[text](url)`) | ✅ Yes | Absolute URLs only (`https://`, `http://`, `mailto:`) |
 | Headings (`# H1` to `###### H6`) | ✅ Yes | |
 | Ordered lists (`1.`, `2.`, etc.) | ✅ Yes | Converted to Google Docs numbered lists |
 | Unordered lists (`-`, `*`, `+`) | ✅ Yes | Converted to Google Docs bullet lists |
