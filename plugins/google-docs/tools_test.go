@@ -302,6 +302,138 @@ func TestStrikethroughInRequests(t *testing.T) {
 	})
 }
 
+func TestNestedFormatting(t *testing.T) {
+	// *** is ambiguous: the greedy ** (bold) match consumes the first two
+	// asterisks, leaving the third as literal text inside the bold segment.
+	// Use explicit nesting like **_bold italic_** for reliable combinations.
+	t.Run("triple asterisk is greedy bold", func(t *testing.T) {
+		segments := parseSimpleFormatting("***bold italic***")
+		var boldText string
+		for _, seg := range segments {
+			if seg.bold {
+				boldText += seg.text
+			}
+		}
+		if !strings.Contains(boldText, "bold italic") {
+			t.Errorf("expected bold text to contain 'bold italic', got %q", boldText)
+		}
+	})
+
+	t.Run("bold underline", func(t *testing.T) {
+		segments := parseSimpleFormatting("**__bold underline__**")
+		var text string
+		for _, seg := range segments {
+			if seg.bold && seg.underline {
+				text += seg.text
+			}
+		}
+		if text != "bold underline" {
+			t.Errorf("expected bold+underline 'bold underline', got %q", text)
+		}
+	})
+
+	t.Run("italic underline", func(t *testing.T) {
+		segments := parseSimpleFormatting("*__italic underline__*")
+		var text string
+		for _, seg := range segments {
+			if seg.italic && seg.underline {
+				text += seg.text
+			}
+		}
+		if text != "italic underline" {
+			t.Errorf("expected italic+underline 'italic underline', got %q", text)
+		}
+	})
+
+	t.Run("partial bold italic", func(t *testing.T) {
+		segments := parseSimpleFormatting("**some *bold italic* text**")
+		var boldItalicText string
+		var boldOnlyText string
+		for _, seg := range segments {
+			if seg.bold && seg.italic {
+				boldItalicText += seg.text
+			} else if seg.bold && !seg.italic {
+				boldOnlyText += seg.text
+			}
+		}
+		if boldItalicText != "bold italic" {
+			t.Errorf("expected bold+italic 'bold italic', got %q", boldItalicText)
+		}
+		if !strings.Contains(boldOnlyText, "some") {
+			t.Errorf("expected bold-only text to contain 'some', got %q", boldOnlyText)
+		}
+	})
+
+	// Link handler does NOT recurse into display text — bold inside link
+	// text renders as literal asterisks. This is a known limitation.
+	t.Run("bold inside link is literal", func(t *testing.T) {
+		segments := parseSimpleFormatting("[**bold link**](https://example.com)")
+		for _, seg := range segments {
+			if seg.linkURL == "https://example.com" {
+				if seg.text != "**bold link**" {
+					t.Errorf("expected literal '**bold link**' as link text, got %q", seg.text)
+				}
+				return
+			}
+		}
+		t.Errorf("link not found in segments")
+	})
+}
+
+func TestStrikethroughEdgeCases(t *testing.T) {
+	t.Run("empty strikethrough", func(t *testing.T) {
+		segments := parseSimpleFormatting("~~~~")
+		merged := mergeSegments(segments)
+		// Empty content between ~~ delimiters — no text to format
+		hasStrikethrough := false
+		for _, seg := range merged {
+			if seg.strikethrough && seg.text != "" {
+				hasStrikethrough = true
+			}
+		}
+		if hasStrikethrough {
+			t.Errorf("empty ~~~~ should not produce non-empty strikethrough segments")
+		}
+	})
+
+	t.Run("adjacent strikethrough blocks", func(t *testing.T) {
+		segments := parseSimpleFormatting("~~a~~~~b~~")
+		var text string
+		for _, seg := range segments {
+			if seg.strikethrough {
+				text += seg.text
+			}
+		}
+		if text != "ab" {
+			t.Errorf("expected strikethrough 'ab', got %q", text)
+		}
+	})
+
+	t.Run("single tilde not matched", func(t *testing.T) {
+		segments := parseSimpleFormatting("~not strike~")
+		merged := mergeSegments(segments)
+		if len(merged) != 1 || merged[0].text != "~not strike~" {
+			t.Errorf("single tildes should be literal, got %+v", merged)
+		}
+		if merged[0].strikethrough {
+			t.Errorf("single tildes should not be strikethrough")
+		}
+	})
+
+	t.Run("strikethrough person chip", func(t *testing.T) {
+		segments := parseSimpleFormatting("~~@(alice@example.com)~~")
+		found := false
+		for _, seg := range segments {
+			if seg.isPersonField && seg.strikethrough && seg.personIdentifier == "alice@example.com" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("strikethrough person chip not found in %+v", segments)
+		}
+	})
+}
+
 func TestParseSimpleFormatting(t *testing.T) {
 	t.Run("bold", func(t *testing.T) {
 		segments := parseSimpleFormatting("**bold**")
