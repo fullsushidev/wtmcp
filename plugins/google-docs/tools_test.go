@@ -516,7 +516,7 @@ func TestParseSimpleFormatting(t *testing.T) {
 	})
 }
 
-func TestParseInlineFormatting(t *testing.T) {
+func TestParseSimpleFormattingSpecialElements(t *testing.T) {
 	t.Run("link", func(t *testing.T) {
 		segments := parseSimpleFormatting("[Google](https://google.com)")
 		found := false
