@@ -704,7 +704,7 @@ func parseSimpleFormattingWithDepth(text string, depth int) []markdownSegment {
 	pos := 0
 
 	for pos < len(text) {
-		// Check for ~~strikethrough~~ (must come before **bold** check)
+		// Check for ~~strikethrough~~
 		if strings.HasPrefix(text[pos:], "~~") {
 			endPos := strings.Index(text[pos+2:], "~~")
 			if endPos != -1 {
