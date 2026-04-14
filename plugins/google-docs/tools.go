@@ -688,8 +688,18 @@ func parseMarkdown(markdown string) []markdownSegment {
 	return segments
 }
 
-// parseSimpleFormatting parses bold, italic, and underline formatting.
+// parseSimpleFormatting parses bold, italic, underline, and strikethrough formatting.
 func parseSimpleFormatting(text string) []markdownSegment {
+	return parseSimpleFormattingWithDepth(text, 0)
+}
+
+// parseSimpleFormattingWithDepth is the recursive implementation of parseSimpleFormatting
+// with a depth limit to prevent stack overflow from crafted input.
+func parseSimpleFormattingWithDepth(text string, depth int) []markdownSegment {
+	if depth > 10 {
+		return []markdownSegment{{text: text}}
+	}
+
 	var segments []markdownSegment
 	pos := 0
 
@@ -699,7 +709,7 @@ func parseSimpleFormatting(text string) []markdownSegment {
 			endPos := strings.Index(text[pos+2:], "~~")
 			if endPos != -1 {
 				endPos += pos + 2
-				innerSegs := parseSimpleFormatting(text[pos+2 : endPos])
+				innerSegs := parseSimpleFormattingWithDepth(text[pos+2:endPos], depth+1)
 				for i := range innerSegs {
 					innerSegs[i].strikethrough = true
 				}
@@ -714,7 +724,7 @@ func parseSimpleFormatting(text string) []markdownSegment {
 			endPos := strings.Index(text[pos+2:], "**")
 			if endPos != -1 {
 				endPos += pos + 2
-				innerSegs := parseSimpleFormatting(text[pos+2 : endPos])
+				innerSegs := parseSimpleFormattingWithDepth(text[pos+2:endPos], depth+1)
 				for i := range innerSegs {
 					innerSegs[i].bold = true
 				}
@@ -729,7 +739,7 @@ func parseSimpleFormatting(text string) []markdownSegment {
 			endPos := strings.Index(text[pos+2:], "__")
 			if endPos != -1 {
 				endPos += pos + 2
-				innerSegs := parseSimpleFormatting(text[pos+2 : endPos])
+				innerSegs := parseSimpleFormattingWithDepth(text[pos+2:endPos], depth+1)
 				for i := range innerSegs {
 					innerSegs[i].underline = true
 				}
@@ -750,7 +760,7 @@ func parseSimpleFormatting(text string) []markdownSegment {
 					pos++
 					continue
 				}
-				innerSegs := parseSimpleFormatting(text[pos+1 : endPos])
+				innerSegs := parseSimpleFormattingWithDepth(text[pos+1:endPos], depth+1)
 				for i := range innerSegs {
 					innerSegs[i].italic = true
 				}
@@ -771,7 +781,7 @@ func parseSimpleFormatting(text string) []markdownSegment {
 					pos++
 					continue
 				}
-				innerSegs := parseSimpleFormatting(text[pos+1 : endPos])
+				innerSegs := parseSimpleFormattingWithDepth(text[pos+1:endPos], depth+1)
 				for i := range innerSegs {
 					innerSegs[i].italic = true
 				}

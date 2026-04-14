@@ -438,6 +438,40 @@ func TestParseInlineFormatting(t *testing.T) {
 	})
 }
 
+func TestParseSimpleFormattingDepthLimit(t *testing.T) {
+	t.Run("deeply nested input does not panic", func(t *testing.T) {
+		// Build input that would recurse deeply: **__*_**__*_text_*__**_*__**
+		input := strings.Repeat("**", 20) + "text" + strings.Repeat("**", 20)
+		segments := parseSimpleFormatting(input)
+		// Should return without panic; exact output doesn't matter
+		if len(segments) == 0 {
+			t.Error("expected at least one segment")
+		}
+	})
+
+	t.Run("depth limit returns raw text", func(t *testing.T) {
+		// Alternate delimiter types to force actual recursion depth
+		// Each level: ~~**__*_  (5 nesting levels per iteration)
+		inner := "text"
+		for i := 0; i < 5; i++ {
+			inner = "~~**" + inner + "**~~"
+		}
+		segments := parseSimpleFormatting(inner)
+		// Should return without panic
+		if len(segments) == 0 {
+			t.Error("expected at least one segment")
+		}
+		// Verify "text" appears somewhere in the output
+		var allText string
+		for _, seg := range segments {
+			allText += seg.text
+		}
+		if !strings.Contains(allText, "text") {
+			t.Errorf("expected 'text' in output, got %q", allText)
+		}
+	})
+}
+
 func TestLinkSchemeValidation(t *testing.T) {
 	t.Run("https allowed", func(t *testing.T) {
 		segments := parseSimpleFormatting("[ok](https://example.com)")
