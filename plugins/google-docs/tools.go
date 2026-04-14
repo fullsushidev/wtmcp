@@ -820,15 +820,18 @@ func parseSimpleFormatting(text string) []markdownSegment {
 
 		// Check for link: [text](url)
 		if linkMatch := reLinkInline.FindStringSubmatchIndex(text[pos:]); linkMatch != nil && linkMatch[0] == 0 {
-			// Add link
 			linkText := text[pos+linkMatch[2] : pos+linkMatch[3]]
 			linkURL := text[pos+linkMatch[4] : pos+linkMatch[5]]
-			segments = append(segments, markdownSegment{
-				text:    linkText,
-				linkURL: linkURL,
-			})
-			pos += linkMatch[1]
-			continue
+			if isAllowedLinkScheme(linkURL) {
+				segments = append(segments, markdownSegment{
+					text:    linkText,
+					linkURL: linkURL,
+				})
+				pos += linkMatch[1]
+				continue
+			}
+			// Rejected scheme — emit opening bracket as plain text and
+			// let the rest be parsed normally on subsequent iterations.
 		}
 
 		// Plain character
@@ -837,6 +840,17 @@ func parseSimpleFormatting(text string) []markdownSegment {
 	}
 
 	return segments
+}
+
+// isAllowedLinkScheme checks whether a URL has an allowed scheme.
+// Only https, http, and mailto are permitted. Comparison is case-insensitive
+// per RFC 3986 §3.1.
+func isAllowedLinkScheme(rawURL string) bool {
+	u := strings.TrimSpace(rawURL)
+	lower := strings.ToLower(u)
+	return strings.HasPrefix(lower, "https://") ||
+		strings.HasPrefix(lower, "http://") ||
+		strings.HasPrefix(lower, "mailto:")
 }
 
 // mergeSegments combines consecutive segments with identical formatting properties

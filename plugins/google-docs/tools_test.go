@@ -438,6 +438,92 @@ func TestParseInlineFormatting(t *testing.T) {
 	})
 }
 
+func TestLinkSchemeValidation(t *testing.T) {
+	t.Run("https allowed", func(t *testing.T) {
+		segments := parseSimpleFormatting("[ok](https://example.com)")
+		found := false
+		for _, seg := range segments {
+			if seg.linkURL == "https://example.com" && seg.text == "ok" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("https link not found in %+v", segments)
+		}
+	})
+
+	t.Run("http allowed", func(t *testing.T) {
+		segments := parseSimpleFormatting("[ok](http://example.com)")
+		found := false
+		for _, seg := range segments {
+			if seg.linkURL == "http://example.com" && seg.text == "ok" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("http link not found in %+v", segments)
+		}
+	})
+
+	t.Run("mailto allowed", func(t *testing.T) {
+		segments := parseSimpleFormatting("[ok](mailto:user@example.com)")
+		found := false
+		for _, seg := range segments {
+			if seg.linkURL == "mailto:user@example.com" && seg.text == "ok" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("mailto link not found in %+v", segments)
+		}
+	})
+
+	t.Run("javascript rejected", func(t *testing.T) {
+		segments := parseSimpleFormatting("[bad](javascript:alert(1))")
+		for _, seg := range segments {
+			if seg.linkURL != "" {
+				t.Errorf("javascript: link should be rejected, got linkURL=%q", seg.linkURL)
+			}
+		}
+	})
+
+	t.Run("javascript mixed case rejected", func(t *testing.T) {
+		segments := parseSimpleFormatting("[bad](JavaScript:alert(1))")
+		for _, seg := range segments {
+			if seg.linkURL != "" {
+				t.Errorf("JavaScript: link should be rejected, got linkURL=%q", seg.linkURL)
+			}
+		}
+	})
+
+	t.Run("data rejected", func(t *testing.T) {
+		segments := parseSimpleFormatting("[bad](data:text/html,<h1>hi</h1>)")
+		for _, seg := range segments {
+			if seg.linkURL != "" {
+				t.Errorf("data: link should be rejected, got linkURL=%q", seg.linkURL)
+			}
+		}
+	})
+
+	t.Run("file rejected", func(t *testing.T) {
+		segments := parseSimpleFormatting("[bad](file:///etc/passwd)")
+		for _, seg := range segments {
+			if seg.linkURL != "" {
+				t.Errorf("file: link should be rejected, got linkURL=%q", seg.linkURL)
+			}
+		}
+	})
+
+	t.Run("leading whitespace rejected", func(t *testing.T) {
+		segments := parseSimpleFormatting("[bad]( javascript:alert(1))")
+		for _, seg := range segments {
+			if seg.linkURL != "" {
+				t.Errorf("whitespace-padded javascript: link should be rejected, got linkURL=%q", seg.linkURL)
+			}
+		}
+	})
+}
+
 func TestHeadingsWithInlineFormatting(t *testing.T) {
 	t.Run("heading with @today", func(t *testing.T) {
 		segments := parseMarkdown("# @today")
