@@ -361,7 +361,6 @@ This is an **initial implementation** of document creation and modification supp
 - **Tables**: Markdown tables are not converted to Google Docs table structures
 - **Code blocks**: Code blocks and inline code formatting are not yet supported
 - **Blockquotes**: Blockquotes are not converted to Google Docs quote styling
-- **Strikethrough**: Strikethrough formatting is supported using `~~text~~` syntax
 - **Images**: Inline images cannot be inserted via markdown
 
 Future updates will expand the markdown conversion capabilities to handle these additional formatting features.
