@@ -1165,6 +1165,86 @@ func TestHeadingWithFormattedText(t *testing.T) {
 	})
 }
 
+func TestConsecutiveSameLevelHeadings(t *testing.T) {
+	t.Run("two H1s no blank line", func(t *testing.T) {
+		segments := parseMarkdown("# A\n# B")
+		requests := convertMarkdownToRequests(segments, 1)
+
+		// Count heading paragraph style requests
+		headingStyleCount := 0
+		for _, req := range requests {
+			if req.UpdateParagraphStyle != nil &&
+				req.UpdateParagraphStyle.ParagraphStyle.NamedStyleType == "HEADING_1" {
+				headingStyleCount++
+			}
+		}
+		if headingStyleCount != 2 {
+			t.Errorf("expected 2 HEADING_1 paragraph styles, got %d", headingStyleCount)
+		}
+
+		// Count InsertText requests
+		var insertTexts []string
+		for _, req := range requests {
+			if req.InsertText != nil {
+				insertTexts = append(insertTexts, req.InsertText.Text)
+			}
+		}
+		// "A\n" and "B" (last heading has no trailing \n)
+		if len(insertTexts) != 2 {
+			t.Errorf("expected 2 InsertText requests, got %d: %v", len(insertTexts), insertTexts)
+		}
+	})
+
+	t.Run("two H1s with blank line", func(t *testing.T) {
+		segments := parseMarkdown("# A\n\n# B")
+		requests := convertMarkdownToRequests(segments, 1)
+
+		headingStyleCount := 0
+		for _, req := range requests {
+			if req.UpdateParagraphStyle != nil &&
+				req.UpdateParagraphStyle.ParagraphStyle.NamedStyleType == "HEADING_1" {
+				headingStyleCount++
+			}
+		}
+		if headingStyleCount != 2 {
+			t.Errorf("expected 2 HEADING_1 paragraph styles, got %d", headingStyleCount)
+		}
+	})
+
+	t.Run("three consecutive H2s", func(t *testing.T) {
+		segments := parseMarkdown("## A\n## B\n## C")
+		requests := convertMarkdownToRequests(segments, 1)
+
+		headingStyleCount := 0
+		for _, req := range requests {
+			if req.UpdateParagraphStyle != nil &&
+				req.UpdateParagraphStyle.ParagraphStyle.NamedStyleType == "HEADING_2" {
+				headingStyleCount++
+			}
+		}
+		if headingStyleCount != 3 {
+			t.Errorf("expected 3 HEADING_2 paragraph styles, got %d", headingStyleCount)
+		}
+	})
+
+	t.Run("multi-segment heading stays single paragraph", func(t *testing.T) {
+		// "# **Bold** Normal" should still produce one heading paragraph
+		segments := parseMarkdown("# **Bold** Normal\n# Another")
+		requests := convertMarkdownToRequests(segments, 1)
+
+		headingStyleCount := 0
+		for _, req := range requests {
+			if req.UpdateParagraphStyle != nil &&
+				req.UpdateParagraphStyle.ParagraphStyle.NamedStyleType == "HEADING_1" {
+				headingStyleCount++
+			}
+		}
+		if headingStyleCount != 2 {
+			t.Errorf("expected 2 HEADING_1 paragraph styles, got %d", headingStyleCount)
+		}
+	})
+}
+
 func TestAppendToNonEmptyDocument(t *testing.T) {
 	t.Run("appending to non-empty creates new paragraph", func(t *testing.T) {
 		// Simulate appending "New text" to a document that already has content

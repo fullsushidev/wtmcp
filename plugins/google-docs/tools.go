@@ -564,6 +564,7 @@ type markdownSegment struct {
 	strikethrough     bool
 	linkURL           string
 	heading           int    // 0 for normal, 1-6 for heading levels
+	headingLineID     int    // unique ID per heading line, used to detect paragraph boundaries
 	orderedListItem   bool   // true if this is an ordered list item
 	unorderedListItem bool   // true if this is an unordered list item
 	listDepth         int    // nesting level: 0=top-level list item, 1=first nested, etc.
@@ -603,6 +604,7 @@ func parseMarkdown(markdown string) []markdownSegment {
 	lines := strings.Split(markdown, "\n")
 
 	lastWasHeading := false
+	nextHeadingLineID := 1
 
 	for _, line := range lines {
 		trimmedLine := strings.TrimSpace(line)
@@ -641,8 +643,11 @@ func parseMarkdown(markdown string) []markdownSegment {
 			// Heading line - parse inline formatting within heading text
 			// Note: Headings don't include trailing newline - they're standalone paragraphs
 			inlineSegs := parseSimpleFormatting(trimmedLine)
+			lineID := nextHeadingLineID
+			nextHeadingLineID++
 			for i := range inlineSegs {
 				inlineSegs[i].heading = headingLevel
+				inlineSegs[i].headingLineID = lineID
 			}
 			segments = append(segments, inlineSegs...)
 			continue
@@ -846,6 +851,14 @@ func mergeSegments(segments []markdownSegment) []markdownSegment {
 		curr := segments[i]
 		prev := &merged[len(merged)-1]
 
+		// Never merge segments from different heading lines — each heading
+		// line is a separate paragraph and must remain a distinct segment.
+		if (curr.heading > 0 || prev.heading > 0) &&
+			curr.headingLineID != prev.headingLineID {
+			merged = append(merged, curr)
+			continue
+		}
+
 		// Check if segments can be merged (same formatting, not special fields)
 		if curr.bold == prev.bold &&
 			curr.italic == prev.italic &&
@@ -853,6 +866,7 @@ func mergeSegments(segments []markdownSegment) []markdownSegment {
 			curr.strikethrough == prev.strikethrough &&
 			curr.linkURL == prev.linkURL &&
 			curr.heading == prev.heading &&
+			curr.headingLineID == prev.headingLineID &&
 			curr.orderedListItem == prev.orderedListItem &&
 			curr.unorderedListItem == prev.unorderedListItem &&
 			curr.listDepth == prev.listDepth &&
@@ -901,15 +915,20 @@ func convertMarkdownToRequests(segments []markdownSegment, startIndex int64) []*
 	// to prevent the paragraph style from wiping out the text formatting
 	var headingTextStyleRequests []*docs.Request
 	var inHeading bool
+	var currentHeadingLineID int
 
 	for i, seg := range segments {
 		if seg.text == "" && !seg.isDateField && !seg.isPersonField {
 			continue
 		}
 
-		// Detect start of a new heading
-		if seg.heading > 0 && (i == 0 || segments[i-1].heading != seg.heading) {
+		// Detect start of a new heading paragraph using headingLineID.
+		// Each heading line in the source gets a unique ID assigned in
+		// parseMarkdown, so consecutive same-level headings like "# A\n# B"
+		// are correctly identified as separate paragraphs.
+		if seg.heading > 0 && seg.headingLineID != currentHeadingLineID {
 			inHeading = true
+			currentHeadingLineID = seg.headingLineID
 			headingTextStyleRequests = nil
 		}
 
@@ -1165,11 +1184,12 @@ func convertMarkdownToRequests(segments []markdownSegment, startIndex int64) []*
 			insertText = strings.Join(outLines, "\n")
 		}
 
-		// Append \n to headings only after the LAST segment of that heading level.
-		// Check if the next segment is NOT the same heading level (or doesn't exist).
-		// This ensures multi-segment headings (e.g., "# **Bold** Normal") stay as one paragraph.
+		// Append \n to headings only after the LAST segment of that heading line.
+		// Check if the next segment has a different headingLineID (or doesn't exist).
+		// This ensures multi-segment headings (e.g., "# **Bold** Normal") stay as one paragraph,
+		// while consecutive same-level headings (e.g., "# A\n# B") get separate paragraphs.
 		if seg.heading > 0 && !strings.HasSuffix(insertText, "\n") {
-			isLastHeadingSegment := i == len(segments)-1 || segments[i+1].heading != seg.heading
+			isLastHeadingSegment := i == len(segments)-1 || segments[i+1].headingLineID != seg.headingLineID
 			// Don't add \n if this is the very last segment of the document
 			if isLastHeadingSegment && i < len(segments)-1 {
 				insertText += "\n"
@@ -1228,11 +1248,11 @@ func convertMarkdownToRequests(segments []markdownSegment, startIndex int64) []*
 			requests = append(requests, textStyleRequest)
 		}
 
-		// Apply heading style — only at the last segment of a heading.
+		// Apply heading style — only at the last segment of a heading line.
 		// We apply UpdateParagraphStyle first, then all the deferred UpdateTextStyle
 		// requests, so that text formatting overrides the paragraph style defaults.
 		if seg.heading > 0 {
-			isLastHeadingSegment := i == len(segments)-1 || segments[i+1].heading != seg.heading
+			isLastHeadingSegment := i == len(segments)-1 || segments[i+1].headingLineID != seg.headingLineID
 			if isLastHeadingSegment {
 				headingStyle := fmt.Sprintf("HEADING_%d", seg.heading)
 				requests = append(requests, &docs.Request{
